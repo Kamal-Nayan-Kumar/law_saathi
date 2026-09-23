@@ -17,6 +17,8 @@ from app.schemas import (
     SessionIn,
     SessionOut,
     UserOut,
+    VoiceIn,
+    VoiceOut,
 )
 
 router = APIRouter(tags=["chat"])
@@ -135,6 +137,49 @@ def ask(session_id: int, body: AskIn,
         retries=int(state.get("retries", 0)),
         trace=list(state.get("trace", [])),
         verified=bool(state.get("verified", False)),
+    )
+
+
+@router.post("/sessions/{session_id}/voice", response_model=VoiceOut)
+def voice_roundtrip(session_id: int, body: VoiceIn,
+                    user: User = Depends(auth_lib.current_user),
+                    db: Session = Depends(db_module.get_session)):
+    """T8: Sarvam STT -> agent -> Sarvam TTS; errors fall back to text."""
+    from app import agent as agent_module
+    from app import voice as voice_module
+
+    _session_owned(session_id, user, db)
+    # STT
+    transcript = voice_module.transcribe(body.audio_b64, lang=body.lang)
+    if not transcript:
+        # Fallback: treat as empty / prompt text fallback
+        return VoiceOut(
+            transcript="",
+            answer="",
+            lang=body.lang,
+            fallback_text=True,
+            error="STT failed; fall back to text input.",
+        )
+    # Persist user turn like ask endpoint
+    db.add(Message(session_id=session_id, role="user",
+                   content=transcript, lang=body.lang))
+    db.flush()
+    # Agent
+    memories = {m.key: m.value for m in db.query(Memory).filter_by(user_id=user.id).all()}
+    state = agent_module.run_agent(transcript, lang=body.lang, memory=memories, tone="simple")
+    answer = state.get("answer", "")
+    db.add(Message(session_id=session_id, role="assistant",
+                   content=answer, lang=body.lang))
+    db.flush()
+    # TTS
+    audio = voice_module.synthesize(answer, lang=body.lang)
+    return VoiceOut(
+        transcript=transcript,
+        answer=answer,
+        audio_b64=audio,
+        lang=body.lang,
+        fallback_text=False,
+        error=None,
     )
 
 

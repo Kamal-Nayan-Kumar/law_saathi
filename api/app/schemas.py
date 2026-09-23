@@ -46,6 +46,20 @@ class MemoriesOut(BaseModel):
     memories: List[MemoryOut]
 
 
+class VoiceIn(BaseModel):
+    audio_b64: str = Field(min_length=1, max_length=200000)
+    lang: str = Field(default="en", pattern="^(en|hi|kn)$")
+
+
+class VoiceOut(BaseModel):
+    transcript: str = ""
+    answer: str = ""
+    audio_b64: Optional[str] = None
+    lang: str = "en"
+    fallback_text: bool = False
+    error: Optional[str] = None
+
+
 class AskIn(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")
