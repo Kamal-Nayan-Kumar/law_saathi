@@ -332,9 +332,38 @@ def default_retriever() -> Any:
 
 
 def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Firecrawl seam for T5 — currently returns nothing, never raises."""
-    logger.info("agent web_search stub query=%r (T5 wires Firecrawl)", query[:80])
-    return []
+    """Firecrawl seam for T5 — real crawl/search when FIRECRAWL_API_KEY set."""
+    logger.info("agent web_search query=%r (T5 Firecrawl)", query[:80])
+    try:
+        import os
+        from firecrawl import Firecrawl
+        key = os.environ.get("FIRECRAWL_API_KEY", "")
+        fc = Firecrawl(api_key=key or None)
+        res = fc.search(query, limit=top_k, sources=["web"])
+        results = []
+        for item in (res.web or []):
+            url = getattr(item, "url", None) or (getattr(item, "metadata", {}).get("sourceURL") if hasattr(item, "metadata") else None)
+            title = getattr(item, "title", None) or (getattr(item, "metadata", {}).get("title") if hasattr(item, "metadata") else None)
+            text = getattr(item, "description", None) or (getattr(item, "markdown", None) if hasattr(item, "markdown") else "")
+            if isinstance(item, dict):
+                url = item.get("url") or item.get("metadata", {}).get("sourceURL")
+                title = item.get("title") or item.get("metadata", {}).get("title")
+                text = item.get("description") or item.get("markdown") or item.get("text", "")
+            if not url and isinstance(item, dict) and item.get("metadata"):
+                url = item["metadata"].get("sourceURL")
+            if url:
+                payload = {
+                    "url": url,
+                    "title": title or url,
+                    "text": (text or "Web source.")[:800],
+                }
+                results.append({"payload": payload, "score": 0.85})
+        if results:
+            logger.info("agent web_search returned %d web hits", len(results))
+        return results
+    except Exception as e:  # noqa: BLE001 — web is best-effort
+        logger.info("agent web_search Firecrawl unavailable (%r); falling back to stub", e)
+        return []
 
 
 def _evidence_source_type(hit: Dict[str, Any]) -> str:
@@ -349,8 +378,12 @@ def _evidence_source_type(hit: Dict[str, Any]) -> str:
 def format_citation(payload: Dict[str, Any]) -> str:
     act = str(payload.get("act", "") or "").strip()
     section = str(payload.get("section", "") or "").strip()
+    url = str(payload.get("url", "") or "").strip()
+    title = str(payload.get("title", "") or "").strip()
     if act and section:
         return "%s — %s" % (act, section)
+    if url:
+        return title or url
     return act or section or "retrieved passage"
 
 
