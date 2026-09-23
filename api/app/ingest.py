@@ -20,7 +20,6 @@ from dataclasses import asdict, dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import NAMESPACE_URL, uuid5
 
-EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 EMBEDDING_DIM = 384
 DEFAULT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "law_saathi")
 
@@ -182,60 +181,9 @@ def key_str(act: str, section: str, chunk_index: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Embeddings
+# Embeddings run server-side via Qdrant Cloud Inference (e5-small); the
+# stores below are the only embedding path, so there is no local embedder.
 # ---------------------------------------------------------------------------
-
-
-class E5Embedder:
-    """intfloat/multilingual-e5-small via Hugging Face Inference API.
-
-    No local model runs: vectors come from the hosted HF endpoint, so this
-    works on machines that cannot run Sentence Transformers + torch.
-    Needs HF_TOKEN in api/.env. e5 convention is kept: passages are
-    prefixed with "passage: ", queries with "query: ".
-    """
-
-    ENDPOINT = (
-        "https://router.huggingface.co/hf-inference"
-        "/models/intfloat/multilingual-e5-small"
-    )
-
-    def __init__(self, model_name: str = EMBEDDING_MODEL,
-                 token: Optional[str] = None):
-        self.model_name = model_name
-        self._token = token
-
-    @property
-    def dim(self) -> int:
-        return EMBEDDING_DIM
-
-    def _headers(self) -> Dict[str, str]:
-        token = self._token or os.environ.get("HF_TOKEN", "")
-        if not token:
-            raise RuntimeError("HF_TOKEN is empty — add it to api/.env")
-        return {"Authorization": "Bearer " + token}
-
-    def _post(self, texts: Sequence[str]) -> List[List[float]]:
-        import httpx
-
-        resp = httpx.post(
-            self.ENDPOINT,
-            headers=self._headers(),
-            json={"inputs": list(texts)},
-            timeout=60.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if isinstance(data, dict) and "error" in data:
-            raise RuntimeError("HF inference error: %s" % data["error"])
-        # Feature-extraction returns one vector per input.
-        return [[float(x) for x in vec] for vec in data]
-
-    def encode_passages(self, texts: Sequence[str]) -> List[List[float]]:
-        return self._post(["passage: " + t for t in texts])
-
-    def encode_query(self, text: str) -> List[float]:
-        return self._post(["query: " + text])[0]
 
 
 # ---------------------------------------------------------------------------
@@ -284,16 +232,29 @@ class InMemoryVectorStore:
 
 
 class QdrantStore:
-    """Thin wrapper over qdrant-client; created via ``connect()``."""
+    """Qdrant Cloud with server-side inference (no local embeddings).
 
-    def __init__(self, client, collection: str = DEFAULT_COLLECTION):
+    Upserts send raw text as ``Document`` objects and Qdrant embeds them
+    with ``intfloat/multilingual-e5-small`` (free Cloud Inference model);
+    queries do the same. Qdrant auto-applies the e5 ``passage:``/``query:``
+    prefixes, so callers pass plain text.
+    """
+
+    MODEL = "intfloat/multilingual-e5-small"
+
+    def __init__(self, client, collection: str = DEFAULT_COLLECTION,
+                 model: str = MODEL, url: Optional[str] = None,
+                 api_key: Optional[str] = None):
         self.client = client
         self.collection = collection
+        self.model = model
+        self._url = (url or os.environ.get("QDRANT_URL", "")).rstrip("/")
+        self._api_key = api_key or os.environ.get("QDRANT_API_KEY", "")
 
     @classmethod
     def connect(
         cls, url: Optional[str] = None, api_key: Optional[str] = None,
-        collection: Optional[str] = None,
+        collection: Optional[str] = None, model: Optional[str] = None,
     ) -> "QdrantStore":
         from qdrant_client import QdrantClient
 
@@ -301,8 +262,12 @@ class QdrantStore:
         api_key = api_key or os.environ.get("QDRANT_API_KEY", "")
         if not url:
             raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
-        client = QdrantClient(url=url, api_key=api_key or None)
-        return cls(client, collection or DEFAULT_COLLECTION)
+        # cloud_inference=True sends Document objects to the cluster for
+        # server-side embedding instead of local FastEmbed runs.
+        client = QdrantClient(url=url, api_key=api_key or None,
+                              cloud_inference=True)
+        return cls(client, collection or DEFAULT_COLLECTION,
+                   model or cls.MODEL, url=url, api_key=api_key)
 
     def ensure_collection(self, dim: int = EMBEDDING_DIM) -> None:
         from qdrant_client.models import Distance, VectorParams
@@ -315,6 +280,33 @@ class QdrantStore:
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
             )
 
+    def upsert_texts(self, ids, texts, payloads) -> int:
+        """Upsert raw texts; Qdrant embeds them server-side (idempotent).
+
+        Uses plain REST: qdrant-client 1.13.3 mis-parses the Cloud
+        Inference usage block in SDK responses.
+        """
+        import httpx
+
+        if not self._url:
+            raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        points = [
+            {"id": pid,
+             "vector": {"text": text, "model": self.model},
+             "payload": dict(pl)}
+            for pid, text, pl in zip(ids, texts, payloads)
+        ]
+        resp = httpx.put(
+            "%s/collections/%s/points?wait=true"
+            % (self._url, self.collection),
+            headers={"api-key": self._api_key,
+                     "Content-Type": "application/json"},
+            json={"points": points},
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        return len(points)
+
     def upsert(self, ids, vectors, payloads) -> int:
         from qdrant_client.models import PointStruct
 
@@ -322,8 +314,33 @@ class QdrantStore:
             PointStruct(id=pid, vector=list(vec), payload=dict(pl))
             for pid, vec, pl in zip(ids, vectors, payloads)
         ]
-        self.client.upsert(collection_name=self.collection, points=points)
+        self.client.upsert(collection_name=self.collection, points=points,
+                           wait=True)
         return len(points)
+
+    def search_text(self, text: str, top_k: int = 5) -> List[Dict]:
+        """Search with raw text; Qdrant embeds the query server-side.
+
+        Uses plain REST (not the SDK's query_points) because qdrant-client
+        1.13.3 mis-parses the Cloud Inference usage block in responses.
+        """
+        import httpx
+
+        if not self._url:
+            raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        resp = httpx.post(
+            "%s/collections/%s/points/query"
+            % (self._url, self.collection),
+            headers={"api-key": self._api_key,
+                     "Content-Type": "application/json"},
+            json={"query": {"text": text, "model": self.model},
+                  "limit": top_k, "with_payload": True},
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        pts = resp.json().get("result", {}).get("points", [])
+        return [{"id": str(p["id"]), "score": float(p["score"]),
+                 "payload": dict(p.get("payload") or {})} for p in pts]
 
     def search(self, query_vector, top_k: int = 5) -> List[Dict]:
         # qdrant-client >=1.10 uses query_points; older uses search.

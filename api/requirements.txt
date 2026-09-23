@@ -8,7 +8,7 @@ python-dotenv==1.0.*
 pytest==8.3.*
 httpx==0.28.*
 # --- T2 RAG ingestion (lazy imports; tests run without these) ---
-qdrant-client==1.12.*
+qdrant-client==1.13.*
 datasets==3.0.*
 pyarrow==18.*
 pypdf==5.*

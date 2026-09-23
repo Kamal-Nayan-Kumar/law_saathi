@@ -288,7 +288,36 @@ def test_firecrawl_loader_needs_key(monkeypatch):
         raise AssertionError("expected RuntimeError for missing key")
 
 
-def test_e5_embedder_prefixes_and_parses(monkeypatch):
+def test_qdrant_store_upsert_texts_uses_document():
+    import app.ingest as ingest_mod
+
+    seen = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+    def fake_put(url, headers=None, json=None, timeout=None):
+        seen["url"] = url
+        seen["body"] = json
+        return FakeResp()
+
+    import httpx
+    import unittest.mock as mock
+    with mock.patch.object(httpx, "put", fake_put):
+        store = ingest_mod.QdrantStore(
+            None, collection="law_saathi",
+            url="https://xyz.qdrant.io:6333", api_key="k")
+        n = store.upsert_texts(["id-1"], ["Section 9 text"], [{"act": "HMA"}])
+    assert n == 1
+    assert seen["url"].endswith("/collections/law_saathi/points?wait=true")
+    pt = seen["body"]["points"][0]
+    assert pt["payload"] == {"act": "HMA"}
+    assert pt["vector"] == {
+        "text": "Section 9 text", "model": ingest_mod.QdrantStore.MODEL}
+
+
+def test_qdrant_store_search_text_uses_document():
     import app.ingest as ingest_mod
 
     seen = {}
@@ -298,34 +327,24 @@ def test_e5_embedder_prefixes_and_parses(monkeypatch):
             pass
 
         def json(self):
-            return [[0.1, 0.2], [0.3, 0.4]]
+            return {"result": {"points": [
+                {"id": "id-1", "score": 0.9,
+                 "payload": {"act": "HMA", "section": "Section 9"}}]}}
 
     def fake_post(url, headers=None, json=None, timeout=None):
         seen["url"] = url
-        seen["inputs"] = json["inputs"]
-        seen["auth"] = headers.get("Authorization", "")
+        seen["body"] = json
         return FakeResp()
 
     import httpx
-    monkeypatch.setattr(httpx, "post", fake_post)
-    emb = ingest_mod.E5Embedder(token="hf-test-token")
-    vecs = emb.encode_passages(["hello", "world"])
-    assert vecs == [[0.1, 0.2], [0.3, 0.4]]
-    assert seen["inputs"] == ["passage: hello", "passage: world"]
-    assert "multilingual-e5-small" in seen["url"]
-    assert seen["auth"] == "Bearer hf-test-token"
-    q = emb.encode_query("talak")
-    assert q == [0.1, 0.2]
-    assert seen["inputs"] == ["query: talak"]
-
-
-def test_e5_embedder_needs_token(monkeypatch):
-    import app.ingest as ingest_mod
-
-    monkeypatch.setattr(ingest_mod.os, "environ", {})
-    try:
-        ingest_mod.E5Embedder().encode_query("x")
-    except RuntimeError as e:
-        assert "HF_TOKEN" in str(e)
-    else:
-        raise AssertionError("expected RuntimeError for missing HF_TOKEN")
+    import unittest.mock as mock
+    with mock.patch.object(httpx, "post", fake_post):
+        store = ingest_mod.QdrantStore(
+            None, collection="law_saathi",
+            url="https://xyz.qdrant.io:6333", api_key="k")
+        hits = store.search_text("conjugal rights", top_k=3)
+    assert seen["url"].endswith("/collections/law_saathi/points/query")
+    assert seen["body"]["query"] == {
+        "text": "conjugal rights",
+        "model": ingest_mod.QdrantStore.MODEL}
+    assert hits[0]["payload"]["section"] == "Section 9"

@@ -5,11 +5,12 @@ Usage:
     .venv/bin/python api/scripts/ingest.py --parquet /path/to/in_central_legislation.parquet
     .venv/bin/python api/scripts/ingest.py --pdf "data/HMA.pdf:Hindu Marriage Act, 1955"
 
-Reads QDRANT_URL / QDRANT_API_KEY / QDRANT_COLLECTION / HF_TOKEN / DATABASE_URL
-from api/.env. Idempotent: stable point IDs, upsert + Neon bookkeeping.
+Reads QDRANT_URL / QDRANT_API_KEY / QDRANT_COLLECTION / DATABASE_URL
+from api/.env (embeddings run server-side via Qdrant Cloud Inference,
+so no HF_TOKEN or local model needed). Idempotent: stable point IDs,
+upsert + Neon bookkeeping.
 """
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -21,14 +22,13 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from app import db as db_module  # noqa: E402
 from app.ingest import (  # noqa: E402
     DEFAULT_COLLECTION,
-    E5Embedder,
     QdrantStore,
-    build_points,
     chunk_act,
     chunks_from_hf_row,
     chunks_from_pdf,
     chunks_from_text_dir,
     iter_open_india_law_rows,
+    stable_point_id,
 )
 from app.models import IngestedChunk  # noqa: E402
 
@@ -121,18 +121,20 @@ def main(argv=None) -> int:
         print("nothing to ingest (no --demo/--text-dir/--parquet/--hf/--pdf?)")
         return 0
 
-    embedder = E5Embedder()
-    vectors = embedder.encode_passages([c.text for c in chunks])
-    ids, vecs, payloads = build_points(chunks, vectors)
+    # Stable IDs + payloads; vectors are embedded server-side by Qdrant
+    # Cloud Inference (e5-small), so no local/API embedding step here.
+    ids = [stable_point_id(c.act, c.section, c.chunk_index) for c in chunks]
+    payloads = [c.payload() for c in chunks]
 
     if args.dry_run:
         print("dry-run: %d points built, not written" % len(ids))
         return 0
 
     store = QdrantStore.connect(collection=args.collection)
-    store.ensure_collection(dim=len(vecs[0]))
-    store.upsert(ids, vecs, payloads)
-    print("upserted %d points -> collection %s" % (len(ids), args.collection))
+    store.ensure_collection()
+    store.upsert_texts(ids, [c.text for c in chunks], payloads)
+    print("upserted %d points -> collection %s (model %s)"
+          % (len(ids), args.collection, store.model))
 
     engine = db_module.make_engine(db_module.database_url())
     db_module.init_db(engine)
