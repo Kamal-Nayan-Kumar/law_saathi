@@ -1,0 +1,12 @@
+.venv/
+.venv-*/
+node_modules/
+.next/
+*.db
+*.db-journal
+.env
+api/.env
+web/.env.local
+__pycache__/
+.pytest_cache/
+.DS_Store

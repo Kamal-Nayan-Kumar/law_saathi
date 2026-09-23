@@ -1,0 +1,10 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+sqlalchemy==2.0.*
+pydantic==2.10.*
+email-validator==2.2.*
+pydantic-settings==2.7.*
+pyjwt==2.10.*
+bcrypt==4.1.*
+pytest==8.3.*
+httpx==0.28.*

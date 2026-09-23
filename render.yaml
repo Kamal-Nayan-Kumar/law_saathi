@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: lawsathi-api
+    runtime: docker
+    dockerfilePath: ./api/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
