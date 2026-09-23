@@ -50,6 +50,7 @@ class AskIn(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")
     tone: str = Field(default="simple", pattern="^(simple|detailed)$")
+    doc_id: Optional[str] = Field(default="", max_length=64)
 
 
 class AskOut(BaseModel):

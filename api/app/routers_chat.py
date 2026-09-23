@@ -121,7 +121,7 @@ def ask(session_id: int, body: AskIn,
                    content=body.query, lang=body_lang))
     db.flush()
     state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
-                                   tone=body.tone)
+                                   tone=body.tone, doc_id=body.doc_id or "")
     db.add(Message(session_id=session_id, role="assistant",
                    content=state.get("answer", ""), lang=body_lang))
     db.flush()

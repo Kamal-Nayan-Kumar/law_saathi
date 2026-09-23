@@ -75,8 +75,8 @@ def matching_act(row: Dict) -> Optional[str]:
 @dataclass
 class Chunk:
     text: str
-    act: str
-    section: str
+    act: str = ""
+    section: str = ""
     lang: str = "en"
     source: str = ""
     page: Optional[int] = None
@@ -86,6 +86,9 @@ class Chunk:
     # unique when two rows map to the same act+section. Same inputs still
     # give the same ID, so re-runs stay idempotent.
     uid: str = ""
+    # Per-document upload fields (T6)
+    doc_id: str = ""
+    doc_title: str = ""
 
     def payload(self) -> Dict:
         d = asdict(self)
@@ -244,7 +247,8 @@ class InMemoryVectorStore:
         return len(ids)
 
     def search(
-        self, query_vector: Sequence[float], top_k: int = 5
+        self, query_vector: Sequence[float], top_k: int = 5,
+        filter_payload: Optional[Dict] = None
     ) -> List[Dict]:
         import math
 
@@ -252,6 +256,11 @@ class InMemoryVectorStore:
         qn = math.sqrt(sum(x * x for x in q)) or 1.0
         scored = []
         for pid, vec in self._vectors.items():
+            p = self._payloads.get(pid) or {}
+            if filter_payload:
+                ok = all(p.get(k) == v for k, v in filter_payload.items())
+                if not ok:
+                    continue
             dot = sum(a * b for a, b in zip(q, vec))
             vn = math.sqrt(sum(x * x for x in vec)) or 1.0
             scored.append((dot / (qn * vn), pid))
@@ -362,7 +371,8 @@ class QdrantStore:
                            wait=True)
         return len(points)
 
-    def search_text(self, text: str, top_k: int = 5) -> List[Dict]:
+    def search_text(self, text: str, top_k: int = 5,
+                    filter_payload: Optional[Dict] = None) -> List[Dict]:
         """Search with raw text; Qdrant embeds the query server-side.
 
         Uses plain REST (not the SDK's query_points) because qdrant-client
@@ -372,13 +382,18 @@ class QdrantStore:
 
         if not self._url:
             raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        json_body = {"query": {"text": text, "model": self.model},
+                     "limit": top_k, "with_payload": True}
+        if filter_payload:
+            json_body["filter"] = {"must": [
+                {"key": k, "match": {"value": v}} for k, v in filter_payload.items()
+            ]}
         resp = httpx.post(
             "%s/collections/%s/points/query"
             % (self._url, self.collection),
             headers={"api-key": self._api_key,
                      "Content-Type": "application/json"},
-            json={"query": {"text": text, "model": self.model},
-                  "limit": top_k, "with_payload": True},
+            json=json_body,
             timeout=60.0,
         )
         resp.raise_for_status()

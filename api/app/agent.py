@@ -86,6 +86,7 @@ def new_state(query: str, lang: str = "en",
         "tone": "simple",
         "trace": [],
         "memory": dict(memory or {}),
+        "doc_id": "",
     }
 
 
@@ -368,10 +369,12 @@ def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
 
 def _evidence_source_type(hit: Dict[str, Any]) -> str:
     payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
-    if isinstance(payload, dict) and payload.get("act"):
-        return "bare_act"
+    if isinstance(payload, dict) and payload.get("doc_id"):
+        return "doc"
     if isinstance(payload, dict) and payload.get("url"):
         return "web"
+    if isinstance(payload, dict) and payload.get("act"):
+        return "bare_act"
     return "bare_act"
 
 
@@ -380,6 +383,11 @@ def format_citation(payload: Dict[str, Any]) -> str:
     section = str(payload.get("section", "") or "").strip()
     url = str(payload.get("url", "") or "").strip()
     title = str(payload.get("title", "") or "").strip()
+    doc_title = str(payload.get("doc_title", "") or "").strip()
+    doc_id = str(payload.get("doc_id", "") or "").strip()
+    if doc_id:
+        base = (doc_title or "Uploaded doc") + (" — %s" % section if section else "")
+        return base or ("doc:%s" % doc_id[:8])
     if act and section:
         return "%s — %s" % (act, section)
     if url:
@@ -393,8 +401,16 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     query_en = broaden_query(state.get("query_en", state.get("query", "")),
                              state.get("retries", 0))
     evidence: List[Dict[str, Any]] = []
+    doc_id = state.get("doc_id") or state.get("doc_id", "")
     try:
-        evidence = list(store.search_text(query_en, top_k=5) or [])
+        if doc_id and hasattr(store, "search_text"):
+            evidence = list(store.search_text(query_en, top_k=5,
+                              filter_payload={"doc_id": doc_id}) or [])
+        elif doc_id and hasattr(store, "search"):
+            # InMemoryVectorStore lacks text search; unfiltered fallback
+            evidence = list(store.search(query_en, top_k=5) or [])
+        else:
+            evidence = list(store.search_text(query_en, top_k=5) or [])
     except Exception as e:  # noqa: BLE001 — retrieval failure is retryable
         logger.warning("agent retrieval failed (%r)", e)
         evidence = []
@@ -555,7 +571,8 @@ def run_agent(query: str, lang: str = "en",
               retriever: Any = None,
               llm: Optional[Callable] = None,
               web_search: Optional[Callable] = None,
-              min_score: float = 0.0) -> Dict[str, Any]:
+              min_score: float = 0.0,
+              doc_id: str = "") -> Dict[str, Any]:
     """Run intent -> planner -> [clarify | tools <-> verifier] -> response.
 
     Returns the shared state dict (includes trace, answer, citations,
@@ -563,6 +580,7 @@ def run_agent(query: str, lang: str = "en",
     """
     state = new_state(query, lang=lang, memory=memory)
     state["tone"] = tone
+    state["doc_id"] = doc_id
     # Default LLM: live Groq/OpenRouter when keys exist, else None (templates).
     llm_fn = llm
     if llm_fn is None:
