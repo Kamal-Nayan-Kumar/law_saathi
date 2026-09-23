@@ -81,7 +81,9 @@ def new_state(query: str, lang: str = "en",
         "retries": 0,
         "answer": "",
         "citations": [],
+        "citation_sources": [],
         "provider": "",
+        "tone": "simple",
         "trace": [],
         "memory": dict(memory or {}),
     }
@@ -335,6 +337,15 @@ def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     return []
 
 
+def _evidence_source_type(hit: Dict[str, Any]) -> str:
+    payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
+    if isinstance(payload, dict) and payload.get("act"):
+        return "bare_act"
+    if isinstance(payload, dict) and payload.get("url"):
+        return "web"
+    return "bare_act"
+
+
 def format_citation(payload: Dict[str, Any]) -> str:
     act = str(payload.get("act", "") or "").strip()
     section = str(payload.get("section", "") or "").strip()
@@ -410,12 +421,17 @@ DISCLAIMER = {
 }
 
 
-def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str]]:
+def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
     evidence = state.get("evidence", [])
     lang = state.get("lang", "en")
+    tone = state.get("tone", "simple")
     citations = [format_citation((h.get("payload") or {}) if isinstance(h, dict)
                                  else {}) for h in evidence[:5]]
     citations = [c for c in citations if c]
+    citation_sources = [
+        _evidence_source_type(h) if isinstance(h, dict) else "bare_act"
+        for h in evidence[:5]
+    ]
     if not evidence_sufficient(evidence):
         base = ("I could not find a verified section for this in the family-law "
                 "acts I have. ")
@@ -424,7 +440,7 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str]]:
                      "Act (Section 13/13B), the Special Marriage Act, or the "
                      "Indian Divorce Act depending on religion and marriage type. ")
         base += "Please share the exact section or act name so I can verify."
-        return base, citations
+        return base, citations, citation_sources
     lines = []
     for i, hit in enumerate(evidence[:3], start=1):
         payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
@@ -440,7 +456,12 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str]]:
     tail = "Cited: " + "; ".join(citations) if citations else ""
     answer = "%s\n%s\n%s\n%s" % (head, body, tail,
                                  DISCLAIMER.get(lang, DISCLAIMER["en"]))
-    return answer, citations
+    if tone == "detailed":
+        detail = ("Note: the sections cited above are from the bare text of the "
+                  "family-law acts. If you need the exact wording or a case-law "
+                  "reference, share the section number and I will verify it.")
+        answer = "%s\n%s" % (answer, detail)
+    return answer, citations, citation_sources
 
 
 def node_response(state: Dict[str, Any],
@@ -462,9 +483,10 @@ def node_response(state: Dict[str, Any],
                 logger.warning("agent clarify translate failed (%r)", e)
         state["answer"] = text
         state["citations"] = []
+        state["citation_sources"] = []
         state["trace"] = list(state.get("trace", [])) + ["response"]
         return state
-    answer_en, citations = compose_answer(state)
+    answer_en, citations, citation_sources = compose_answer(state)
     final = answer_en
     if lang != "en" and llm is not None and evidence_sufficient(
             state.get("evidence", [])):
@@ -481,6 +503,7 @@ def node_response(state: Dict[str, Any],
             logger.warning("agent answer translate failed (%r)", e)
     state["answer"] = final
     state["citations"] = citations
+    state["citation_sources"] = citation_sources
     state["trace"] = list(state.get("trace", [])) + ["response"]
     return state
 
@@ -495,6 +518,7 @@ node_response = _maybe_trace("response")(node_response)
 
 def run_agent(query: str, lang: str = "en",
               memory: Optional[Dict[str, str]] = None,
+              tone: str = "simple",
               retriever: Any = None,
               llm: Optional[Callable] = None,
               web_search: Optional[Callable] = None,
@@ -505,6 +529,7 @@ def run_agent(query: str, lang: str = "en",
     provider, retries). Verifier loops back to tools at most MAX_RETRIES.
     """
     state = new_state(query, lang=lang, memory=memory)
+    state["tone"] = tone
     # Default LLM: live Groq/OpenRouter when keys exist, else None (templates).
     llm_fn = llm
     if llm_fn is None:

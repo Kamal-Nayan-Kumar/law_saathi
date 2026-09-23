@@ -49,12 +49,14 @@ class MemoriesOut(BaseModel):
 class AskIn(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")
+    tone: str = Field(default="simple", pattern="^(simple|detailed)$")
 
 
 class AskOut(BaseModel):
     answer: str
     clarification: bool = False
     citations: List[str] = []
+    citation_sources: List[str] = []
     provider: str = ""
     retries: int = 0
     trace: List[str] = []

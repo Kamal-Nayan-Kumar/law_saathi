@@ -29,6 +29,19 @@ def _session_owned(session_id: int, user: User, db: Session) -> ChatSession:
     return chat
 
 
+@router.put("/me", response_model=UserOut)
+def update_me(body: dict,
+             user: User = Depends(auth_lib.current_user),
+             db: Session = Depends(db_module.get_session)):
+    if "preferred_lang" in body:
+        user.preferred_lang = str(body["preferred_lang"])
+    if "tone" in body:
+        user.tone = str(body["tone"])
+    db.flush()
+    return UserOut(id=user.id, email=user.email,
+                   preferred_lang=user.preferred_lang, tone=user.tone)
+
+
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(auth_lib.current_user)):
     return UserOut(id=user.id, email=user.email,
@@ -82,19 +95,52 @@ def ask(session_id: int, body: AskIn,
     _session_owned(session_id, user, db)
     memories = {m.key: m.value
                 for m in db.query(Memory).filter_by(user_id=user.id).all()}
+    # Auto-detect input language and sync user preference.
+    detected = agent_module.detect_lang(body.query, body.lang)
+    if body.lang == "en" and detected != "en":
+        body_lang = detected  # prefer detected over default for this turn
+    else:
+        body_lang = body.lang
+    if user.preferred_lang != detected:
+        user.preferred_lang = detected
+    # Sync tone memory.
+    tone_mem = memories.get("tone") or "simple"
+    if body.tone != tone_mem:
+        memories["tone"] = body.tone
+    # Persist memories.
+    for k, v in memories.items():
+        existing = db.query(Memory).filter_by(user_id=user.id, key=k).first()
+        if existing:
+            existing.value = v
+        else:
+            db.add(Memory(user_id=user.id, key=k, value=v))
+    db.flush()
+    if user.tone != body.tone:
+        user.tone = body.tone
     db.add(Message(session_id=session_id, role="user",
-                   content=body.query, lang=body.lang))
+                   content=body.query, lang=body_lang))
     db.flush()
-    state = agent_module.run_agent(body.query, lang=body.lang, memory=memories)
+    state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
+                                   tone=body.tone)
     db.add(Message(session_id=session_id, role="assistant",
-                   content=state.get("answer", ""), lang=body.lang))
+                   content=state.get("answer", ""), lang=body_lang))
     db.flush()
-    return AskOut(answer=state.get("answer", ""),
-                  clarification=bool(state.get("clarification")),
-                  citations=list(state.get("citations", [])),
-                  provider=str(state.get("provider", "")),
-                  retries=int(state.get("retries", 0)),
-                  trace=list(state.get("trace", [])))
+    return AskOut(
+        answer=state.get("answer", ""),
+        clarification=bool(state.get("clarification")),
+        citations=list(state.get("citations", [])),
+        citation_sources=list(state.get("citation_sources", [])),
+        provider=str(state.get("provider", "")),
+        retries=int(state.get("retries", 0)),
+        trace=list(state.get("trace", []))
+    )
+
+
+@router.get("/me/memories", response_model=MemoriesOut)
+def get_memories(user: User = Depends(auth_lib.current_user),
+                 db: Session = Depends(db_module.get_session)):
+    all_mem = db.query(Memory).filter_by(user_id=user.id).all()
+    return MemoriesOut(memories=[MemoryOut(key=m.key, value=m.value) for m in all_mem])
 
 
 @router.put("/me/memories", response_model=MemoriesOut)
