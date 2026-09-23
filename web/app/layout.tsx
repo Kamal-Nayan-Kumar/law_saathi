@@ -1,7 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import { StackProvider, StackTheme } from "@stackframe/stack";
-import { stackServerApp } from "@/stack";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,14 +10,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <StackProvider app={stackServerApp}>
-          <StackTheme>
-            <header className="board">
-              <div className="brand">LawSaathi</div>
-            </header>
-            <Suspense>{children}</Suspense>
-          </StackTheme>
-        </StackProvider>
+        <header className="board">
+          <div className="brand">LawSaathi</div>
+        </header>
+        {children}
       </body>
     </html>
   );

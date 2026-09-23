@@ -9,15 +9,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@stackframe/stack": "^2.8.108",
-    "next": "15.1.*",
-    "react": "19.0.*",
-    "react-dom": "19.0.*"
+    "@neondatabase/auth": "^0.5.0-beta",
+    "next": "^16.3.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "22.*",
-    "@types/react": "19.0.*",
-    "@types/react-dom": "19.0.*",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "typescript": "5.7.*"
   }
 }

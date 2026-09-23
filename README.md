@@ -16,10 +16,19 @@ DATABASE_URL="sqlite:///./lawsathi.db" .venv/bin/uvicorn app.main:app --app-dir 
 Frontend:
 
 ```sh
-cd web && npm install && npm run dev   # needs API on :8000 (see next.config.ts)
+cd web && npm install && npm run dev   # needs API on :8000 (see FASTAPI_URL)
 ```
 
+Auth: browser → Next.js (`/api/bff/*` verifies Neon Auth session) → FastAPI
+(internal secret). Never call FastAPI directly from the browser.
+
 Tests: `.venv/bin/python -m pytest api/tests -q`
+
+## Env
+
+- `api/.env`: `DATABASE_URL` (Neon), `INTERNAL_API_SECRET` (same value as web)
+- `web/.env.local`: `NEON_AUTH_BASE_URL` (Neon console → Auth → Configuration),
+  `NEON_AUTH_COOKIE_SECRET` (generate), `INTERNAL_API_SECRET`, `FASTAPI_URL`
 
 ## Deploy
 
