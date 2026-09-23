@@ -121,7 +121,8 @@ def ask(session_id: int, body: AskIn,
                    content=body.query, lang=body_lang))
     db.flush()
     state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
-                                   tone=body.tone, doc_id=body.doc_id or "")
+                                   tone=body.tone, doc_id=body.doc_id or "",
+                                   min_score=float(body.min_score))
     db.add(Message(session_id=session_id, role="assistant",
                    content=state.get("answer", ""), lang=body_lang))
     db.flush()
@@ -132,7 +133,8 @@ def ask(session_id: int, body: AskIn,
         citation_sources=list(state.get("citation_sources", [])),
         provider=str(state.get("provider", "")),
         retries=int(state.get("retries", 0)),
-        trace=list(state.get("trace", []))
+        trace=list(state.get("trace", [])),
+        verified=bool(state.get("verified", False)),
     )
 
 

@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 OPENROUTER_MODEL = os.environ.get(
-    "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+    "OPENROUTER_MODEL", "openrouter/free")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-OPENROUTER_URL = "https://openrouter.openai.com/api/v1/chat/completions"
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
 MAX_RETRIES = 2
 
 NODES = ("intent", "planner", "tools", "verifier", "response")
@@ -193,7 +193,7 @@ def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any],
 def chat_complete(messages: List[Dict[str, str]],
                   http_post: Optional[Callable] = None,
                   timeout: float = 45.0) -> Tuple[str, str]:
-    """Chat via Groq, falling back to OpenRouter. Returns (text, provider).
+    """Chat via OpenRouter (free endpoint preferred), falling back to Groq. Returns (text, provider).
 
     ``http_post`` is a test seam: ``fn(url, headers, payload) -> dict`` with
     the OpenAI-chat-completions shape. Raises RuntimeError when no backend
@@ -203,6 +203,23 @@ def chat_complete(messages: List[Dict[str, str]],
     groq_key = os.environ.get("GROQ_API_KEY", "")
     or_key = os.environ.get("OPENROUTER_API_KEY", "")
     last_error: Optional[Exception] = None
+    if or_key or http_post is not None:
+        try:
+            data = post(
+                OPENROUTER_URL + "/chat/completions",
+                {"Authorization": "Bearer " + or_key,
+                 "Content-Type": "application/json",
+                 "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
+                 "X-Title": "LawSaathi"},
+                {"model": OPENROUTER_MODEL, "messages": messages,
+                 "temperature": 0.2, "max_tokens": 800},
+            )
+            text = data["choices"][0]["message"]["content"].strip()
+            logger.info("agent llm provider=openrouter model=%s", OPENROUTER_MODEL)
+            return text, "openrouter:" + OPENROUTER_MODEL
+        except Exception as e:  # noqa: BLE001 — fallback must catch all
+            last_error = e
+            logger.warning("agent openrouter failed (%r); trying groq", e)
     if groq_key or http_post is not None:
         try:
             data = post(
@@ -215,28 +232,10 @@ def chat_complete(messages: List[Dict[str, str]],
             text = data["choices"][0]["message"]["content"].strip()
             logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
             return text, "groq:" + GROQ_MODEL
-        except Exception as e:  # noqa: BLE001 — fallback must catch all
-            last_error = e
-            logger.warning("agent groq failed (%r); trying openrouter", e)
-    if or_key or http_post is not None:
-        try:
-            data = post(
-                OPENROUTER_URL,
-                {"Authorization": "Bearer " + or_key,
-                 "Content-Type": "application/json",
-                 "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
-                 "X-Title": "LawSaathi"},
-                {"model": OPENROUTER_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 800},
-            )
-            text = data["choices"][0]["message"]["content"].strip()
-            logger.info("agent llm provider=openrouter model=%s",
-                        OPENROUTER_MODEL)
-            return text, "openrouter:" + OPENROUTER_MODEL
         except Exception as e:  # noqa: BLE001 — caller sees the last error
             last_error = e
-            logger.warning("agent openrouter failed (%r)", e)
-    raise RuntimeError("no LLM backend (GROQ_API_KEY/OPENROUTER_API_KEY empty; "
+            logger.warning("agent groq failed (%r)", e)
+    raise RuntimeError("no LLM backend (OPENROUTER_API_KEY/GROQ_API_KEY empty; "
                        "pass http_post in tests) :: %r" % (last_error,))
 
 

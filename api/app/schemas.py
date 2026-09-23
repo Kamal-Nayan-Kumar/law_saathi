@@ -51,6 +51,7 @@ class AskIn(BaseModel):
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")
     tone: str = Field(default="simple", pattern="^(simple|detailed)$")
     doc_id: Optional[str] = Field(default="", max_length=64)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class AskOut(BaseModel):
@@ -61,3 +62,4 @@ class AskOut(BaseModel):
     provider: str = ""
     retries: int = 0
     trace: List[str] = []
+    verified: bool = False

@@ -146,4 +146,4 @@ def test_live_trace_smoke():
                     lang="en")
     assert out["trace"][0] == "intent"
     assert out["trace"][-1] == "response"
-    assert out["provider"].startswith("groq:")
+    assert out["provider"].startswith("openrouter:")
