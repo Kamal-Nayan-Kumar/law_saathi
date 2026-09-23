@@ -211,7 +211,6 @@ def test_retrieval_returns_provenance_payload():
 
 
 def test_neon_bookkeeping_idempotent():
-    """IngestedChunk upserts: same point twice -> one row."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -239,3 +238,94 @@ def test_neon_bookkeeping_idempotent():
     n = math.sqrt(sum(x * x for x in v)) or 1.0
     assert abs(sum(a * a for a in v) / (n * n) - 1.0) < 1e-9
     s.close()
+
+
+def test_text_dir_loads_txt_and_md(tmp_path):
+    from app.ingest import chunks_from_text_dir
+
+    (tmp_path / "hindu_marriage_notes.txt").write_text(
+        "Section 9 Restitution of conjugal rights. Body nine.", encoding="utf-8")
+    (tmp_path / "divorce_notes.md").write_text(
+        "# Divorce\n\nSection 13 Divorce. Body thirteen.", encoding="utf-8")
+    chunks = chunks_from_text_dir(str(tmp_path))
+    sections = [c.section for c in chunks]
+    assert any("Section 9" in s for s in sections)
+    assert any("Section 13" in s for s in sections)
+
+
+def test_firecrawl_loader_chunks_markdown(monkeypatch):
+    import app.ingest as ingest_mod
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"markdown": (
+                "# Hindu Marriage Act\n\nSection 13 Divorce. Cruelty "
+                "and desertion are grounds.")}}
+
+    monkeypatch.setattr(ingest_mod.os, "environ",
+                        {"FIRECRAWL_API_KEY": "test-key"})
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: FakeResp())
+    chunks = ingest_mod.chunks_from_firecrawl_url(
+        "https://example.com/hma", act="Hindu Marriage Act, 1955")
+    assert any("Section 13" in c.section for c in chunks)
+    assert all(c.source.startswith("firecrawl:") for c in chunks)
+
+
+def test_firecrawl_loader_needs_key(monkeypatch):
+    import app.ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod.os, "environ", {})
+    try:
+        ingest_mod.chunks_from_firecrawl_url("https://example.com/x", act="X")
+    except RuntimeError as e:
+        assert "FIRECRAWL_API_KEY" in str(e)
+    else:
+        raise AssertionError("expected RuntimeError for missing key")
+
+
+def test_e5_embedder_prefixes_and_parses(monkeypatch):
+    import app.ingest as ingest_mod
+
+    seen = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [[0.1, 0.2], [0.3, 0.4]]
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        seen["url"] = url
+        seen["inputs"] = json["inputs"]
+        seen["auth"] = headers.get("Authorization", "")
+        return FakeResp()
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", fake_post)
+    emb = ingest_mod.E5Embedder(token="hf-test-token")
+    vecs = emb.encode_passages(["hello", "world"])
+    assert vecs == [[0.1, 0.2], [0.3, 0.4]]
+    assert seen["inputs"] == ["passage: hello", "passage: world"]
+    assert "multilingual-e5-small" in seen["url"]
+    assert seen["auth"] == "Bearer hf-test-token"
+    q = emb.encode_query("talak")
+    assert q == [0.1, 0.2]
+    assert seen["inputs"] == ["query: talak"]
+
+
+def test_e5_embedder_needs_token(monkeypatch):
+    import app.ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod.os, "environ", {})
+    try:
+        ingest_mod.E5Embedder().encode_query("x")
+    except RuntimeError as e:
+        assert "HF_TOKEN" in str(e)
+    else:
+        raise AssertionError("expected RuntimeError for missing HF_TOKEN")

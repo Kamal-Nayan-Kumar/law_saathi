@@ -1,16 +1,17 @@
 """T2: RAG ingestion pipeline — acts -> section-aware chunks -> e5 -> Qdrant.
 
 Design (per ADRs 0003/0004/0006):
-- Embeddings: intfloat/multilingual-e5-small, local via Sentence Transformers.
+- Embeddings: intfloat/multilingual-e5-small, via Hugging Face Inference API.
 - Vectors: Qdrant Cloud (collection ``law_saathi`` by default).
 - App data: Neon Postgres records Qdrant point IDs (see ``IngestedChunk``).
 - Corpus: vaquill/open-india-law legislation filtered to family acts +
   enerscript/MARRIAGEACT + India Code PDFs as truth.
 
 This module has NO hard third-party imports at import time so unit tests
-run on a bare checkout (Python 3.9 compatible). Heavy deps
-(sentence-transformers, qdrant-client, datasets/pyarrow, pypdf) are imported
-lazily inside the functions that need them.
+run on a bare checkout (Python 3.9 compatible). Optional deps
+(qdrant-client, datasets/pyarrow, pypdf, python-docx) are imported
+lazily inside the functions that need them; embeddings and Firecrawl
+go over HTTPS via httpx.
 """
 import hashlib
 import os
@@ -186,37 +187,55 @@ def key_str(act: str, section: str, chunk_index: int) -> str:
 
 
 class E5Embedder:
-    """intfloat/multilingual-e5-small via Sentence Transformers (lazy).
+    """intfloat/multilingual-e5-small via Hugging Face Inference API.
 
-    e5 convention: prefix passages with "passage: " and queries with
-    "query: ". Vectors are L2-normalized so cosine == dot product.
+    No local model runs: vectors come from the hosted HF endpoint, so this
+    works on machines that cannot run Sentence Transformers + torch.
+    Needs HF_TOKEN in api/.env. e5 convention is kept: passages are
+    prefixed with "passage: ", queries with "query: ".
     """
 
-    def __init__(self, model_name: str = EMBEDDING_MODEL):
+    ENDPOINT = (
+        "https://router.huggingface.co/hf-inference"
+        "/models/intfloat/multilingual-e5-small"
+    )
+
+    def __init__(self, model_name: str = EMBEDDING_MODEL,
+                 token: Optional[str] = None):
         self.model_name = model_name
-        self._model = None
-
-    def _load(self):
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(self.model_name)
-        return self._model
+        self._token = token
 
     @property
     def dim(self) -> int:
         return EMBEDDING_DIM
 
+    def _headers(self) -> Dict[str, str]:
+        token = self._token or os.environ.get("HF_TOKEN", "")
+        if not token:
+            raise RuntimeError("HF_TOKEN is empty — add it to api/.env")
+        return {"Authorization": "Bearer " + token}
+
+    def _post(self, texts: Sequence[str]) -> List[List[float]]:
+        import httpx
+
+        resp = httpx.post(
+            self.ENDPOINT,
+            headers=self._headers(),
+            json={"inputs": list(texts)},
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and "error" in data:
+            raise RuntimeError("HF inference error: %s" % data["error"])
+        # Feature-extraction returns one vector per input.
+        return [[float(x) for x in vec] for vec in data]
+
     def encode_passages(self, texts: Sequence[str]) -> List[List[float]]:
-        model = self._load()
-        prefixed = ["passage: " + t for t in texts]
-        vecs = model.encode(prefixed, normalize_embeddings=True)
-        return [list(map(float, v)) for v in vecs]
+        return self._post(["passage: " + t for t in texts])
 
     def encode_query(self, text: str) -> List[float]:
-        model = self._load()
-        vec = model.encode(["query: " + text], normalize_embeddings=True)[0]
-        return list(map(float, vec))
+        return self._post(["query: " + text])[0]
 
 
 # ---------------------------------------------------------------------------
@@ -421,19 +440,68 @@ def chunks_from_hf_row(row: Dict, source: str = "vaquill/open-india-law") -> Lis
     return chunk_act(act, text, lang=lang, source=source, page=page_int)
 
 
+def _read_text_file(path) -> str:
+    """Read .txt/.md directly; .docx via python-docx (lazy)."""
+    from pathlib import Path as _P
+
+    p = _P(path)
+    if p.suffix.lower() == ".docx":
+        try:
+            import docx
+        except ImportError as e:
+            raise RuntimeError(
+                "python-docx is required for .docx files; pip install python-docx"
+            ) from e
+        doc = docx.Document(str(p))
+        return "\n".join(par.text for par in doc.paragraphs)
+    return p.read_text(encoding="utf-8", errors="ignore")
+
+
 def chunks_from_text_dir(
     directory: str, lang: str = "en", source: str = "enerscript/MARRIAGEACT"
 ) -> List[Chunk]:
-    """Load the few-KB MARRIAGEACT txt files; filename stem -> act guess."""
+    """Load local text files (.txt/.md/.docx); filename stem -> act guess."""
     from pathlib import Path
 
     out: List[Chunk] = []
-    for path in sorted(Path(directory).glob("*.txt")):
+    paths = sorted(Path(directory).glob("*.txt")) + \
+        sorted(Path(directory).glob("*.md")) + \
+        sorted(Path(directory).glob("*.docx"))
+    for path in paths:
         raw_title = path.stem.replace("_", " ").replace("-", " ")
         act = canonical_act(raw_title) or raw_title
-        out.extend(chunk_act(act, path.read_text(encoding="utf-8", errors="ignore"),
+        out.extend(chunk_act(act, _read_text_file(path),
                              lang=lang, source="%s:%s" % (source, path.name)))
     return out
+
+
+def chunks_from_firecrawl_url(
+    url: str, act: str, lang: str = "en", api_key: Optional[str] = None,
+    source: str = "firecrawl",
+) -> List[Chunk]:
+    """Scrape an act page (e.g. India Code) to markdown via Firecrawl.
+
+    Used for URL-based corpus sources; local uploads stay on local parsers
+    (free, offline). Requires FIRECRAWL_API_KEY.
+    """
+    import httpx
+
+    key = api_key or os.environ.get("FIRECRAWL_API_KEY", "")
+    if not key:
+        raise RuntimeError("FIRECRAWL_API_KEY is empty — add it to api/.env")
+    resp = httpx.post(
+        "https://api.firecrawl.dev/v1/scrape",
+        headers={"Authorization": "Bearer " + key},
+        json={"url": url, "formats": ["markdown"]},
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data", {})
+    markdown = data.get("markdown", "") or ""
+    if not markdown.strip():
+        raise RuntimeError("Firecrawl returned empty markdown for %s" % url)
+    return chunk_act(act, markdown, lang=lang,
+                     source="%s:%s" % (source, url))
 
 
 def chunks_from_pdf(
