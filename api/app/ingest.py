@@ -438,23 +438,51 @@ def chunks_from_hf_row(row: Dict, source: str = "vaquill/open-india-law") -> Lis
     if not text.strip():
         return []
     section = str(row.get("section") or row.get("section_no") or "")
-    lang = str(row.get("lang") or row.get("language") or "en")
+    if not section and row.get("section_number") not in (None, ""):
+        section = "Section %s" % row.get("section_number")
+    lang = str(row.get("lang") or row.get("language")
+               or row.get("language_code") or "en")
     page = row.get("page")
     try:
         page_int = int(page) if page is not None else None
     except (TypeError, ValueError):
         page_int = None
+    src = source
+    if row.get("source_url"):
+        src = "%s | %s" % (source, row.get("source_url"))
     if section:
         # Row already maps to one section: chunk within it only.
         pieces = chunk_text(text)
         out = [
             Chunk(text=p, act=act, section=section, lang=lang,
-                  source=source, page=page_int, chunk_index=i,
+                  source=src, page=page_int, chunk_index=i,
                   total_chunks=len(pieces))
             for i, p in enumerate(pieces)
         ]
         return out
-    return chunk_act(act, text, lang=lang, source=source, page=page_int)
+    return chunk_act(act, text, lang=lang, source=src, page=page_int)
+
+
+def chunks_from_jsonl(path: str,
+                      source: str = "vaquill/open-india-law") -> List[Chunk]:
+    """Load rows saved by api/scripts/download_corpus.py.
+
+    Each line is {"act": canonical-act, "row": {...raw columns...}}.
+    """
+    import json
+
+    out: List[Chunk] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            row = dict(record.get("row", {}))
+            if record.get("act") and not row.get("title"):
+                row["title"] = record["act"]
+            out.extend(chunks_from_hf_row(row, source=source))
+    return out
 
 
 def _read_text_file(path) -> str:

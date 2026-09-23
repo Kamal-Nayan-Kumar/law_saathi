@@ -348,3 +348,34 @@ def test_qdrant_store_search_text_uses_document():
         "text": "conjugal rights",
         "model": ingest_mod.QdrantStore.MODEL}
     assert hits[0]["payload"]["section"] == "Section 9"
+
+
+def test_chunks_from_hf_row_real_columns():
+    from app.ingest import chunks_from_hf_row
+
+    row = {"title": "The Hindu Adoptions and Maintenance  Act, 1956",
+           "text": "Section 22: Maintenance of dependants. Subject to ...",
+           "section_number": 22, "language_code": "en",
+           "source_url": "https://www.indiacode.nic.in/handle/123456789/1638"}
+    chunks = chunks_from_hf_row(row)
+    assert len(chunks) == 1
+    assert chunks[0].section == "Section 22"
+    assert chunks[0].lang == "en"
+    assert "indiacode" in chunks[0].source
+
+
+def test_chunks_from_jsonl_roundtrip(tmp_path):
+    import json
+    from app.ingest import chunks_from_jsonl
+
+    p = tmp_path / "sample.jsonl"
+    p.write_text(json.dumps({
+        "act": "Hindu Marriage Act, 1955",
+        "row": {"title": "Hindu Marriage Act, 1955",
+                "text": "Section 13 Divorce. Cruelty and desertion.",
+                "section_number": 13, "language_code": "en"}}) + "\n",
+        encoding="utf-8")
+    chunks = chunks_from_jsonl(str(p))
+    assert len(chunks) == 1
+    assert chunks[0].act == "Hindu Marriage Act, 1955"
+    assert chunks[0].section == "Section 13"

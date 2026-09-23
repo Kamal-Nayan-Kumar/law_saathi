@@ -51,6 +51,9 @@ def collect(args) -> list:
         else:
             pdf_path, act = spec, Path(spec).stem
         chunks.extend(chunks_from_pdf(pdf_path, act=act.strip()))
+    for jsonl_path in args.jsonl or []:
+        from app.ingest import chunks_from_jsonl
+        chunks.extend(chunks_from_jsonl(jsonl_path))
     for spec in args.url or []:
         # "url:Act Name" via Firecrawl (needs FIRECRAWL_API_KEY).
         if ":" in spec and "://" in spec:
@@ -104,6 +107,8 @@ def main(argv=None) -> int:
                     help="stream vaquill/open-india-law from HF instead of local parquet")
     ap.add_argument("--pdf", action="append", default=[],
                     help='"path:Act Name", repeatable')
+    ap.add_argument("--jsonl", action="append", default=[],
+                    help="local JSONL from download_corpus.py, repeatable")
     ap.add_argument("--url", action="append", default=[],
                     help='"url:Act Name" via Firecrawl, repeatable')
     ap.add_argument("--limit", type=int, default=500)
