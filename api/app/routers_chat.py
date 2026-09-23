@@ -7,6 +7,8 @@ from app import auth as auth_lib
 from app import db as db_module
 from app.models import ChatSession, Memory, Message, User
 from app.schemas import (
+    AskIn,
+    AskOut,
     MemoriesOut,
     MemoryIn,
     MemoryOut,
@@ -68,6 +70,31 @@ def get_messages(session_id: int,
     _session_owned(session_id, user, db)
     msgs = db.query(Message).filter_by(session_id=session_id).order_by(Message.id).all()
     return [MessageOut(id=m.id, role=m.role, content=m.content, lang=m.lang) for m in msgs]
+
+
+@router.post("/sessions/{session_id}/ask", response_model=AskOut)
+def ask(session_id: int, body: AskIn,
+        user: User = Depends(auth_lib.current_user),
+        db: Session = Depends(db_module.get_session)):
+    """T3: run the 5-node agent, persist both turns, return answer + trace."""
+    from app import agent as agent_module
+
+    _session_owned(session_id, user, db)
+    memories = {m.key: m.value
+                for m in db.query(Memory).filter_by(user_id=user.id).all()}
+    db.add(Message(session_id=session_id, role="user",
+                   content=body.query, lang=body.lang))
+    db.flush()
+    state = agent_module.run_agent(body.query, lang=body.lang, memory=memories)
+    db.add(Message(session_id=session_id, role="assistant",
+                   content=state.get("answer", ""), lang=body.lang))
+    db.flush()
+    return AskOut(answer=state.get("answer", ""),
+                  clarification=bool(state.get("clarification")),
+                  citations=list(state.get("citations", [])),
+                  provider=str(state.get("provider", "")),
+                  retries=int(state.get("retries", 0)),
+                  trace=list(state.get("trace", [])))
 
 
 @router.put("/me/memories", response_model=MemoriesOut)

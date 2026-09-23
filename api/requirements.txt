@@ -13,3 +13,6 @@ datasets==3.0.*
 pyarrow==18.*
 pypdf==5.*
 python-docx==1.1.*
+# --- T3 agent graph (lazy imports; tests run without these) ---
+langgraph==0.2.*
+langsmith==0.2.*

@@ -44,3 +44,17 @@ class MemoryOut(BaseModel):
 
 class MemoriesOut(BaseModel):
     memories: List[MemoryOut]
+
+
+class AskIn(BaseModel):
+    query: str = Field(min_length=1, max_length=20000)
+    lang: str = Field(default="en", pattern="^(en|hi|kn)$")
+
+
+class AskOut(BaseModel):
+    answer: str
+    clarification: bool = False
+    citations: List[str] = []
+    provider: str = ""
+    retries: int = 0
+    trace: List[str] = []
