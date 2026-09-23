@@ -52,3 +52,20 @@ class Memory(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     key: Mapped[str] = mapped_column(String(64))
     value: Mapped[str] = mapped_column(Text)
+
+
+class IngestedChunk(Base):
+    """T2: record of each Qdrant point, per ADR-0004 (vectors in Qdrant,
+    bookkeeping in Neon). Point ID is the stable uuid5 of act+section+idx,
+    so re-runs upsert idempotently."""
+
+    __tablename__ = "ingested_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    point_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    act: Mapped[str] = mapped_column(String(255), index=True)
+    section: Mapped[str] = mapped_column(String(255))
+    lang: Mapped[str] = mapped_column(String(8), default="en")
+    source: Mapped[str] = mapped_column(String(512), default="")
+    collection: Mapped[str] = mapped_column(String(128), default="law_saathi")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
