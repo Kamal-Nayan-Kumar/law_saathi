@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { api, getToken } from "@/lib/api";
+import { useStackApp, useUser } from "@stackframe/stack";
+import { api, stackTokenOf } from "@/lib/api";
 
 type Msg = { id: number; role: string; content: string; lang: string };
 
 export default function Chat() {
-  const router = useRouter();
+  useUser({ or: "redirect" });
+  const app = useStackApp();
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -14,22 +15,21 @@ export default function Chat() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) { router.push("/login"); return; }
-    api("/sessions", token, { method: "POST", body: JSON.stringify({ title: "New chat" }) })
+    stackTokenOf(app)
+      .then((tok) => api("/sessions", { stackToken: tok, init: { method: "POST", body: JSON.stringify({ title: "New chat" }) } }))
       .then((s) => setSessionId(s.id))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
-  }, [router]);
+  }, [app]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    const token = getToken();
-    if (!token || !sessionId || !draft.trim()) return;
+    if (!sessionId || !draft.trim()) return;
     setError("");
     try {
-      const saved = await api(`/sessions/${sessionId}/messages`, token, {
-        method: "POST",
-        body: JSON.stringify({ role: "user", content: draft, lang }),
+      const tok = await stackTokenOf(app);
+      const saved = await api(`/sessions/${sessionId}/messages`, {
+        stackToken: tok,
+        init: { method: "POST", body: JSON.stringify({ role: "user", content: draft, lang }) },
       });
       setMsgs((m) => [...m, saved]);
       setDraft("");

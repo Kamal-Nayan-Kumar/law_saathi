@@ -9,4 +9,5 @@ api/.env
 web/.env.local
 __pycache__/
 .pytest_cache/
+*.tsbuildinfo
 .DS_Store

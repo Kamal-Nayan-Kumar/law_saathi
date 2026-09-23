@@ -1,21 +1,25 @@
-export async function api(path: string, token?: string, init?: RequestInit) {
+export async function api(
+  path: string,
+  opts: { stackToken?: string; init?: RequestInit } = {},
+) {
   const res = await fetch(`/api${path}`, {
-    ...init,
+    ...opts.init,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
+      ...(opts.stackToken ? { "x-stack-access-token": opts.stackToken } : {}),
+      ...(opts.init?.headers || {}),
     },
   });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
 }
 
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("lawsathi_token");
-}
-
-export function setToken(token: string) {
-  localStorage.setItem("lawsathi_token", token);
+export async function stackTokenOf(app: {
+  getUser: () => Promise<{ getAuthJson: () => Promise<{ accessToken: string | null }> } | null>;
+}): Promise<string> {
+  const user = await app.getUser();
+  if (!user) throw new Error("Not signed in");
+  const { accessToken } = await user.getAuthJson();
+  if (!accessToken) throw new Error("No access token");
+  return accessToken;
 }

@@ -1,9 +1,9 @@
-from tests.conftest import auth_headers
+from tests.conftest import stack_headers
 
 
 def test_chat_history_persists_per_user(client):
-    h1 = auth_headers(client, "u1@x.in")
-    h2 = auth_headers(client, "u2@x.in")
+    h1 = stack_headers("u1")
+    h2 = stack_headers("u2")
 
     s = client.post("/sessions", json={"title": "divorce"}, headers=h1)
     assert s.status_code == 201

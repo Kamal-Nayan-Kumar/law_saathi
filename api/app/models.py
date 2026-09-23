@@ -13,8 +13,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Stack Auth (Neon Auth) subject. NULL only for legacy local rows.
+    external_id: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=True)  # legacy local auth
     preferred_lang: Mapped[str] = mapped_column(String(8), default="en")
     tone: Mapped[str] = mapped_column(String(16), default="simple")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
