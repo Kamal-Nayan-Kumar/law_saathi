@@ -77,3 +77,4 @@ class AskOut(BaseModel):
     retries: int = 0
     trace: List[str] = []
     verified: bool = False
+    confidence: float = 0.0

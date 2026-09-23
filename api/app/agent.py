@@ -79,6 +79,8 @@ def new_state(query: str, lang: str = "en",
         "evidence": [],
         "verified": False,
         "retries": 0,
+        "confidence": 0.0,
+        "oos_redirect": False,
         "answer": "",
         "citations": [],
         "citation_sources": [],
@@ -283,6 +285,7 @@ def node_intent(state: Dict[str, Any],
     slots = extract_slots(state["query_en"])
     state["slots"] = slots
     state["intent"] = classify_intent(state["query_en"], slots)
+    state["oos_redirect"] = is_oos(state["query_en"])
     state["trace"] = list(state.get("trace", [])) + ["intent"]
     return state
 
@@ -441,11 +444,37 @@ def evidence_sufficient(evidence: List[Dict[str, Any]],
     return False
 
 
+OOS_KEYWORDS = ("land", "property", "real estate", "criminal", "tax", "income tax",
+                "property law", "criminal law", "theft", "murder", "rape")
+
+
+def is_oos(query_en: str) -> bool:
+    low = (query_en or "").lower()
+    # Only redirect when clearly not family law and has OOS term
+    has_oos = any(k in low for k in OOS_KEYWORDS)
+    has_family = any(k in low for k in (
+        "marriage", "divorce", "custody", "maintenance", "adoption",
+        "guardians", "domestic violence", "succession", "inheritance"))
+    return has_oos and not has_family
+
+
 def node_verifier(state: Dict[str, Any],
                   min_score: float = 0.0) -> Dict[str, Any]:
     sufficient = evidence_sufficient(state.get("evidence", []),
                                      min_score=min_score)
     retries = int(state.get("retries", 0))
+    # Emit confidence: max score of sufficient hits, else 0.0
+    confidence = 0.0
+    if sufficient:
+        scores = []
+        for hit in state.get("evidence", []):
+            score = hit.get("score", 1.0) if isinstance(hit, dict) else 1.0
+            try:
+                scores.append(float(score))
+            except (TypeError, ValueError):
+                scores.append(1.0)
+        confidence = max(scores) if scores else 0.0
+    state["confidence"] = confidence
     if sufficient:
         state["verified"] = True
     elif retries < MAX_RETRIES:
@@ -469,10 +498,42 @@ DISCLAIMER = {
 }
 
 
+OOS_REDIRECT = {
+    "en": "This question is outside my family-law scope (land, property, criminal, tax, etc.). I only assist with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please consult a specialist for this topic.",
+    "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभiraksha, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृप्या इस विषय के लिए विशेषज्ञ से परामर्श करें।",
+    "kn": "ಈ ಪ್ರಶ್ನೆ ನನ್ನ ಕುಟುಂಬ ಕಾನೂನು ವ್ಯಾಪ್ತige ಹೊರಗide (ಭೂಮಿ, ಆsti, criminal, ತೆರige ಇত্যাদি). ನಾನು ಮarriage, ವಿಚ್ಛೇದn, palli, życie, data, uttaradhikar ಮತ್ತು kountubiK ಹinseyinda ಸಹay maDutténe. dayavuse bhayga este viṣaya khāti t jñannikinda samaraksha maDi.",
+}
+
+LOW_CONFIDENCE_DISCLAIMER = {
+    "en": "Caution: this answer has lower verification confidence. Please consult a lawyer for your specific situation before acting.",
+    "hi": "सावधानी: इस उत्तर का सत्यापन विश्वास कम है। कृपया कार्य करने से पहले अपनी स्थिति के लिए वकील से सलाह लें।",
+    "kn": "ಎಚ್ಚರಿಕೆ: ಈ ಉತ್ತರದ ಪರಿಶೀಲನಾ ನ confidence ಕಡಿಮೆ. ದಯವಿಟ್ಟು ನಿಮ್ಮ specifieke ಪರಿಸ್ಥಿತige ವಕೀlru samparkisi.",
+}
+
+NEXT_STEPS = {
+    "en": "Next steps: gather relevant documents (marriage certificate, court orders) and speak with a family-law lawyer for personalized guidance.",
+    "hi": "अgale ciraN: prasaMGika dastaweiZ (vivaha praMamata, nyayAlaya Adesha) ekataroM kareN_ar vyaktigat mArgaDarshaNa ke lie pArivArika kAnUna vakIla se bAt kareN।",
+    "kn": "muNani: sambanḍita dākhalēgalannu saṅgrahisi (mariyāde cetṭika, koraṭṭu opekke) mariyu vyaktigaṭṭa mārgašașiṅge kaṇḍa kŌtumbiḵ kānūna vakīlannu samakari.",
+}
+
+
 def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
     evidence = state.get("evidence", [])
     lang = state.get("lang", "en")
     tone = state.get("tone", "simple")
+    # Out-of-scope redirect takes precedence
+    if state.get("oos_redirect"):
+        return (OOS_REDIRECT.get(lang, OOS_REDIRECT["en"]), [], [])
+    # Unverified / no-citation block: never return an uncited answer
+    if not evidence_sufficient(evidence) and not state.get("verified"):
+        # Strong redirect when verifier failed after retries
+        base = ("I could not verify this with the family-law acts I have. ")
+        if state.get("slots", {}).get("topic") == "divorce":
+            base += ("Divorce in India generally falls under the Hindu Marriage "
+                     "Act (Section 13/13B), the Special Marriage Act, or the "
+                     "Indian Divorce Act depending on religion and marriage type. ")
+        base += "Please share the exact section/act name so I can verify, or consult a lawyer for personalized advice."
+        return base + "\n\n" + DISCLAIMER.get(lang, DISCLAIMER["en"]) + "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"]), [], []
     citations = [format_citation((h.get("payload") or {}) if isinstance(h, dict)
                                  else {}) for h in evidence[:5]]
     citations = [c for c in citations if c]
@@ -480,15 +541,6 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
         _evidence_source_type(h) if isinstance(h, dict) else "bare_act"
         for h in evidence[:5]
     ]
-    if not evidence_sufficient(evidence):
-        base = ("I could not find a verified section for this in the family-law "
-                "acts I have. ")
-        if state.get("slots", {}).get("topic") == "divorce":
-            base += ("Divorce in India generally falls under the Hindu Marriage "
-                     "Act (Section 13/13B), the Special Marriage Act, or the "
-                     "Indian Divorce Act depending on religion and marriage type. ")
-        base += "Please share the exact section or act name so I can verify."
-        return base, citations, citation_sources
     lines = []
     for i, hit in enumerate(evidence[:3], start=1):
         payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
@@ -502,8 +554,15 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
             % topic)
     body = "\n".join(lines)
     tail = "Cited: " + "; ".join(citations) if citations else ""
-    answer = "%s\n%s\n%s\n%s" % (head, body, tail,
-                                 DISCLAIMER.get(lang, DISCLAIMER["en"]))
+    confidence = float(state.get("confidence", 1.0))
+    # Low-confidence: stronger disclaimer + consult lawyer
+    if confidence < 0.7:
+        extra_disclaim = "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"])
+    else:
+        extra_disclaim = ""
+    answer = "%s\n%s\n%s\n%s%s\n\n%s" % (
+        head, body, tail, DISCLAIMER.get(lang, DISCLAIMER["en"]),
+        extra_disclaim, NEXT_STEPS.get(lang, NEXT_STEPS["en"]))
     if tone == "detailed":
         detail = ("Note: the sections cited above are from the bare text of the "
                   "family-law acts. If you need the exact wording or a case-law "
@@ -601,6 +660,14 @@ def run_agent(query: str, lang: str = "en",
     state = node_response(state, llm=llm_fn)
     state.pop("needs_retry", None)
     return state
+
+
+# T10 eval hook (ADR-0006): eval_t10.py runs run_agent against golden_qas.json.
+# Set LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY to trace to LangSmith.
+# Metrics: ragas Faithfulness / AnswerRelevancy / ContextRecall.
+def run_agent_for_t10(query: str, lang: str = "en") -> str:
+    state = run_agent(query, lang=lang)
+    return state.get("answer", "")
 
 
 def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
