@@ -21,19 +21,10 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from app.ingest import canonical_act  # noqa: E402
+from app.ingest import matching_act  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO / "data" / "corpus" / "open-india-law-family-acts.jsonl"
-
-
-def matching_act(row: dict):
-    title = str(row.get("title") or row.get("act") or row.get("name") or "")
-    hit = canonical_act(title)
-    if hit:
-        return hit
-    blob = " ".join(str(row.get(k, "")) for k in row.keys())[:500]
-    return canonical_act(blob)
 
 
 def main(argv=None) -> int:

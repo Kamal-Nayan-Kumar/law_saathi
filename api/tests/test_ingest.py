@@ -379,3 +379,56 @@ def test_chunks_from_jsonl_roundtrip(tmp_path):
     assert len(chunks) == 1
     assert chunks[0].act == "Hindu Marriage Act, 1955"
     assert chunks[0].section == "Section 13"
+
+
+def test_stable_ids_unique_across_rows_same_section():
+    from app.ingest import chunks_from_hf_row, stable_point_id
+
+    def row(cid):
+        return {"title": "Hindu Succession Act, 1956",
+                "text": "Section 1 Short title. This Act may be called ...",
+                "section_number": 1, "language_code": "en", "chunk_id": cid}
+
+    a = chunks_from_hf_row(row("IND_x_s001"))
+    b = chunks_from_hf_row(row("IND_y_s001"))
+    assert stable_point_id(a[0].act, a[0].section, 0, a[0].uid) != \
+        stable_point_id(b[0].act, b[0].section, 0, b[0].uid)
+    # Same inputs -> same ID (idempotent re-runs).
+    a2 = chunks_from_hf_row(row("IND_x_s001"))
+    assert stable_point_id(a[0].act, a[0].section, 0, a[0].uid) == \
+        stable_point_id(a2[0].act, a2[0].section, 0, a2[0].uid)
+
+
+def test_matching_act_title_first():
+    from app.ingest import matching_act
+
+    # Title match wins.
+    assert matching_act({"title": "Hindu Marriage Act, 1955",
+                         "text": "..."}) == "Hindu Marriage Act, 1955"
+    # Non-family title is out even if text mentions family law.
+    assert matching_act({"title": "The Court-Fees Act, 1870",
+                         "text": "applies to Hindu Marriage Act cases"}) is None
+    # No title -> text-blob fallback still works.
+    assert matching_act({"text": "Special Marriage Act procedure..."}) == \
+        "Special Marriage Act, 1954"
+    # Repealed rows are excluded even with a matching title.
+    assert matching_act({"title": "The Special Marriage Act 1872 (Rep.)",
+                         "act_status": "repealed"}) is None
+
+
+def test_split_sections_numbered_bare_act():
+    from app.ingest import chunk_act, split_sections
+
+    text = ("THE HINDU MARRIAGE ACT, 1955\nPreliminary\n"
+            "9. Restitution of conjugal rights.- When either spouse withdraws.\n"
+            "See Sec. 15 for details of procedure.\n"
+            "13. Divorce.- Any marriage may be dissolved on cruelty.")
+    parts = split_sections(text)
+    titles = [t for t, _ in parts]
+    assert any(t.startswith("Section 9:") for t in titles), titles
+    assert any(t.startswith("Section 13:") for t in titles), titles
+    # Mid-text "Sec. 15" must not splinter a section.
+    assert not any("Sec. 15" in t for t in titles)
+    chunks = chunk_act("Hindu Marriage Act, 1955", text, source="bare-act")
+    assert {c.section for c in chunks} == set(titles), \
+        [c.section for c in chunks]

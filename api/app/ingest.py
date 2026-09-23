@@ -42,7 +42,7 @@ _ACT_ALIASES = [
     ("hindu succession", "Hindu Succession Act, 1956"),
     ("guardians and wards", "Guardians and Wards Act, 1890"),
     ("domestic violence", "Protection of Women from Domestic Violence Act, 2005"),
-    ("indian divorce", "Indian Divorce Act, 1869"),
+    ("the divorce act", "Indian Divorce Act, 1869"),
 ]
 
 
@@ -55,6 +55,23 @@ def canonical_act(title: str) -> Optional[str]:
     return None
 
 
+def matching_act(row: Dict) -> Optional[str]:
+    """Match a corpus row to a canonical family act.
+
+    Title first; text-blob fallback only when the row has no usable title.
+    This keeps out non-family acts that merely reference family law.
+    Repealed rows are excluded (stale law must not be retrieved).
+    """
+    if str(row.get("act_status") or "").lower() == "repealed":
+        return None
+    title = str(row.get("title") or row.get("act") or row.get("name") or "")
+    hit = canonical_act(title)
+    if hit or title.strip():
+        return hit
+    blob = " ".join(str(row.get(k, "")) for k in row.keys())[:500]
+    return canonical_act(blob)
+
+
 @dataclass
 class Chunk:
     text: str
@@ -65,18 +82,26 @@ class Chunk:
     page: Optional[int] = None
     chunk_index: int = 0
     total_chunks: int = 1
+    # Per-source discriminator (hf chunk_id, filename, pdf page): keeps IDs
+    # unique when two rows map to the same act+section. Same inputs still
+    # give the same ID, so re-runs stay idempotent.
+    uid: str = ""
 
     def payload(self) -> Dict:
         d = asdict(self)
         return d
 
 
-# Section heading at line start: "Section 9 ...", "SECTION 13-B ...",
-# Hindi "धारा 9 ...". Keep the heading line with the body that follows.
+# Section heading at line start. Bare acts use numbered headings
+# ("9. Restitution of conjugal rights.- ..."); HF rows use "Section N".
+# Bare "Sec." is deliberately NOT a heading: running text wraps leave
+# "Sec. 15 ..." at line starts and splinter sections into junk.
 _SECTION_RE = re.compile(
     r"(?m)^\s*(Section\s+\d+[A-Z\-]*|SECTION\s+\d+[A-Z\-]*"
-    r"|Sec\.\s*\d+[A-Z\-]*|\u0927\u093e\u0930\u093e\s+\d+)"
+    r"|\u0927\u093e\u0930\u093e\s+\d+"
+    r"|\d{1,3}[A-Z]?\.(?=\s+[A-ZA-Z\u0900-\u097F]))"
 )
+_NUMBERED_RE = re.compile(r"^\s*(\d{1,3}[A-Z]?)\.\s+(.*)$")
 
 
 def split_sections(text: str) -> List[Tuple[str, str]]:
@@ -100,7 +125,13 @@ def split_sections(text: str) -> List[Tuple[str, str]]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         block = text[m.start(): end].strip()
         first_line = block.splitlines()[0].strip() if block else ""
-        title = first_line[:120]
+        num = _NUMBERED_RE.match(first_line)
+        if num:
+            # Unify bare-act headings with HF style: "Section 9: ...".
+            rest = num.group(2).strip()
+            title = ("Section %s: %s" % (num.group(1), rest))[:120]
+        else:
+            title = first_line[:120]
         out.append((title, block))
     return out
 
@@ -139,6 +170,7 @@ def chunk_act(
     page: Optional[int] = None,
     max_chars: int = 1500,
     overlap: int = 200,
+    uid: str = "",
 ) -> List[Chunk]:
     """Section-aware chunking: never merge two sections into one chunk."""
     chunks: List[Chunk] = []
@@ -152,6 +184,7 @@ def chunk_act(
                     lang=lang,
                     source=source,
                     page=page,
+                    uid=("%s|%s" % (uid, section_title)) if uid else "",
                 )
             )
     # Number chunks per section for stable provenance + IDs.
@@ -165,9 +198,10 @@ def chunk_act(
     return chunks
 
 
-def stable_point_id(act: str, section: str, chunk_index: int) -> str:
+def stable_point_id(act: str, section: str, chunk_index: int,
+                     salt: str = "") -> str:
     """Deterministic Qdrant point ID so re-runs are idempotent."""
-    key = "%s|%s|%d" % (act, section, chunk_index)
+    key = "%s|%s|%d|%s" % (act, section, chunk_index, salt or "")
     return str(uuid5(NAMESPACE_URL, key))
 
 
@@ -270,15 +304,25 @@ class QdrantStore:
                    model or cls.MODEL, url=url, api_key=api_key)
 
     def ensure_collection(self, dim: int = EMBEDDING_DIM) -> None:
-        from qdrant_client.models import Distance, VectorParams
+        """Create the collection if missing (REST; SDK parses fail here)."""
+        import httpx
 
-        try:
-            self.client.get_collection(self.collection)
-        except Exception:
-            self.client.create_collection(
-                collection_name=self.collection,
-                vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
-            )
+        if not self._url:
+            raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        headers = {"api-key": self._api_key, "Content-Type": "application/json"}
+        resp = httpx.get("%s/collections/%s" % (self._url, self.collection),
+                         headers=headers, timeout=30.0)
+        if resp.status_code == 200:
+            return
+        if resp.status_code != 404:
+            resp.raise_for_status()
+        create = httpx.put(
+            "%s/collections/%s" % (self._url, self.collection),
+            headers=headers,
+            json={"vectors": {"size": dim, "distance": "Cosine"}},
+            timeout=60.0,
+        )
+        create.raise_for_status()
 
     def upsert_texts(self, ids, texts, payloads) -> int:
         """Upsert raw texts; Qdrant embeds them server-side (idempotent).
@@ -372,7 +416,8 @@ class QdrantStore:
 def build_points(
     chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]]
 ) -> Tuple[List[str], List[List[float]], List[Dict]]:
-    ids = [stable_point_id(c.act, c.section, c.chunk_index) for c in chunks]
+    ids = [stable_point_id(c.act, c.section, c.chunk_index, c.uid)
+           for c in chunks]
     vecs = [list(map(float, v)) for v in vectors]
     payloads = [c.payload() for c in chunks]
     return ids, vecs, payloads
@@ -419,12 +464,8 @@ def iter_open_india_law_rows(
                       streaming=True, token=token)
     count = 0
     for row in ds:
-        title = str(row.get("title") or row.get("act") or row.get("name") or "")
-        if canonical_act(title) is None:
-            # Some rows carry the act name in a text column instead.
-            blob = " ".join(str(row.get(k, "")) for k in row.keys())[:500]
-            if canonical_act(blob) is None:
-                continue
+        if matching_act(dict(row)) is None:
+            continue
         yield row
         count += 1
         if limit is not None and count >= limit:
@@ -450,17 +491,18 @@ def chunks_from_hf_row(row: Dict, source: str = "vaquill/open-india-law") -> Lis
     src = source
     if row.get("source_url"):
         src = "%s | %s" % (source, row.get("source_url"))
+    uid = str(row.get("chunk_id") or row.get("source_url") or "")
     if section:
         # Row already maps to one section: chunk within it only.
         pieces = chunk_text(text)
         out = [
             Chunk(text=p, act=act, section=section, lang=lang,
                   source=src, page=page_int, chunk_index=i,
-                  total_chunks=len(pieces))
+                  total_chunks=len(pieces), uid=uid)
             for i, p in enumerate(pieces)
         ]
         return out
-    return chunk_act(act, text, lang=lang, source=src, page=page_int)
+    return chunk_act(act, text, lang=lang, source=src, page=page_int, uid=uid)
 
 
 def chunks_from_jsonl(path: str,
@@ -516,7 +558,8 @@ def chunks_from_text_dir(
         raw_title = path.stem.replace("_", " ").replace("-", " ")
         act = canonical_act(raw_title) or raw_title
         out.extend(chunk_act(act, _read_text_file(path),
-                             lang=lang, source="%s:%s" % (source, path.name)))
+                             lang=lang, source="%s:%s" % (source, path.name),
+                             uid=path.name))
     return out
 
 
@@ -565,5 +608,5 @@ def chunks_from_pdf(
             continue
         out.extend(chunk_act(act, text, lang=lang,
                              source="%s:%s" % (source, pdf_path),
-                             page=i))
+                             page=i, uid="%s#%d" % (pdf_path, i)))
     return out

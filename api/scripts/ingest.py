@@ -128,7 +128,8 @@ def main(argv=None) -> int:
 
     # Stable IDs + payloads; vectors are embedded server-side by Qdrant
     # Cloud Inference (e5-small), so no local/API embedding step here.
-    ids = [stable_point_id(c.act, c.section, c.chunk_index) for c in chunks]
+    ids = [stable_point_id(c.act, c.section, c.chunk_index, c.uid)
+           for c in chunks]
     payloads = [c.payload() for c in chunks]
 
     if args.dry_run:
