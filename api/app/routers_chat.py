@@ -16,6 +16,7 @@ from app.schemas import (
     MessageOut,
     SessionIn,
     SessionOut,
+    SessionPatch,
     UserOut,
     VoiceIn,
     VoiceOut,
@@ -67,6 +68,27 @@ def list_sessions(user: User = Depends(auth_lib.current_user),
     return [SessionOut(id=c.id, title=c.title) for c in chats]
 
 
+@router.patch("/sessions/{session_id}", response_model=SessionOut)
+def rename_session(session_id: int, body: SessionPatch,
+                   user: User = Depends(auth_lib.current_user),
+                   db: Session = Depends(db_module.get_session)):
+    chat = _session_owned(session_id, user, db)
+    chat.title = body.title.strip() or chat.title
+    db.flush()
+    return SessionOut(id=chat.id, title=chat.title)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session_id: int,
+                   user: User = Depends(auth_lib.current_user),
+                   db: Session = Depends(db_module.get_session)):
+    chat = _session_owned(session_id, user, db)
+    db.query(Message).filter_by(session_id=chat.id).delete()
+    db.delete(chat)
+    db.flush()
+    return None
+
+
 @router.post("/sessions/{session_id}/messages", response_model=MessageOut, status_code=201)
 def post_message(session_id: int, body: MessageIn,
                  user: User = Depends(auth_lib.current_user),
@@ -97,6 +119,10 @@ def ask(session_id: int, body: AskIn,
     _session_owned(session_id, user, db)
     memories = {m.key: m.value
                 for m in db.query(Memory).filter_by(user_id=user.id).all()}
+    # Conversation context: prior turns of this session for the agent.
+    prior = (db.query(Message).filter_by(session_id=session_id)
+             .order_by(Message.id.desc()).limit(10).all())
+    history = [{"role": m.role, "content": m.content} for m in reversed(prior)]
     # Auto-detect input language and sync user preference.
     detected = agent_module.detect_lang(body.query, body.lang)
     if body.lang == "en" and detected != "en":
@@ -124,10 +150,16 @@ def ask(session_id: int, body: AskIn,
     db.flush()
     state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
                                    tone=body.tone, doc_id=body.doc_id or "",
-                                   min_score=float(body.min_score))
+                                   min_score=float(body.min_score),
+                                   history=history)
     db.add(Message(session_id=session_id, role="assistant",
                    content=state.get("answer", ""), lang=body_lang))
     db.flush()
+    # Auto-title untitled sessions from the first question.
+    chat = _session_owned(session_id, user, db)
+    if chat.title == "New chat":
+        chat.title = body.query.strip()[:60]
+        db.flush()
     return AskOut(
         answer=state.get("answer", ""),
         clarification=bool(state.get("clarification")),

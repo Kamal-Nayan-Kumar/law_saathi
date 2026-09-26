@@ -67,11 +67,13 @@ def detect_lang(text: str, hint: str = "en") -> str:
 
 
 def new_state(query: str, lang: str = "en",
-              memory: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+              memory: Optional[Dict[str, str]] = None,
+              history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     return {
         "query": query,
         "lang": detect_lang(query, lang),
         "query_en": "",
+        "history": [m for m in (history or []) if m.get("content")][:10],
         "intent": "",
         "slots": {},
         "missing_slots": [],
@@ -268,6 +270,23 @@ def node_intent(state: Dict[str, Any],
     lang = state["lang"]
     query_en = query
     provider = state.get("provider", "")
+    history = state.get("history", [])
+    if history and llm is not None:
+        # Follow-up questions ("what about my daughter?") need prior turns
+        # to stand alone for retrieval, so rewrite first, then translate.
+        try:
+            query, provider = llm([
+                {"role": "system",
+                 "content": "Rewrite the last user question as a standalone "
+                            "family-law question using the conversation history. "
+                            "Reply with only the rewritten question."},
+                *history[-6:],
+                {"role": "user", "content": query},
+            ])
+            state["provider"] = provider
+            state["trace"] = list(state.get("trace", [])) + ["contextualize"]
+        except Exception as e:  # noqa: BLE001 — fall back to raw query
+            logger.warning("agent contextualize failed (%r); using raw query", e)
     if lang != "en":
         if llm is not None:
             try:
@@ -630,13 +649,14 @@ def run_agent(query: str, lang: str = "en",
               llm: Optional[Callable] = None,
               web_search: Optional[Callable] = None,
               min_score: float = 0.0,
-              doc_id: str = "") -> Dict[str, Any]:
+              doc_id: str = "",
+              history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     """Run intent -> planner -> [clarify | tools <-> verifier] -> response.
 
     Returns the shared state dict (includes trace, answer, citations,
     provider, retries). Verifier loops back to tools at most MAX_RETRIES.
     """
-    state = new_state(query, lang=lang, memory=memory)
+    state = new_state(query, lang=lang, memory=memory, history=history)
     state["tone"] = tone
     state["doc_id"] = doc_id
     # Default LLM: live Groq/OpenRouter when keys exist, else None (templates).

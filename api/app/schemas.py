@@ -19,6 +19,10 @@ class SessionOut(BaseModel):
     title: str
 
 
+class SessionPatch(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
 class MessageIn(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
     content: str = Field(min_length=1, max_length=20000)
