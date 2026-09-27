@@ -3,8 +3,22 @@ services:
     name: lawsathi-api
     runtime: docker
     dockerfilePath: ./api/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: DATABASE_URL
         sync: false
-      - key: AUTH_SECRET
+      - key: INTERNAL_API_SECRET
         generateValue: true
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
