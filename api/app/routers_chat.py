@@ -168,6 +168,7 @@ def ask(session_id: int, body: AskIn,
         provider=str(state.get("provider", "")),
         retries=int(state.get("retries", 0)),
         trace=list(state.get("trace", [])),
+        trace_detail=list(state.get("trace_detail", [])),
         verified=bool(state.get("verified", False)),
         confidence=float(state.get("confidence", 0.0)),
     )

@@ -96,6 +96,34 @@ def test_english_pivot_detects_hindi_and_answers_in_hindi_shape():
     assert out["answer"], "must answer (template) without LLM keys"
 
 
+def test_detect_lang_roman_hindi():
+    assert agent_module.detect_lang(
+        "kitna umar hona chahiye shadi ke liye", "en") == "hi"
+    assert agent_module.detect_lang(
+        "How do I get a mutual-consent divorce?", "en") == "en"
+    assert agent_module.detect_lang(
+        "What are the talaq rules under Muslim law?", "en") == "en"
+
+
+def test_extract_slots_roman_hindi_marriage():
+    slots = agent_module.extract_slots("kitna umar hona chahiye shadi ke liye")
+    assert slots.get("topic") == "marriage"
+
+
+def test_marriage_age_question_answers_directly():
+    # Deterministic fake LLM: Hinglish in, plain English out (like live).
+    def fake_llm(msgs):
+        return "How old should one be to get married?", "test:fake"
+
+    out = run_agent("kitna umar hona chahiye shadi ke liye", lang="hi",
+                    llm=fake_llm, retriever=HitRetriever(),
+                    web_search=lambda q: [])
+    assert out["lang"] == "hi"
+    assert not out["clarification"], "clear marriage question must not ask back"
+    assert out["citations"], "direct answer must still cite the acts"
+    assert out["trace"][0] == "intent" and out["trace"][-1] == "response"
+
+
 def test_llm_fallback_switch_on_groq_failure():
     calls = []
 

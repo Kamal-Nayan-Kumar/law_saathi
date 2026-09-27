@@ -72,6 +72,11 @@ class AskIn(BaseModel):
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class TraceStep(BaseModel):
+    node: str
+    detail: str
+
+
 class AskOut(BaseModel):
     answer: str
     clarification: bool = False
@@ -80,5 +85,6 @@ class AskOut(BaseModel):
     provider: str = ""
     retries: int = 0
     trace: List[str] = []
+    trace_detail: List[TraceStep] = []
     verified: bool = False
     confidence: float = 0.0

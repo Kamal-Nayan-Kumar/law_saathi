@@ -18,6 +18,8 @@ type ChatSession = {
   title: string;
 };
 
+type TraceStep = { node: string; detail: string };
+
 type Answer = {
   answer: string;
   clarification: boolean;
@@ -26,6 +28,7 @@ type Answer = {
   provider: string;
   retries: number;
   trace: string[];
+  trace_detail: TraceStep[];
 };
 
 const SUGGESTIONS = [
@@ -34,7 +37,25 @@ const SUGGESTIONS = [
   "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ?",
 ];
 
-const STAGES = ["Planning…", "Retrieving law…", "Verifying…", "Writing answer…"];
+const STAGES = ["Understanding intent…", "Planning…", "Retrieving bare acts…", "Verifying citations…", "Writing answer…"];
+
+const TRACE_LABELS: Record<string, string> = {
+  contextualize: "Intent — understood follow-up using chat history",
+  intent: "Intent — detected topic and language",
+  planner: "Planner — checked what's clear, what needs asking",
+  tools: "Tools — retrieved bare-act sections",
+  verifier: "Verifier — checked citations cover the answer",
+  response: "Response — wrote the final answer",
+};
+
+const STEP_TITLES: Record<string, string> = {
+  contextualize: "Follow-up",
+  intent: "Intent",
+  planner: "Planner",
+  tools: "Tools",
+  verifier: "Verifier",
+  response: "Response",
+};
 
 function detectLang(text: string): "en" | "hi" | "kn" {
   if (/\u0C80-\u0CFF/.test(text)) return "kn";
@@ -42,7 +63,7 @@ function detectLang(text: string): "en" | "hi" | "kn" {
   return "en";
 }
 
-type Meta = { trace: string[]; citations: string[]; sources: string[] };
+type Meta = { trace: string[]; steps: TraceStep[]; citations: string[]; sources: string[] };
 
 // Turn each known citation string in the answer into a numbered anchor
 // link that jumps to the matching item in that answer's Sources list.
@@ -75,25 +96,34 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
 
   return (
     <div className="ans-card">
-      <div className="md" onClick={onCite}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-      </div>
       {m && m.trace.length > 0 && (
-        <div className="think">
+        <div className="think think-top">
           <button type="button" className="think-toggle" onClick={() => setShowThink((v) => !v)}>
             {showThink ? "▾ Thinking" : "▸ Thinking"}
           </button>
           {showThink && (
             <ol className="think-steps">
-              {m.trace.map((t) => (
-                <li key={t}>
-                  <strong>{t}</strong> — completed
-                </li>
-              ))}
+              {m.steps.length > 0
+                ? m.steps.map((s, i) => (
+                    <li key={`${s.node}-${i}`}>
+                      <strong>{STEP_TITLES[s.node] || s.node}</strong>
+                      <span className="step-detail">{s.detail}</span>
+                      <span className="think-done"> — done</span>
+                    </li>
+                  ))
+                : m.trace.map((t) => (
+                    <li key={t}>
+                      <strong>{TRACE_LABELS[t] || t}</strong>
+                      <span className="think-done"> — done</span>
+                    </li>
+                  ))}
             </ol>
           )}
         </div>
       )}
+      <div className="md" onClick={onCite}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      </div>
       {m && m.citations.length > 0 && (
         <div className="src">
           <button type="button" className="src-toggle" onClick={() => setShowSrc((v) => !v)}>
@@ -133,6 +163,15 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const upd = () => setIsMobile(mq.matches);
+    upd();
+    mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
 
   function toggleSide() {
     if (window.matchMedia("(max-width: 860px)").matches) setSideOpen((v) => !v);
@@ -245,6 +284,7 @@ export default function Chat() {
       const answerObj = resp as Answer;
       const tmeta: Meta = {
         trace: answerObj.trace || [],
+        steps: answerObj.trace_detail || [],
         citations: answerObj.citations || [],
         sources: answerObj.citation_sources || [],
       };
@@ -316,10 +356,14 @@ export default function Chat() {
       {sideOpen && <div className="side-backdrop" onClick={() => setSideOpen(false)} />}
       {/* History sidebar */}
       <aside className={`sidebar${sideOpen ? " open" : ""}`} aria-label="Chat history">
-        <button type="button" className="side-new" onClick={newChat}>
-          ＋ New chat
-        </button>
-        <p className="side-label">Recents</p>
+        <div className="side-toprow">
+          <button type="button" className="side-new" onClick={newChat}>
+            ＋ New chat
+          </button>
+          <button type="button" className="side-hide" onClick={toggleSide} aria-label={collapsed ? "Show history" : "Hide history"} title={collapsed ? "Show history" : "Hide history"}>
+            {collapsed ? "»" : "«"}
+          </button>
+        </div>
         <div className="side-list">
           {sessions.map((s) => (
             <div key={s.id} className={`side-item${s.id === sessionId ? " active" : ""}`}>
@@ -340,8 +384,8 @@ export default function Chat() {
             <p className="side-empty">No chats yet — ask something to start.</p>
           )}
         </div>
-        <a className="side-home" href="/">
-          ⌂ Home
+        <a className="side-home" href="/" title="Home">
+          {collapsed ? "⌂" : "⌂ Home"}
         </a>
       </aside>
 
@@ -349,9 +393,11 @@ export default function Chat() {
         {/* Chat header (replaces marketing nav on this page) */}
         <header className="chat-top">
           <div className="chat-top-inner">
-            <button type="button" className="side-toggle" onClick={toggleSide} aria-label="Toggle history">
-              ☰
-            </button>
+            {isMobile && (
+              <button type="button" className="side-toggle" onClick={toggleSide} aria-label="Show history" title="Show history">
+                ☰
+              </button>
+            )}
             <img src="/images/logo.png" alt="Law Saathi logo" className="chat-logo" />
             <div className="chat-title">
               <b>
@@ -412,8 +458,17 @@ export default function Chat() {
               )}
               {loading && (
                 <div className="thinking-live" aria-live="polite">
-                  <span className="pulse" />
-                  {STAGES[stage]}
+                  <div className="live-head">
+                    <span className="pulse" />
+                    Thinking…
+                  </div>
+                  <ol className="live-steps">
+                    {STAGES.map((s, i) => (
+                      <li key={s} className={i === stage % STAGES.length ? "live-on" : ""}>
+                        {s}
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               )}
             </div>

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 OPENROUTER_MODEL = os.environ.get(
-    "OPENROUTER_MODEL", "openrouter/free")
+    "OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 MAX_RETRIES = 2
@@ -30,29 +30,74 @@ MAX_RETRIES = 2
 NODES = ("intent", "planner", "tools", "verifier", "response")
 
 TOPIC_KEYWORDS = {
-    "divorce": ("divorce", "talak", "talaq", "तलाक", "ವಿಚ್ಛೇದನ"),
-    "maintenance": ("maintenance", "maintainence", "भरण", "पोषण", "ಪೋಷಣೆ",
+    "divorce": ("divorce", "divorced", "talak", "talaq", "khula", "mubaraat",
+                "तलाक", "ವಿಚ್ಛೇದನ"),
+    "maintenance": ("maintenance", "maintainence", "bharan", "poshan",
+                    "kharcha", "guzara", "भरण", "पोषण", "ಪೋಷಣೆ",
                     "alimony"),
     "custody": ("custody", "guardian", "अभिरक्षा", "ಹೆತ್ತವರ", "ವಶ"),
-    "adoption": ("adoption", "adopt", "गोद", "ದತ್ತು"),
-    "succession": ("succession", "inheritance", "उत्तराधिकार", "ಉತ್ತರಾಧಿಕಾರ",
+    "adoption": ("adoption", "adopt", "adopted", "गोद", "ದತ್ತು"),
+    "succession": ("succession", "inheritance", "inherit", "heir",
+                   "virasat", "viraasat",
+                   "jaydad", "jaaydaad", "उत्तराधिकार", "ಉತ್ತರಾಧಿಕಾರ",
                    "वारिस"),
-    "domestic_violence": ("domestic violence", "domestic-violence", "घरेलू हिंसा",
+    "domestic_violence": ("domestic violence", "domestic-violence", "dowry",
+                          "dahej", "marpeet", "maarpeet", "घरेलू हिंसा",
                           "ಕೌಟುಂಬಿಕ ಹಿಂಸೆ", "protection order"),
-    "marriage": ("marriage", "marry", "विवाह", "शादी", "ಮದುವೆ", "conjugal"),
+    "marriage": ("marriage", "marry", "married", "marital", "wedding",
+                 "shadi", "shaadi", "vivah",
+                 "nikah", "nikaha", "sagai", "engagement", "विवाह", "शादी",
+                 "ಮದುವೆ", "conjugal"),
 }
 
-PARTY_WORDS = ("husband", "wife", "spouse", "पति", "पत्नी", "ಗಂಡ", "ಹೆಂಡತಿ",
-               "mother", "father", "minor", "child", "माता", "पिता")
+PARTY_WORDS = ("husband", "wife", "spouse", "pati", "patni", "biwi", "shohar",
+               "bachcha", "bacha", "baccha", "beta", "beti", "maa", "baap",
+               "aurat", "aadmi", "पति", "पत्नी", "ಗಂಡ", "ಹೆಂಡತಿ",
+               "mother", "father", "minor", "child", "widow", "widower",
+               "माता", "पिता")
 
 _DIVORCE_TYPE_RE = re.compile(
-    r"mutual(\s+consent)?|contested|one[-\s]?sided|ex[-\s]?parte|आपसी\s*सहमति",
+    r"mutual(\s+consent)?|contested|one[-\s]?sided|ex[-\s]?parte|आपसी\s*सहमति"
+    r"|khula|mubaraat",
     re.IGNORECASE)
-_SECTION_RE = re.compile(r"section\s+(\d+[A-Z\-]*)|धारा\s+(\d+)", re.IGNORECASE)
+_SECTION_RE = re.compile(
+    r"section\s+(\d+[A-Z\-]*)|धारा\s+(\d+)|dhara\s+(\d+)", re.IGNORECASE)
+
+
+# Roman-Hindi (Hinglish) signals: users often type Hindi in Latin script
+# ("kitna umar hona chahiye shadi ke liye"), which no Indic script matches.
+# Nouns that also appear in English queries (talaq, nikah, dowry) are NOT
+# markers — only grammar/function words and Hinglish-only nouns.
+HINGLISH_WORDS = frozenset(
+    "hai hain kya kaise kaun kahan kab kyun kyunki kitna kitne kitni "
+    "chahiye liye batao bataiye bataye samjhao meri mera mere apna apni "
+    "apne aapka aapki tumhara humara hamara mujhe tumhe tujhe aapko humko "
+    "nahi nahin wala wali wale karo karein karna karne hona hoga hogi "
+    "honge hota hoti hote tha thi raha rahi rahe gaya gayi gaye liya "
+    "diya kiya hua hui hue sakta sakti sakte shadi shaadi vivah pati "
+    "patni biwi shohar bachcha bacha baccha umar saal mahina paisa ghar "
+    "maa baap beta beti aurat aadmi bharan poshan kharcha guzara dahej "
+    "marpeet maarpeet virasat viraasat jaydad sagai".split())
+
+HINGLISH_BIGRAMS = frozenset((
+    "ke liye", "ke bare", "ke baare", "kya hai", "hai kya", "kaise kare",
+    "kaise karein", "hona chahiye", "karna hai", "mein hai", "main hoon",
+    "kya hota", "kya hoti", "kitna hai", "kitni hai",
+))
+
+
+def hinglish_score(text: str) -> int:
+    """Count Hinglish signals (words + bigrams) in a Latin-script query."""
+    low = re.sub(r"[^a-z\s]", " ", (text or "").lower())
+    words = low.split()
+    hits = sum(1 for w in words if w in HINGLISH_WORDS)
+    pairs = {"%s %s" % (a, b) for a, b in zip(words, words[1:])}
+    hits += sum(1 for b in pairs if b in HINGLISH_BIGRAMS)
+    return hits
 
 
 def detect_lang(text: str, hint: str = "en") -> str:
-    """Detect en/hi/kn. Explicit hint wins; else script heuristic."""
+    """Detect en/hi/kn. Explicit hint wins; else script, then Hinglish."""
     if hint in ("en", "hi", "kn"):
         # Trust the caller (UI sends lang), but upgrade to hi/kn when the
         # script clearly says otherwise and hint is the default "en".
@@ -63,6 +108,8 @@ def detect_lang(text: str, hint: str = "en") -> str:
         return "kn"
     if re.search(r"[\u0900-\u097F]", blob):
         return "hi"
+    if hint == "en" and hinglish_score(blob) >= 2:
+        return "hi"  # Roman Hindi, e.g. "shadi ke liye umar"
     return hint if hint in ("en", "hi", "kn") else "en"
 
 
@@ -89,6 +136,7 @@ def new_state(query: str, lang: str = "en",
         "provider": "",
         "tone": "simple",
         "trace": [],
+        "trace_detail": [],
         "memory": dict(memory or {}),
         "doc_id": "",
     }
@@ -109,15 +157,18 @@ def extract_slots(query_en: str) -> Dict[str, str]:
     m = _DIVORCE_TYPE_RE.search(query_en or "")
     if m:
         word = m.group(0).lower()
-        slots["divorce_type"] = ("mutual" if "mutual" in word or "आपसी" in word
-                                 else "contested")
+        if "khula" in word or "mubara" in word:
+            slots["divorce_type"] = "khula"
+        else:
+            slots["divorce_type"] = ("mutual" if "mutual" in word or "आपसी" in word
+                                     else "contested")
     for p in PARTY_WORDS:
         if p in low:
             slots["parties"] = p
             break
     sec = _SECTION_RE.search(query_en or "")
     if sec:
-        slots["section"] = sec.group(1) or sec.group(2) or ""
+        slots["section"] = sec.group(1) or sec.group(2) or sec.group(3) or ""
     return slots
 
 
@@ -131,7 +182,8 @@ def classify_intent(query_en: str, slots: Dict[str, str]) -> str:
     return "general"
 
 
-def missing_for(slots: Dict[str, str], query_en: str) -> List[str]:
+def missing_for(slots: Dict[str, str], query_en: str,
+                is_followup: bool = False) -> List[str]:
     """Key slots the planner needs before guessing (T3 accept rule)."""
     if slots.get("section"):
         return []  # exact-section lookup is answerable as-is
@@ -140,6 +192,8 @@ def missing_for(slots: Dict[str, str], query_en: str) -> List[str]:
         return ["topic"]
     if topic == "divorce" and not slots.get("divorce_type"):
         return ["divorce_type"]
+    if is_followup:
+        return []  # user already answered once — answer, don't interrogate
     words = (query_en or "").split()
     if topic in ("divorce", "maintenance", "custody") \
             and not slots.get("parties") and len(words) < 6:
@@ -148,37 +202,36 @@ def missing_for(slots: Dict[str, str], query_en: str) -> List[str]:
 
 
 CLARIFY_TEMPLATES = {
-    "en": ("To guide you correctly, could you clarify: {asked}? "
-           "(For example: mutual-consent or contested divorce; is this about "
-           "maintenance or custody; and who is asking — husband, wife, or "
-           "guardian?)"),
-    "hi": ("आपका सही मार्गदर्शन करने के लिए कृपया स्पष्ट करें: {asked}? "
-           "(जैसे: आपसी सहमति या विवादित तलाक; क्या यह भरण-पोषण या अभिरक्षा "
-           "के बारे में है; और कौन पूछ रहा है — पति, पत्नी या अभिभावक?)"),
-    "kn": ("ಸರಿಯಾಗಿ ಮಾರ್ಗದರ್ಶನ ನೀಡಲು ದಯವಿಟ್ಟು ಸ್ಪಷ್ಟಪಡಿಸಿ: {asked}? "
-           "(ಉದಾ: ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನ; ಇದು ಜೀವನಾಂಶ ಅಥವಾ "
-           "ಪಾಲನೆಗೆ ಸಂಬಂಧಿಸಿದ್ದೇ; ಮತ್ತು ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, "
-           "ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?)"),
+    # Short per-slot questions; only the actually-missing slots are asked.
+    "en": {"topic": "What is this about — divorce, maintenance, custody, "
+                    "adoption, succession, or domestic violence?",
+           "divorce_type": "Is this a mutual-consent divorce or a contested one?",
+           "parties": "Who is asking — husband, wife, or guardian?"},
+    "hi": {"topic": "यह किस बारे में है — तलाक, भरण-पोषण, अभिरक्षा, "
+                    "गोद लेना, उत्तराधिकार या घरेलू हिंसा?",
+           "divorce_type": "क्या यह आपसी सहमति से तलाक है या विवादित तलाक?",
+           "parties": "कौन पूछ रहा है — पति, पत्नी या अभिभावक?"},
+    "kn": {"topic": "ಇದು ಯಾವುದರ ಬಗ್ಗೆ — ವಿಚ್ಛೇದನ, ಜೀವನಾಂಶ, ಪಾಲನೆ, "
+                    "ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಅಥವಾ ಕೌಟುಂಬಿಕ ಹಿಂಸೆ?",
+           "divorce_type": "ಇದು ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನವೇ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನವೇ?",
+           "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?"},
 }
 
-_SLOT_LABELS = {
-    "en": {"topic": "the exact issue (divorce type, maintenance vs custody)",
-           "divorce_type": "whether this is mutual-consent or contested divorce",
-           "parties": "who is asking (husband, wife, guardian)"},
-    "hi": {"topic": "सटीक मुद्दा (तलाक का प्रकार, भरण-पोषण या अभिरक्षा)",
-           "divorce_type": "क्या यह आपसी सहमति या विवादित तलाक है",
-           "parties": "कौन पूछ रहा है (पति, पत्नी, अभिभावक)"},
-    "kn": {"topic": "ನಿಖರ ವಿಷಯ (ವಿಚ್ಛೇದನದ ವಿಧ, ಜೀವನಾಂಶ ಅಥವಾ ಪಾಲನೆ)",
-           "divorce_type": "ಇದು ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನವೇ",
-           "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು (ಗಂಡ, ಹೆಂಡತಿ, ಪಾಲಕರು)"},
+_CLARIFY_LEAD = {
+    "en": "To guide you correctly, ",
+    "hi": "सही मार्गदर्शन के लिए, ",
+    "kn": "ಸರಿಯಾಗಿ ಮಾರ್ಗದರ್ಶನ ನೀಡಲು, ",
 }
 
 
 def clarification_question(missing: List[str], lang: str) -> str:
-    labels = _SLOT_LABELS.get(lang, _SLOT_LABELS["en"])
-    asked = ", ".join(labels.get(m, m) for m in missing) or labels["topic"]
-    template = CLARIFY_TEMPLATES.get(lang, CLARIFY_TEMPLATES["en"])
-    return template.format(asked=asked)
+    bank = CLARIFY_TEMPLATES.get(lang, CLARIFY_TEMPLATES["en"])
+    lead = _CLARIFY_LEAD.get(lang, _CLARIFY_LEAD["en"])
+    asked = [bank.get(m, m) for m in missing[:2]]
+    if len(asked) == 1:
+        return lead + asked[0][0].lower() + asked[0][1:]
+    return lead + " ".join("(%d) %s" % (i + 1, q)
+                           for i, q in enumerate(asked))
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +269,7 @@ def chat_complete(messages: List[Dict[str, str]],
                  "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
                  "X-Title": "LawSaathi"},
                 {"model": OPENROUTER_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 800},
+                 "temperature": 0.2, "max_tokens": 1500},
             )
             text = data["choices"][0]["message"]["content"].strip()
             logger.info("agent llm provider=openrouter model=%s", OPENROUTER_MODEL)
@@ -231,7 +284,7 @@ def chat_complete(messages: List[Dict[str, str]],
                 {"Authorization": "Bearer " + groq_key,
                  "Content-Type": "application/json"},
                 {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 800},
+                 "temperature": 0.2, "max_tokens": 1500},
             )
             text = data["choices"][0]["message"]["content"].strip()
             logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
@@ -262,29 +315,71 @@ def _maybe_trace(name: str) -> Callable:
 
 # ---------------------------------------------------------------------------
 # Nodes — each takes and returns the shared state dict, appending to trace.
+# ``trace`` stays a plain node-name list (tests + API contract);
+# ``trace_detail`` carries one human-readable line per step for the UI.
 # ---------------------------------------------------------------------------
+
+LANG_NAMES = {"en": "English", "hi": "Hindi", "kn": "Kannada"}
+
+
+def _add_trace(state: Dict[str, Any], node: str, detail: str) -> None:
+    state["trace"] = list(state.get("trace", [])) + [node]
+    state["trace_detail"] = list(state.get("trace_detail", [])) + [
+        {"node": node, "detail": detail}]
+
+
+def carry_slots_from_history(slots: Dict[str, str],
+                             history: List[Dict[str, str]]) -> Dict[str, str]:
+    """Fill slots missing from a short follow-up with earlier user turns.
+
+    One-word replies ("mutual", "wife") carry no topic on their own, so the
+    planner would ask again. Merge slots from recent *user* messages; the
+    current message always wins on conflict.
+    """
+    if not history:
+        return slots
+    if slots.get("topic") and (slots.get("topic") != "divorce"
+                               or slots.get("divorce_type")):
+        return slots  # current message already stands alone
+    merged = dict(slots)
+    for msg in history:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        for key, val in extract_slots(msg.get("content", "")).items():
+            if key not in merged:
+                merged[key] = val
+    return merged
 
 def node_intent(state: Dict[str, Any],
                 llm: Optional[Callable] = None) -> Dict[str, Any]:
-    query = state["query"]
+    raw_query = state["query"]
+    query = raw_query
     lang = state["lang"]
     query_en = query
     provider = state.get("provider", "")
     history = state.get("history", [])
     if history and llm is not None:
-        # Follow-up questions ("what about my daughter?") need prior turns
-        # to stand alone for retrieval, so rewrite first, then translate.
+        # Follow-up questions ("mutual", "what about my daughter?") need
+        # prior turns to stand alone for retrieval, so rewrite first.
         try:
             query, provider = llm([
                 {"role": "system",
-                 "content": "Rewrite the last user question as a standalone "
-                            "family-law question using the conversation history. "
-                            "Reply with only the rewritten question."},
+                 "content": ("You resolve follow-up questions. Given the "
+                             "conversation history and the user's last message, "
+                             "write ONE standalone family-law question that "
+                             "keeps every detail from the last message "
+                             "(e.g. 'mutual' after a divorce question means "
+                             "mutual-consent divorce; 'wife' means the wife is "
+                             "asking). If the last message already stands "
+                             "alone, repeat it unchanged. Output ONLY that "
+                             "one question — no explanation, no preamble.")},
                 *history[-6:],
                 {"role": "user", "content": query},
             ])
             state["provider"] = provider
-            state["trace"] = list(state.get("trace", [])) + ["contextualize"]
+            _add_trace(state, "contextualize",
+                       "Follow-up %r became %r using chat history."
+                       % (raw_query[:60], query.strip()[:100]))
         except Exception as e:  # noqa: BLE001 — fall back to raw query
             logger.warning("agent contextualize failed (%r); using raw query", e)
     if lang != "en":
@@ -293,7 +388,7 @@ def node_intent(state: Dict[str, Any],
                 query_en, provider = llm([
                     {"role": "system",
                      "content": "Translate this family-law question to English. "
-                                "Reply with only the translation."},
+                                "Output only the translation. No explanations, no preamble."},
                     {"role": "user", "content": query},
                 ])
                 state["provider"] = provider
@@ -302,23 +397,46 @@ def node_intent(state: Dict[str, Any],
         # Without an LLM the raw query still retrieves (e5 is multilingual).
     state["query_en"] = query_en.strip() or query
     slots = extract_slots(state["query_en"])
+    carried = carry_slots_from_history(slots, history)
+    if carried != slots:
+        added = ", ".join("%s=%r" % (k, v) for k, v in carried.items()
+                          if slots.get(k) != v)
+        logger.info("agent carried slots from history: %s", added)
+    slots = carried
     state["slots"] = slots
     state["intent"] = classify_intent(state["query_en"], slots)
     state["oos_redirect"] = is_oos(state["query_en"])
-    state["trace"] = list(state.get("trace", [])) + ["intent"]
+    topic = slots.get("topic")
+    bits = []
+    if topic:
+        bits.append("topic %r" % topic)
+    if slots.get("divorce_type"):
+        bits.append("type %r" % slots["divorce_type"])
+    if slots.get("parties"):
+        bits.append("asking for %r" % slots["parties"])
+    if slots.get("section"):
+        bits.append("section %s" % slots["section"])
+    found = "; ".join(bits) if bits else "no clear topic yet"
+    _add_trace(state, "intent",
+               "Detected %s, language %s." % (
+                   found, LANG_NAMES.get(state["lang"], state["lang"])))
     return state
 
 
 def node_planner(state: Dict[str, Any]) -> Dict[str, Any]:
     missing = missing_for(state.get("slots", {}),
-                          state.get("query_en", ""))
+                          state.get("query_en", ""),
+                          is_followup=bool(state.get("history")))
     state["missing_slots"] = missing
     if missing:
         state["clarification"] = clarification_question(
             missing, state.get("lang", "en"))
+        _add_trace(state, "planner",
+                   "Still need: %s — asking you instead of guessing."
+                   % ", ".join(missing))
     else:
         state["clarification"] = ""
-    state["trace"] = list(state.get("trace", [])) + ["planner"]
+        _add_trace(state, "planner", "Nothing missing — retrieving the law.")
     return state
 
 
@@ -442,7 +560,15 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     except Exception as e:  # noqa: BLE001 — web is best-effort
         logger.warning("agent web_search failed (%r)", e)
     state["evidence"] = evidence
-    state["trace"] = list(state.get("trace", [])) + ["tools"]
+    n = len(evidence)
+    if n:
+        top = format_citation((evidence[0].get("payload") or {})
+                              if isinstance(evidence[0], dict) else {})
+        _add_trace(state, "tools",
+                   "Retrieved %d section%s — top hit: %s."
+                   % (n, "" if n == 1 else "s", top))
+    else:
+        _add_trace(state, "tools", "No matching sections found.")
     return state
 
 
@@ -472,8 +598,10 @@ def is_oos(query_en: str) -> bool:
     # Only redirect when clearly not family law and has OOS term
     has_oos = any(k in low for k in OOS_KEYWORDS)
     has_family = any(k in low for k in (
-        "marriage", "divorce", "custody", "maintenance", "adoption",
-        "guardians", "domestic violence", "succession", "inheritance"))
+        "marriage", "married", "divorce", "divorced", "custody",
+        "maintenance", "adoption", "adopted", "guardians",
+        "domestic violence", "succession", "inheritance", "inherit",
+        "heir"))
     return has_oos and not has_family
 
 
@@ -496,14 +624,22 @@ def node_verifier(state: Dict[str, Any],
     state["confidence"] = confidence
     if sufficient:
         state["verified"] = True
+        _add_trace(state, "verifier",
+                   "Citations cover the answer — confidence %.2f."
+                   % confidence)
     elif retries < MAX_RETRIES:
         state["verified"] = False
         state["retries"] = retries + 1
         state["needs_retry"] = True
+        _add_trace(state, "verifier",
+                   "Evidence too thin — broadening the search (retry %d/%d)."
+                   % (retries + 1, MAX_RETRIES))
     else:
         state["verified"] = False
         state["needs_retry"] = False
-    state["trace"] = list(state.get("trace", [])) + ["verifier"]
+        _add_trace(state, "verifier",
+                   "Still thin after %d retries — answering with a caution."
+                   % MAX_RETRIES)
     return state
 
 
@@ -519,8 +655,8 @@ DISCLAIMER = {
 
 OOS_REDIRECT = {
     "en": "This question is outside my family-law scope (land, property, criminal, tax, etc.). I only assist with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please consult a specialist for this topic.",
-    "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभiraksha, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृप्या इस विषय के लिए विशेषज्ञ से परामर्श करें।",
-    "kn": "ಈ ಪ್ರಶ್ನೆ ನನ್ನ ಕುಟುಂಬ ಕಾನೂನು ವ್ಯಾಪ್ತige ಹೊರಗide (ಭೂಮಿ, ಆsti, criminal, ತೆರige ಇত্যাদি). ನಾನು ಮarriage, ವಿಚ್ಛೇದn, palli, życie, data, uttaradhikar ಮತ್ತು kountubiK ಹinseyinda ಸಹay maDutténe. dayavuse bhayga este viṣaya khāti t jñannikinda samaraksha maDi.",
+    "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभिरक्षा, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृपया इस विषय के लिए विशेषज्ञ से परामर्श करें।",
+    "kn": "ಈ ಪ್ರಶ್ನೆಯು ನನ್ನ ಕುಟುಂಬ ಕಾನೂನಿನ ವ್ಯಾಪ್ತಿಯಿಂದ ಹೊರಗಿದೆ (ಭೂಮಿ, ಆಸ್ತಿ, ಕ್ರಿಮಿನಲ್, ತೆರಿಗೆ ಇತ್ಯಾದಿ). ನಾನು ವಿವಾಹ, ವಿಚ್ಛೇದನ, ಪಾಲನೆ, ಜೀವನಾಂಶ, ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಮತ್ತು ಕೌಟುಂಬಿಕ ಹಿಂಸೆಯಲ್ಲಿ ಮಾತ್ರ ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ದಯವಿಟ್ಟು ಈ ವಿಷಯಕ್ಕಾಗಿ ತಜ್ಞರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
 
 LOW_CONFIDENCE_DISCLAIMER = {
@@ -531,9 +667,53 @@ LOW_CONFIDENCE_DISCLAIMER = {
 
 NEXT_STEPS = {
     "en": "Next steps: gather relevant documents (marriage certificate, court orders) and speak with a family-law lawyer for personalized guidance.",
-    "hi": "अgale ciraN: prasaMGika dastaweiZ (vivaha praMamata, nyayAlaya Adesha) ekataroM kareN_ar vyaktigat mArgaDarshaNa ke lie pArivArika kAnUna vakIla se bAt kareN।",
-    "kn": "muNani: sambanḍita dākhalēgalannu saṅgrahisi (mariyāde cetṭika, koraṭṭu opekke) mariyu vyaktigaṭṭa mārgašașiṅge kaṇḍa kŌtumbiḵ kānūna vakīlannu samakari.",
+    "hi": "अगले कदम: प्रासंगिक दस्तावेज़ (विवाह प्रमाणपत्र, न्यायालय आदेश) इकट्ठा करें और व्यक्तिगत मार्गदर्शन के लिए पारिवारिक कानून के वकील से बात करें।",
+    "kn": "ಮುಂದಿನ ಹೆಜ್ಜೆಗಳು: ಸಂಬಂಧಿತ ದಾಖಲೆಗಳನ್ನು (ಮದುವೆ ಪ್ರಮಾಣಪತ್ರ, ನ್ಯಾಯಾಲಯದ ಆದೇಶಗಳು) ಸಂಗ್ರಹಿಸಿ ಮತ್ತು ವೈಯಕ್ತಿಕ ಮಾರ್ಗದರ್ಶನಕ್ಕಾಗಿ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
+
+
+def strip_reasoning_leak(text: str) -> str:
+    """Remove chain-of-thought leakage from small translation models.
+
+    qwen-2.5-7b often thinks aloud ("We need to translate…", "Let's parse…")
+    and echoes the English source in a fenced block instead of returning only
+    the translation. Strip those markers; keep the actual answer.
+    """
+    if not text:
+        return text
+    # Drop fenced code blocks that echo the English source answer.
+    no_fence = re.sub(r"```.*?```", "", text, flags=re.DOTALL).strip()
+    candidate = no_fence if no_fence.strip() else text
+    leak_re = re.compile(
+        r"^(we need to|we have the|actually the|let'?s parse|let us parse|"
+        r"so we need|also keep|the rest of|we need to output|the user says|"
+        r"we need to produce|we need to translate|here is the translation"
+        r"|translation:)\b.*$",
+        re.IGNORECASE)
+    lines = [ln for ln in candidate.splitlines()
+             if not leak_re.match(ln.strip())]
+    cleaned = "\n".join(lines).strip()
+    # If stripping removed everything, fall back to stripping only fences.
+    return cleaned or no_fence.strip() or text.strip()
+
+
+TOPIC_SUMMARY = {
+    "divorce": "For divorce, Indian family law provides mutual-consent (joint petition after living apart) and contested (fault grounds) routes under the Hindu Marriage Act, Special Marriage Act, or Indian Divorce Act depending on religion and marriage type.",
+    "maintenance": "For maintenance, the Hindu Adoption & Maintenance Act and related provisions let eligible spouses/children claim support based on need and the other party's means.",
+    "custody": "For custody, the Guardians & Wards Act and related provisions decide on the child's welfare as paramount — custody, visitation, and guardianship.",
+    "adoption": "For adoption, the Hindu Adoption & Maintenance Act lays down who may adopt, who may be adopted, and the required ceremonies and consents.",
+    "succession": "For succession, the Hindu Succession Act governs how property devolves on heirs, including Class I/II heirs and testamentary succession.",
+    "domestic_violence": "For domestic violence, the DV Act 2005 provides protection orders, residence orders, monetary relief, and custody orders for aggrieved persons.",
+    "marriage": "For marriage, the Hindu Marriage Act and Special Marriage Act lay down conditions, ceremonies/registration, and validity requirements.",
+    "general": "The relevant family-law acts set the conditions, procedure, and reliefs for this question.",
+}
+
+
+def _short_meaning(text: str, limit: int = 160) -> str:
+    one_line = re.sub(r"\s+", " ", (text or "").strip())
+    if len(one_line) > limit:
+        return one_line[:limit].rstrip() + "…"
+    return one_line
 
 
 def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
@@ -561,32 +741,33 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
         for h in evidence[:5]
     ]
     lines = []
-    for i, hit in enumerate(evidence[:3], start=1):
+    for i, hit in enumerate(evidence[:5], start=1):
         payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
         text = str(payload.get("text", "") or "").strip()
-        if len(text) > 600:
-            text = text[:600].rstrip() + "…"
-        lines.append("[%d] %s: %s" % (i, format_citation(payload), text))
+        cite = format_citation(payload)
+        lines.append("- **[%d] %s** — %s" % (
+            i, cite, _short_meaning(text)))
     slots = state.get("slots", {})
-    topic = slots.get("topic", "family-law question")
-    head = ("Based on the family-law acts I retrieved for your %s question:"
-            % topic)
-    body = "\n".join(lines)
-    tail = "Cited: " + "; ".join(citations) if citations else ""
+    topic = slots.get("topic", "general")
+    summary = TOPIC_SUMMARY.get(topic, TOPIC_SUMMARY["general"])
+    sections_md = "\n".join(lines)
+    disclaimer = DISCLAIMER.get(lang, DISCLAIMER["en"])
+    next_steps = NEXT_STEPS.get(lang, NEXT_STEPS["en"])
     confidence = float(state.get("confidence", 1.0))
-    # Low-confidence: stronger disclaimer + consult lawyer
+    low_warn = ""
     if confidence < 0.7:
-        extra_disclaim = "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"])
-    else:
-        extra_disclaim = ""
-    answer = "%s\n%s\n%s\n%s%s\n\n%s" % (
-        head, body, tail, DISCLAIMER.get(lang, DISCLAIMER["en"]),
-        extra_disclaim, NEXT_STEPS.get(lang, NEXT_STEPS["en"]))
+        low_warn = "\n\n> " + LOW_CONFIDENCE_DISCLAIMER.get(
+            lang, LOW_CONFIDENCE_DISCLAIMER["en"])
+    answer = (
+        "## Quick answer\n\n%s\n\n"
+        "### What the law says\n\n%s\n\n"
+        "### Next steps\n\n%s%s\n\n"
+        "*%s*"
+        % (summary, sections_md, next_steps, low_warn, disclaimer))
     if tone == "detailed":
-        detail = ("Note: the sections cited above are from the bare text of the "
-                  "family-law acts. If you need the exact wording or a case-law "
-                  "reference, share the section number and I will verify it.")
-        answer = "%s\n%s" % (answer, detail)
+        detail = ("\n\n> Note: sections above are short summaries of the bare-act "
+                  "text. Share a section number if you need the exact wording.")
+        answer = "%s%s" % (answer, detail)
     return answer, citations, citation_sources
 
 
@@ -601,7 +782,7 @@ def node_response(state: Dict[str, Any],
                 text, provider = llm([
                     {"role": "system",
                      "content": "Render this clarification question in %s. "
-                                "Reply with only the translation." % lang},
+                                "Output only the translation. No explanations, no preamble." % lang},
                     {"role": "user", "content": text},
                 ])
                 state["provider"] = provider
@@ -610,7 +791,10 @@ def node_response(state: Dict[str, Any],
         state["answer"] = text
         state["citations"] = []
         state["citation_sources"] = []
-        state["trace"] = list(state.get("trace", [])) + ["response"]
+        missing = state.get("missing_slots", [])
+        _add_trace(state, "response",
+                   "Asked you for: %s." % ", ".join(missing) if missing
+                   else "Asked you a follow-up question.")
         return state
     answer_en, citations, citation_sources = compose_answer(state)
     final = answer_en
@@ -619,18 +803,28 @@ def node_response(state: Dict[str, Any],
         try:
             final, provider = llm([
                 {"role": "system",
-                 "content": "Render this legal answer in %s. Keep citations "
-                            "and section names in English. Reply with only the "
-                            "translation." % lang},
+                 "content": ("You are a translator. Translate the user text "
+                             "into %s. Keep markdown structure (##, ###, -, "
+                             "**, *), citations, act names and section names "
+                             "in English. Output ONLY the translated answer. "
+                             "Do NOT explain, do NOT think aloud, no preamble, "
+                             "no code blocks, no commentary." % lang)},
                 {"role": "user", "content": answer_en},
             ])
+            final = strip_reasoning_leak(final)
             state["provider"] = provider
         except Exception as e:  # noqa: BLE001 — English answer still usable
             logger.warning("agent answer translate failed (%r)", e)
+    else:
+        final = strip_reasoning_leak(final)
     state["answer"] = final
     state["citations"] = citations
     state["citation_sources"] = citation_sources
-    state["trace"] = list(state.get("trace", [])) + ["response"]
+    _add_trace(state, "response",
+               "Wrote the final answer with %d citation%s%s."
+               % (len(citations), "" if len(citations) == 1 else "s",
+                  " in " + LANG_NAMES[lang]
+                  if lang != "en" and lang in LANG_NAMES else ""))
     return state
 
 
