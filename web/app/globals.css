@@ -887,4 +887,43 @@ main.auth-wrap { max-width: 1100px; }
 }
 @media (max-width: 520px) {
   .steps { grid-template-columns: 1fr; }
+
+  /* The header CTAs wrapped onto two lines ("Log / in") on a phone. Keep each
+     label on one line and shrink them rather than let them break. */
+  .nav-cta { gap: 6px; }
+  .nav-cta a,
+  .nav-cta button {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.82rem;
+  }
+  .brand { gap: 8px; }
+  .brand-word { font-size: 1.05rem; }
+  .brand-logo { width: 30px; height: 30px; }
+
+  /* Comfortable touch targets: 36px+ avoids mis-taps on a phone. */
+  .btn-ghost,
+  .btn-solid,
+  .auth-submit { min-height: 44px; }
+  .pw-eye { min-width: 44px; min-height: 44px; }
+  .auth-toggle button { padding: 10px 0; min-height: 44px; }
+
+  /* Chat: the two selects and the send button were competing for one row. */
+  .chat-controls { gap: 6px; }
+  .composer-row { flex-wrap: wrap; }
+  .composer-row input { min-width: 0; flex: 1 1 100%; }
+  .composer-row button { flex: 1 1 100%; min-height: 44px; }
+  .chip { width: 100%; }
+  .ans-card { padding: 14px 13px; }
+  .src-item { font-size: 0.85rem; }
+  .side-new,
+  .side-home { min-height: 44px; }
+}
+
+/* Very small phones (SE, older Androids). */
+@media (max-width: 360px) {
+  .nav-cta a,
+  .nav-cta button { padding: 8px 9px; font-size: 0.78rem; }
+  .brand-word { font-size: 0.98rem; }
+  .hero h1 { font-size: 1.6rem; }
 }

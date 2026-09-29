@@ -232,7 +232,9 @@ export default function Chat() {
         setTone(u.tone || "simple");
       })
       .catch(() => {});
-    api("/memories")
+    // The API exposes memories under /me/memories; "/memories" 404s, which
+    // silently dropped the saved language and tone on every load.
+    api("/me/memories")
       .then((m: any) => {
         const mem: Record<string, string> = {};
         (m.memories || []).forEach((item: any) => (mem[item.key] = item.value));

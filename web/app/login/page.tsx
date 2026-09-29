@@ -28,6 +28,9 @@ function LoginForm() {
   const [showPw, setShowPw] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState("");
+  // A tap on a slow phone gave zero feedback while the request was in
+  // flight, so it looked like the button was broken.
+  const [busy, setBusy] = useState(false);
 
   // Nav links switch forms via ?mode=: /login = login, /login?mode=register = signup.
   // Runs on every query change (same-page navigation doesn't remount).
@@ -38,16 +41,24 @@ function LoginForm() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
-    const { error } =
-      mode === "register"
-        ? await authClient.signUp.email({ email, password, name: name || email })
-        : await authClient.signIn.email({ email, password });
-    if (error) {
-      setError(error.message || "Failed");
-      return;
+    setBusy(true);
+    try {
+      const { error } =
+        mode === "register"
+          ? await authClient.signUp.email({ email, password, name: name || email })
+          : await authClient.signIn.email({ email, password });
+      if (error) {
+        setError(error.message || "Failed");
+        return;
+      }
+      router.push("/chat");
+    } catch {
+      setError("Could not sign you in. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    router.push("/chat");
   }
 
   return (
@@ -74,8 +85,11 @@ function LoginForm() {
               <EyeIcon off={showPw} />
             </button>
           </div>
-          <button className="primary auth-submit" type="submit">
-            {mode === "login" ? "Login →" : "Create account →"}
+          <button className="primary auth-submit" type="submit" disabled={busy}
+            aria-busy={busy}>
+            {busy
+              ? (mode === "login" ? "Signing in…" : "Creating account…")
+              : (mode === "login" ? "Login →" : "Create account →")}
           </button>
         </form>
         {error && <p className="error">{error}</p>}
