@@ -9,6 +9,7 @@ from app.agent import (
     StubRetriever,
     chat_complete,
     clarification_question,
+    broaden_query,
     extract_slots,
     missing_for,
     new_state,
@@ -169,6 +170,21 @@ def test_ask_endpoint_clarification_path(client):
     assert body["trace"] == ["intent", "planner", "response"]
     history = client.get("/sessions/%d/messages" % sid, headers=h).json()
     assert [m["role"] for m in history] == ["user", "assistant"]
+
+
+def test_broadened_query_does_not_let_one_word_hijack_retrieval():
+    """"Who gets custody of the child in a divorce?" retrieved Indian Divorce
+    Act sections: the single word "divorce" outweighed "custody" and pulled
+    the whole search to divorce acts, never reaching Guardians and Wards."""
+    q = "Who gets the custody of the child in a divorce?"
+    b = broaden_query(q, 0, "custody")
+    # the topic the user actually asked about must be stated first
+    assert b.lower().startswith(q.lower()[:20])
+    # and the retrieval must be anchored to the right act
+    assert "guardians and wards" in b.lower()
+    # repeat retrieval must broaden rather than re-weight the same words
+    b2 = broaden_query(q, 1, "custody")
+    assert "divorce" in b2.lower()
 
 
 def test_web_search_shows_in_the_trace_with_its_query():

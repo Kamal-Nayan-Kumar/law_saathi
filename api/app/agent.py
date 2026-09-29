@@ -582,19 +582,43 @@ def node_planner(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
-def broaden_query(query_en: str, retries: int) -> str:
+# The act that actually governs each topic. Retrieval on the bare question
+# alone lets one incidental word decide the results: "Who gets the custody of
+# the child in a divorce?" returned Indian Divorce Act sections because
+# "divorce" outweighed "custody", and never reached Guardians and Wards.
+TOPIC_ACT = {
+    "custody": "Guardians and Wards Act 1890",
+    "divorce": "Hindu Marriage Act 1955 Indian Divorce Act 1869",
+    "marriage": "Hindu Marriage Act 1955 Special Marriage Act 1954",
+    "maintenance": "Hindu Adoption and Maintenance Act 1956",
+    "adoption": "Hindu Adoption and Maintenance Act 1956",
+    "succession": "Hindu Succession Act 1956",
+    "domestic_violence": "Domestic Violence Act 2005",
+}
+
+_ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
+             "and Maintenance Act 1956 Hindu Succession Act 1956 Guardians and "
+             "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869")
+
+
+def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
+    """Shape the retrieval query.
+
+    Always anchor to the act that governs the detected topic, so a stray
+    word in the question cannot drag the results into the wrong act. On a
+    retry, add the full act list; on the second retry, drop section numbers
+    that may be over-narrowing.
+    """
+    anchor = TOPIC_ACT.get(topic or "", "")
     if retries <= 0:
-        return query_en
-    acts = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
-            "and Maintenance Act 1956 Hindu Succession Act 1956 Guardians and "
-            "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869")
+        return ("%s %s" % (query_en, anchor)).strip() if anchor else query_en
     if retries == 1:
-        return "%s family law India %s" % (query_en, acts)
+        return "%s %s %s" % (query_en, anchor, _ALL_ACTS)
     # Retry 2: drop section numbers that may over-narrow the query.
     stripped = re.sub(r"section\s+\d+[A-Z\-]*", " ", query_en,
                       flags=re.IGNORECASE)
     stripped = re.sub(r"\s+", " ", stripped).strip()
-    return "%s %s" % (stripped or query_en, acts)
+    return "%s %s %s" % (stripped or query_en, anchor, _ALL_ACTS)
 
 
 class StubRetriever:
@@ -680,7 +704,8 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                web_search: Optional[Callable] = None) -> Dict[str, Any]:
     store = retriever or default_retriever()
     query_en = broaden_query(state.get("query_en", state.get("query", "")),
-                             state.get("retries", 0))
+                             state.get("retries", 0),
+                             (state.get("slots") or {}).get("topic", ""))
     evidence: List[Dict[str, Any]] = []
     doc_id = state.get("doc_id") or state.get("doc_id", "")
     try:
