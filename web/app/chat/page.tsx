@@ -130,7 +130,9 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
 
   return (
     <div className="ans-card">
-      {m && m.trace.length > 0 && (
+      {/* Gate on steps, not trace: a reopened session restores citations but has
+          no stored trace, which would render an empty Thinking toggle. */}
+      {m && m.steps.length > 0 && (
         <div className="think think-top">
           <button type="button" className="think-toggle" onClick={() => setShowThink((v) => !v)}>
             {showThink ? "▾ Thinking" : "▸ Thinking"}
