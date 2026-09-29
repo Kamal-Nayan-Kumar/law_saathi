@@ -19,6 +19,16 @@ def create_app(engine: Optional[Engine] = None) -> FastAPI:
     app.include_router(chat_router)
     app.include_router(upload_router)
 
+    @app.get("/")
+    def root():
+        """The bare API URL is the first thing anyone opens, so answer with
+        something useful instead of a bare 404."""
+        return {
+            "service": "LawSaathi API",
+            "docs": "/docs",
+            "endpoints": ["/health", "/sessions", "/upload/pdf", "/me"],
+        }
+
     @app.get("/health")
     def health():
         return {"status": "ok"}
