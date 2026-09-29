@@ -34,6 +34,8 @@ class MessageOut(BaseModel):
     role: str
     content: str
     lang: str
+    citations: List[str] = []
+    citation_sources: List[str] = []
 
 
 class MemoryIn(BaseModel):

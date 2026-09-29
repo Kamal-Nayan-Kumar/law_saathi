@@ -1,7 +1,8 @@
 """Neon schema: users, sessions, messages, memories."""
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -39,6 +40,10 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16))  # user | assistant
     content: Mapped[str] = mapped_column(Text)
     lang: Mapped[str] = mapped_column(String(8), default="en")
+    # Sources for an assistant turn, so a reopened chat still renders the
+    # Sources list. NULL for rows written before these columns existed.
+    citations: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    citation_sources: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

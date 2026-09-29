@@ -25,6 +25,13 @@ from app.schemas import (
 router = APIRouter(tags=["chat"])
 
 
+def _message_out(msg: Message) -> MessageOut:
+    """Rows written before the citations columns existed hold NULL there."""
+    return MessageOut(id=msg.id, role=msg.role, content=msg.content, lang=msg.lang,
+                      citations=list(msg.citations or []),
+                      citation_sources=list(msg.citation_sources or []))
+
+
 def _session_owned(session_id: int, user: User, db: Session) -> ChatSession:
     chat = db.query(ChatSession).filter_by(id=session_id, user_id=user.id).first()
     if chat is None:
@@ -97,7 +104,7 @@ def post_message(session_id: int, body: MessageIn,
     msg = Message(session_id=session_id, role=body.role, content=body.content, lang=body.lang)
     db.add(msg)
     db.flush()
-    return MessageOut(id=msg.id, role=msg.role, content=msg.content, lang=msg.lang)
+    return _message_out(msg)
 
 
 @router.get("/sessions/{session_id}/messages", response_model=List[MessageOut])
@@ -106,7 +113,7 @@ def get_messages(session_id: int,
                  db: Session = Depends(db_module.get_session)):
     _session_owned(session_id, user, db)
     msgs = db.query(Message).filter_by(session_id=session_id).order_by(Message.id).all()
-    return [MessageOut(id=m.id, role=m.role, content=m.content, lang=m.lang) for m in msgs]
+    return [_message_out(m) for m in msgs]
 
 
 @router.post("/sessions/{session_id}/ask", response_model=AskOut)
@@ -153,7 +160,9 @@ def ask(session_id: int, body: AskIn,
                                    min_score=float(body.min_score),
                                    history=history)
     db.add(Message(session_id=session_id, role="assistant",
-                   content=state.get("answer", ""), lang=body_lang))
+                   content=state.get("answer", ""), lang=body_lang,
+                   citations=list(state.get("citations", [])),
+                   citation_sources=list(state.get("citation_sources", []))))
     db.flush()
     # Auto-title untitled sessions from the first question.
     chat = _session_owned(session_id, user, db)

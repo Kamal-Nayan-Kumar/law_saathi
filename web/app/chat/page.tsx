@@ -13,6 +13,13 @@ type Msg = {
   lang: string;
 };
 
+// A message as returned by GET /sessions/{id}/messages. The source fields were
+// added after the first release, so older rows simply don't carry them.
+type StoredMsg = Msg & {
+  citations?: string[];
+  citation_sources?: string[];
+};
+
 type ChatSession = {
   id: number;
   title: string;
@@ -64,6 +71,24 @@ function detectLang(text: string): "en" | "hi" | "kn" {
 }
 
 type Meta = { trace: string[]; steps: TraceStep[]; citations: string[]; sources: string[] };
+
+// Rebuild the per-message Meta map from a fetched message list so a reopened
+// chat shows the same Sources block and inline markers as a live answer. The
+// trace is not persisted, so `trace`/`steps` stay empty and Thinking stays hidden.
+// Messages without stored citations simply get no entry.
+function metaFromList(list: StoredMsg[]): Record<number, Meta> {
+  const next: Record<number, Meta> = {};
+  list.forEach((m) => {
+    if (m.role !== "assistant") return;
+    next[m.id] = {
+      trace: [],
+      steps: [],
+      citations: m.citations || [],
+      sources: m.citation_sources || [],
+    };
+  });
+  return next;
+}
 
 // How a source is labelled in the Sources list. `kind` picks the tag colour.
 const SOURCE_TAGS: Record<string, { label: string; kind: string }> = {
@@ -238,16 +263,21 @@ export default function Chat() {
   function openSession(id: number) {
     setSessionId(id);
     setMsgs([]);
+    setMeta({});
     setError("");
     setSideOpen(false);
     api(`/sessions/${id}/messages`)
-      .then((list: Msg[]) => setMsgs(list))
+      .then((list: StoredMsg[]) => {
+        setMsgs(list);
+        setMeta(metaFromList(list));
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }
 
   function newChat() {
     setSessionId(null);
     setMsgs([]);
+    setMeta({});
     setError("");
     setSideOpen(false);
   }
@@ -299,18 +329,16 @@ export default function Chat() {
       setMsgs((prev) => [...prev, botMsg]);
       setMeta((prev) => ({ ...prev, [botId]: tmeta }));
       api(`/sessions/${sid}/messages`)
-        .then((list: Msg[]) => {
+        .then((list: StoredMsg[]) => {
           if (!list.length) return;
           setMsgs(list);
-          // Re-attach this answer's trace/sources to its real server id
+          // Stored citations for the whole thread, then re-attach this answer's
+          // live trace to its real server id (ids change on reload).
           const match = list.find((m) => m.role === "assistant" && m.content === answerObj.answer);
-          if (match) {
-            setMeta((prev) => {
-              const next = { ...prev, [match.id]: tmeta };
-              delete next[botId];
-              return next;
-            });
-          }
+          const next = metaFromList(list);
+          if (match) next[match.id] = tmeta;
+          delete next[botId];
+          setMeta(next);
         })
         .catch(() => {});
       refreshSessions();
