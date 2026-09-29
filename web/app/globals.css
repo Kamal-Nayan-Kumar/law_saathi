@@ -542,40 +542,42 @@ button.primary {
 .chat-top-inner {
   max-width: 880px;
   margin: 0 auto;
-  padding: 12px 24px;
+  padding: 10px 24px 12px;
+}
+/* Row 1: history toggle, logo, wordmark, sign out. */
+.chat-head-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .chat-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: #fff;
   object-fit: cover;
   flex: none;
 }
-.chat-title b { font-size: 1.15rem; }
-.chat-title b span { color: var(--marigold); }
-.chat-title p { font-size: 0.82rem; color: #d9cbb2; margin-top: 2px; }
-.chat-controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-.chat-controls select {
-  width: auto;
-  margin-top: 0;
-  padding: 7px 10px;
-  font-size: 0.82rem;
-  background: #fff;
+.chat-wordmark { font-size: 1.08rem; }
+.chat-wordmark span { color: var(--marigold); }
+/* Row 2: slogan sits under the wordmark, not the whole bar. */
+.chat-slogan {
+  font-size: 0.78rem;
+  color: #d9cbb2;
+  margin: 3px 0 0 44px;
 }
 .chat-signout {
+  margin-left: auto;
   background: transparent;
   color: #e8dcc6;
   border: 1px solid #7a4a4b;
   border-radius: 999px;
-  padding: 7px 16px;
-  font-size: 0.82rem;
+  padding: 6px 14px;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   margin-top: 0;
+  white-space: nowrap;
 }
 .chat-signout:hover { border-color: var(--marigold); color: #fff; }
 .chat-main {
@@ -617,25 +619,48 @@ button.primary {
   bottom: 0;
   background: rgba(250, 247, 240, 0.97);
   border-top: 1px solid var(--line);
-  padding: 14px 24px 10px;
+  padding: 12px 24px;
 }
 .composer-row {
   max-width: 760px;
   margin: 0 auto;
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 5px 5px 16px;
 }
-.composer-row input { margin-top: 0; flex: 1; background: #fff; }
-.composer-row .primary { margin-top: 0; white-space: nowrap; }
-.composer-note {
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-top: 8px;
+.composer-row input {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 8px 0;
 }
+.composer-row input:focus { outline: none; }
+/* Send is an arrow sitting beside the text box, not a wide bar below it. */
+.composer-send {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--maroon);
+  color: var(--paper);
+  border: 0;
+  cursor: pointer;
+}
+.composer-send:disabled {
+  background: #c9bda9;
+  cursor: default;
+}
+.composer-send svg { display: block; }
 
 /* ---------- Answer cards: markdown, thinking, sources ---------- */
 .thread { max-width: 800px; }
@@ -858,8 +883,7 @@ main.auth-wrap { max-width: 1100px; }
   .auth-card { grid-template-columns: 1fr; margin-top: 24px; }
   .auth-media img { min-height: 0; max-height: 220px; }
   .auth-form { padding: 26px 22px; }
-  .chat-top-inner { flex-wrap: wrap; }
-  .chat-controls { margin-left: 0; width: 100%; }
+  .chat-top-inner { padding: 10px 16px 12px; }
   .chat-empty img { width: 260px; }
   .sidebar {
     position: fixed;
@@ -908,11 +932,11 @@ main.auth-wrap { max-width: 1100px; }
   .pw-eye { min-width: 44px; min-height: 44px; }
   .auth-toggle button { padding: 10px 0; min-height: 44px; }
 
-  /* Chat: the two selects and the send button were competing for one row. */
-  .chat-controls { gap: 6px; }
-  .composer-row { flex-wrap: wrap; }
-  .composer-row input { min-width: 0; flex: 1 1 100%; }
-  .composer-row button { flex: 1 1 100%; min-height: 44px; }
+  /* Composer stays a single pill row: text box with the arrow inside it. */
+  .composer { padding: 10px 14px; }
+  .composer-row { padding: 4px 4px 4px 14px; }
+  .composer-send { width: 40px; height: 40px; }
+  .chat-slogan { margin-left: 40px; font-size: 0.75rem; }
   .chip { width: 100%; }
   .ans-card { padding: 14px 13px; }
   .src-item { font-size: 0.85rem; }

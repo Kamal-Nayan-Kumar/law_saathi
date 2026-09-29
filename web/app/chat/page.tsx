@@ -431,32 +431,25 @@ export default function Chat() {
         {/* Chat header (replaces marketing nav on this page) */}
         <header className="chat-top">
           <div className="chat-top-inner">
-            {isMobile && (
-              <button type="button" className="side-toggle" onClick={toggleSide} aria-label="Show history" title="Show history">
-                ☰
-              </button>
-            )}
-            <img src="/images/logo.png" alt="Law Saathi logo" className="chat-logo" />
-            <div className="chat-title">
-              <b>
+            {/* Row 1: history toggle, logo, wordmark, sign out */}
+            <div className="chat-head-row">
+              {isMobile && (
+                <button type="button" className="side-toggle" onClick={toggleSide} aria-label="Show history" title="Show history">
+                  ☰
+                </button>
+              )}
+              <img src="/images/logo.png" alt="Law Saathi logo" className="chat-logo" />
+              <b className="chat-wordmark">
                 Law <span>Saathi</span>
               </b>
-              <p>Ask about family law — in any language.</p>
-            </div>
-            <div className="chat-controls">
-              <select value={lang} onChange={(e) => { setLang(e.target.value); savePref("preferred_lang", e.target.value); }} aria-label="Chat language">
-                <option value="en">EN</option>
-                <option value="hi">HI</option>
-                <option value="kn">KN</option>
-              </select>
-              <select value={tone} onChange={(e) => { setTone(e.target.value); savePref("tone", e.target.value); }} aria-label="Answer tone">
-                <option value="simple">Simple</option>
-                <option value="detailed">Detailed</option>
-              </select>
               <button type="button" className="chat-signout" onClick={signOut}>
                 Sign out
               </button>
             </div>
+            {/* Row 2: slogan. The language and tone pickers were removed —
+                the answer now follows the language of the question, and the
+                default tone is the simple one. */}
+            <p className="chat-slogan">Ask about family law — in any language.</p>
           </div>
         </header>
 
@@ -523,11 +516,17 @@ export default function Chat() {
               placeholder="Ask a question…"
               aria-label="Question"
             />
-            <button className="primary" type="submit" disabled={loading || !draft.trim()}>
-              Send
+            <button className="composer-send" type="submit"
+              disabled={loading || !draft.trim()}
+              aria-label="Send question" title="Send">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
+                fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5" />
+                <path d="M5 12l7-7 7 7" />
+              </svg>
             </button>
           </form>
-          <p className="composer-note">Answers cite bare-act sections of Indian family law</p>
         </div>
       </div>
     </div>
