@@ -449,7 +449,10 @@ def trace_run(state: Dict[str, Any]) -> None:
                      "missing_slots": state.get("missing_slots", []),
                      "trace": state.get("trace", []),
                      "trace_detail": state.get("trace_detail", [])},
-            error=bool(state.get("trace_error")),
+            # LangSmith's schema types `error` as a string, not a boolean;
+            # passing True gets the whole run rejected with HTTP 422.
+            error=(state.get("trace_error") and "run raised an exception")
+                   or None,
         )
     except Exception as e:  # noqa: BLE001 — tracing must never break chat
         logger.warning("agent trace_run failed (%r)", e)

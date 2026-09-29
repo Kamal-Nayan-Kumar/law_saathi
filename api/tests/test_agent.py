@@ -172,6 +172,68 @@ def test_ask_endpoint_clarification_path(client):
     assert [m["role"] for m in history] == ["user", "assistant"]
 
 
+def test_trace_run_sends_a_summary_for_a_bad_run(monkeypatch):
+    """trace_run() must actually reach LangSmith for a run that went wrong.
+
+    Guards the silent-failure trap: a swallowed exception here would mean
+    debugging data is never recorded, with no symptom anywhere.
+    """
+    sent = {}
+
+    class FakeClient:
+        def create_run(self, **kwargs):
+            sent.update(kwargs)
+
+    fake = type("M", (), {"Client": lambda self=None: FakeClient()})
+    monkeypatch.setenv("LAWSAATHI_TRACE", "errors")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_fake")
+    monkeypatch.setenv("LANGCHAIN_PROJECT", "lawsaathi")
+    monkeypatch.setitem(__import__("sys").modules, "langsmith", fake)
+
+    bad = {"answer": "", "verified": False, "confidence": 0.0,
+           "query": "q", "query_en": "q", "lang": "en",
+           "trace": ["intent", "planner"], "trace_error": True}
+    agent_module.trace_run(bad)
+    assert sent.get("name") == "lawsaathi:run"
+    assert sent.get("project_name") == "lawsaathi"
+    assert sent.get("error") == "run raised an exception"
+    assert "intent" in sent["outputs"]["trace"]
+
+
+def test_trace_run_sends_nothing_for_a_good_run(monkeypatch):
+    """A healthy run must not cost a trace — that is the whole point of
+    the errors-only mode, since the free tier allows only 5k/month."""
+    sent = {}
+
+    class FakeClient:
+        def create_run(self, **kwargs):
+            sent.update(kwargs)
+
+    fake = type("M", (), {"Client": lambda self=None: FakeClient()})
+    monkeypatch.setenv("LAWSAATHI_TRACE", "errors")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_fake")
+    monkeypatch.setitem(__import__("sys").modules, "langsmith", fake)
+
+    good = {"answer": "a", "verified": True, "confidence": 0.9,
+            "trace": ["intent"], "evidence": [dict(HIT)]}
+    agent_module.trace_run(good)
+    assert sent == {}
+
+
+def test_trace_run_never_breaks_a_users_answer(monkeypatch):
+    """Tracing is best-effort: a LangSmith outage must not fail the chat."""
+    class Boom:
+        def __init__(self, *a, **k):
+            raise RuntimeError("langsmith down")
+
+    monkeypatch.setenv("LAWSAATHI_TRACE", "errors")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_fake")
+    monkeypatch.setitem(__import__("sys").modules, "langsmith",
+                        type("M", (), {"Client": Boom}))
+    bad = {"answer": "", "verified": False, "confidence": 0.0}
+    agent_module.trace_run(bad)  # must not raise
+
+
 def test_broadened_query_does_not_let_one_word_hijack_retrieval():
     """"Who gets custody of the child in a divorce?" retrieved Indian Divorce
     Act sections: the single word "divorce" outweighed "custody" and pulled
