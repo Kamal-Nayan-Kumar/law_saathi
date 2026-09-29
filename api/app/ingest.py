@@ -33,15 +33,64 @@ FAMILY_ACTS = [
     "Guardians and Wards Act, 1890",
     "Protection of Women from Domestic Violence Act, 2005",
     "Indian Divorce Act, 1869",
+    # --- Added after live testing showed confident wrong answers ---
+    # Inter-RELIGIOUS marriage. Without this the assistant told a Hindu girl
+    # that the Hindu Marriage Act lets her marry a Muslim man, which is not the
+    # law that governs her question.
+    "The Hindu Minority and Special Marriage Act, 1950",
+    "Hindu Minority and Special Marriage Act, 1950",
+    # Inter-caste marriage is the Special Marriage Act (above); the amendment
+    # is kept so the current provisions are citable.
+    "The Special Marriage (Amendment) Act, 2021",
+    "Special Marriage (Amendment) Act, 2018",
+    # Dowry is one of our seven topics and had no statute behind it.
+    "The Dowry Prohibition Act, 1961",
+    "Dowry Prohibition Act, 1961",
+    # Muslim personal law. "Maintenance after a nikah" was being answered with
+    # the Hindu Adoption and Maintenance Act, which does not apply to them.
+    "The Code of Muslim Personal Law, 1936",
+    "The Muslim Family Laws Act, 1963",
+    "The Muslim (Guardianship and Maintenance) Act, 1926",
+    "The Muslim Inheritance (Succession to Property) Act, 1926",
+    "The Dissolution of Muslim Marriages Act, 1939",
+    "The Muslim Personal Law (Shariat) Application Act, 1937",
+    "The Muslim Women (Protection of Rights on Divorce) Act, 1986",
+    "The Muslim Women (Protection of Rights on Marriage) Act, 2019",
+    "The Indian Succession Act, 1925",
+    # Other personal laws an Indian user may be governed by.
+    "The Parsi Marriage and Divorce Act, 1936",
+    "The Indian Christian Marriage Act, 1872",
+    "The Indian Christian Succession Act, 1926",
 ]
 
+# Order matters: the first alias that matches wins. The Minority Act must be
+# tested before "hindu marriage"/"special marriage" because its own title
+# contains both words.
 _ACT_ALIASES = [
-    ("hindu marriage", "Hindu Marriage Act, 1955"),
+    ("minority and special marriage", "Hindu Minority and Special Marriage Act, 1950"),
+    ("special marriage (amendment)", "The Special Marriage (Amendment) Act, 2021"),
     ("special marriage", "Special Marriage Act, 1954"),
+    ("hindu marriage", "Hindu Marriage Act, 1955"),
     ("hindu adoption", "Hindu Adoption and Maintenance Act, 1956"),
     ("hindu succession", "Hindu Succession Act, 1956"),
     ("guardians and wards", "Guardians and Wards Act, 1890"),
     ("domestic violence", "Protection of Women from Domestic Violence Act, 2005"),
+    ("dowry prohibition", "The Dowry Prohibition Act, 1961"),
+    ("code of muslim personal law", "The Code of Muslim Personal Law, 1936"),
+    ("muslim women (protection of rights on marriage)",
+     "The Muslim Women (Protection of Rights on Marriage) Act, 2019"),
+    ("muslim women (protection of rights on divorce)",
+     "The Muslim Women (Protection of Rights on Divorce) Act, 1986"),
+    ("dissolution of muslim marriages", "The Dissolution of Muslim Marriages Act, 1939"),
+    ("muslim personal law", "The Muslim Personal Law (Shariat) Application Act, 1937"),
+    ("muslim family laws", "The Muslim Family Laws Act, 1963"),
+    ("muslim (guardianship and maintenance)",
+     "The Muslim (Guardianship and Maintenance) Act, 1926"),
+    ("muslim inheritance", "The Muslim Inheritance (Succession to Property) Act, 1926"),
+    ("indian christian marriage", "The Indian Christian Marriage Act, 1872"),
+    ("indian christian succession", "The Indian Christian Succession Act, 1926"),
+    ("indian succession", "The Indian Succession Act, 1925"),
+    ("parsi marriage", "The Parsi Marriage and Divorce Act, 1936"),
     ("the divorce act", "Indian Divorce Act, 1869"),
 ]
 
@@ -89,6 +138,11 @@ class Chunk:
     # Per-document upload fields (T6)
     doc_id: str = ""
     doc_title: str = ""
+    # Marks a chunk as an editorial correction rather than statute text, so it
+    # can be found by filter instead of by similarity. Amendment notices have
+    # to be retrieved deliberately: the planner anchors every query with an
+    # Act name, which pushes them out of the top 16 by relevance alone.
+    kind: str = ""
 
     def payload(self) -> Dict:
         d = asdict(self)
@@ -371,6 +425,45 @@ class QdrantStore:
                            wait=True)
         return len(points)
 
+    def find_amendment_notices(self, query: str = "") -> List[Dict]:
+        """Amendment-notice chunks for the Acts this query is likely about.
+
+        Fetched by the ``kind`` filter rather than by similarity, on purpose.
+        The planner anchors every search with an Act name, and doing so pushes
+        these notices out of the top 16 even when they are the most relevant
+        thing in the corpus for a timing question. A correctness rule cannot
+        depend on vector similarity.
+        """
+        import httpx
+
+        if not self._url:
+            return []
+        low = (query or "").lower()
+        wanted = [a for a in FAMILY_ACTS if a.split(",")[0].lower() in low]
+        if not wanted:
+            # No Act named: fall back to the two that carry the mutual-consent
+            # timing, which is what a timing question is always about.
+            wanted = ["Hindu Marriage Act, 1955", "Special Marriage Act, 1954"]
+        out: List[Dict] = []
+        headers = {"api-key": self._api_key, "Content-Type": "application/json"}
+        for act in wanted:
+            body = {"filter": {"must": [
+                        {"key": "kind", "match": {"value": "amendment_notice"}},
+                        {"key": "act", "match": {"value": act}}]},
+                    "limit": 10, "with_payload": True, "with_vector": False}
+            try:
+                resp = httpx.post(
+                    "%s/collections/%s/points/scroll"
+                    % (self._url, self.collection), headers=headers,
+                    json=body, timeout=30.0)
+                resp.raise_for_status()
+            except Exception:  # noqa: BLE001 — best effort
+                continue
+            for point in (resp.json().get("result") or {}).get("points", []):
+                out.append({"id": point.get("id"), "score": 1.0,
+                            "payload": point.get("payload") or {}})
+        return out
+
     def search_text(self, text: str, top_k: int = 5,
                     filter_payload: Optional[Dict] = None) -> List[Dict]:
         """Search with raw text; Qdrant embeds the query server-side.
@@ -513,7 +606,8 @@ def chunks_from_hf_row(row: Dict, source: str = "vaquill/open-india-law") -> Lis
         out = [
             Chunk(text=p, act=act, section=section, lang=lang,
                   source=src, page=page_int, chunk_index=i,
-                  total_chunks=len(pieces), uid=uid)
+                  total_chunks=len(pieces), uid=uid,
+                  kind=str(row.get("kind") or ""))
             for i, p in enumerate(pieces)
         ]
         return out

@@ -138,9 +138,12 @@ def ask(session_id: int, body: AskIn,
         body_lang = body.lang
     if user.preferred_lang != detected:
         user.preferred_lang = detected
-    # Sync tone memory.
-    tone_mem = memories.get("tone") or "simple"
-    if body.tone != tone_mem:
+    # Sync tone memory. A saved preference must survive the schema default:
+    # body.tone is always populated (it defaults to "simple"), so writing it
+    # unconditionally erased the stored preference on every single request and
+    # the "remembers your tone" feature could never work.
+    tone_mem = memories.get("tone")
+    if body.tone != "simple" or not tone_mem:
         memories["tone"] = body.tone
     # Persist memories.
     for k, v in memories.items():
@@ -150,15 +153,28 @@ def ask(session_id: int, body: AskIn,
         else:
             db.add(Memory(user_id=user.id, key=k, value=v))
     db.flush()
-    if user.tone != body.tone:
-        user.tone = body.tone
+    if user.tone != memories["tone"]:
+        user.tone = memories["tone"]
     db.add(Message(session_id=session_id, role="user",
                    content=body.query, lang=body_lang))
     db.flush()
     state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
-                                   tone=body.tone, doc_id=body.doc_id or "",
+                                   tone=memories["tone"],
+                                   doc_id=body.doc_id or "",
                                    min_score=float(body.min_score),
                                    history=history)
+    # Persist what the agent learned about this user for next time — currently
+    # the legal topic, so "what about maintenance?" tomorrow does not restart
+    # from nothing.
+    for k, v in (state.get("memory_updates") or {}).items():
+        if str(memories.get(k, "")) == str(v):
+            continue
+        existing = db.query(Memory).filter_by(user_id=user.id, key=k).first()
+        if existing:
+            existing.value = v
+        else:
+            db.add(Memory(user_id=user.id, key=k, value=v))
+    db.flush()
     db.add(Message(session_id=session_id, role="assistant",
                    content=state.get("answer", ""), lang=body_lang,
                    citations=list(state.get("citations", [])),

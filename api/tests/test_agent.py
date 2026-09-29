@@ -71,12 +71,13 @@ def test_planner_no_clarification_for_exact_section():
     assert out["clarification"] == ""
 
 
-def test_full_run_clarification_path_has_all_five_nodes():
+def test_full_run_clarification_path_has_all_six_nodes():
     out = run_agent("I want divorce", lang="en", llm=None,
                     retriever=StubRetriever())
     assert out["clarification"], "vague query must clarify, not guess"
     assert out["trace"] == ["intent", "planner", "response"]
-    assert set(NODES) == {"intent", "planner", "tools", "verifier", "response"}
+    assert set(NODES) == {"intent", "planner", "tools", "reason",
+                          "verifier", "response"}
     assert out["answer"], "clarification question must be non-empty"
 
 
@@ -580,4 +581,8 @@ def test_live_trace_smoke():
                     lang="en")
     assert out["trace"][0] == "intent"
     assert out["trace"][-1] == "response"
-    assert out["provider"].startswith("openrouter:")
+    # Which provider answered depends on which free tier is not rate-limited
+    # that minute; Groq is primary and OpenRouter is the fallback. Asserting
+    # one specific name made this test fail whenever the other one was up.
+    assert any(out["provider"].startswith(p) for p in
+               ("groq:", "openrouter:", "opencode:")), out["provider"]

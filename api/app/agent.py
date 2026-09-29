@@ -13,6 +13,7 @@ langsmith, and HTTP clients are imported lazily so unit tests run on a bare
 checkout. Pass ``retriever`` / ``llm`` doubles in tests; live backends are
 only constructed when keys exist.
 """
+import json
 import logging
 import os
 import re
@@ -32,8 +33,11 @@ OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "space-bunny-free")
 # Cloudflare in front of Zen answers 403 to urllib's default user agent.
 OPENCODE_UA = os.environ.get("OPENCODE_USER_AGENT", "LawSaathi/1.0")
 MAX_RETRIES = 2
+# A plan longer than this is a model rambling, not a plan. Cap it so one bad
+# reply cannot turn into a dozen retrieval calls.
+MAX_PLAN_STEPS = 4
 
-NODES = ("intent", "planner", "tools", "verifier", "response")
+NODES = ("intent", "planner", "tools", "reason", "verifier", "response")
 
 TOPIC_KEYWORDS = {
     "divorce": ("divorce", "divorced", "talak", "talaq", "khula", "mubaraat",
@@ -54,6 +58,15 @@ TOPIC_KEYWORDS = {
                  "shadi", "shaadi", "vivah",
                  "nikah", "nikaha", "sagai", "engagement", "विवाह", "शादी",
                  "ಮದುವೆ", "conjugal"),
+    # Inter-caste and inter-religious marriage are Special Marriage Act
+    # questions, and they are the questions people are most afraid to ask.
+    "interfaith_marriage": ("different religion", "different faith",
+                            "inter religious", "inter-religious",
+                            "interfaith", "other religion", "hindu and muslim",
+                            "hindu muslim", "muslim boy", "muslim girl",
+                            "christian boy", "christian girl", "inter caste",
+                            "inter-caste", "different caste", "love marriage",
+                            "हिंदू मुस्लिम", "अलग धर्म", "ಹಿಂದೂ ಮುಸ್ಲಿಂ"),
 }
 
 PARTY_WORDS = ("husband", "wife", "spouse", "pati", "patni", "biwi", "shohar",
@@ -198,11 +211,18 @@ def extract_slots(query_en: str) -> Dict[str, str]:
               if any(k in bare for k in kws)]
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
-        for pref in ("maintenance", "custody", "adoption", "succession",
-                     "domestic_violence", "divorce", "marriage"):
+        for pref in ("interfaith_marriage", "maintenance", "custody",
+                     "adoption", "succession", "domestic_violence",
+                     "divorce", "marriage"):
             if pref in topics:
                 slots["topic"] = pref
                 break
+    elif any(h in low for h in _SUCCESSION_HINTS):
+        # People ask about inheriting in the words of the fight, not the law:
+        # "my father died and my brother is taking all the ancestral land"
+        # mentions no succession keyword at all, so it was being refused and
+        # then asked to clarify. A death plus property is succession.
+        slots["topic"] = "succession"
     # A named section is the most specific signal available — let it win.
     sec_topic = _section_topic(section)
     if sec_topic:
@@ -250,6 +270,12 @@ def missing_for(slots: Dict[str, str], query_en: str,
         return []
     topic = slots.get("topic")
     if not topic:
+        # "What is the Special Marriage Act?" names an Act, so act-name
+        # stripping has (correctly) left no topic keyword — but naming an Act
+        # is answerable, and asking "what is this about?" instead was the
+        # single most useless reply the bot could give.
+        if _ACT_NAME_RE.search(query_en or ""):
+            return []
         return ["topic"]
     if topic == "divorce" and not slots.get("divorce_type"):
         return ["divorce_type"]
@@ -566,6 +592,62 @@ def carry_slots_from_history(slots: Dict[str, str],
                 merged[key] = val
     return merged
 
+
+_CONTEXTUALIZE_RETRY = (
+    "Rewrite the user's last message as ONE standalone Indian family-law "
+    "question. The previous attempt failed by returning the message "
+    "unchanged, so the message does NOT stand on its own — it refers to the "
+    "conversation. Expand whatever pronoun, ellipsis or one-word reply it "
+    "uses into explicit legal terms. Example: if the conversation was about "
+    "mutual consent divorce and the message is 'and if we have lived apart?', "
+    "answer 'Under the Hindu Marriage Act 1955, can a couple get a "
+    "mutual consent divorce if they have lived apart?'\n"
+    "Output ONLY that one question. No preamble, no explanation."
+)
+
+
+def _force_contextualize(history: List[Dict[str, str]], raw_query: str,
+                         llm: Optional[Callable]) -> str:
+    """Second attempt at resolving a follow-up the first pass echoed back.
+
+    A follow-up that comes back unchanged is either genuinely standalone or
+    unresolved, and we cannot tell which by looking. Asking again, with the
+    failure named explicitly, resolves the second case. Returns "" if the model
+    still will not commit, and the slot-carry logic takes over.
+    """
+    try:
+        text, _ = llm([
+            {"role": "system", "content": _CONTEXTUALIZE_RETRY},
+            *history[-6:],
+            {"role": "user", "content": raw_query},
+        ])
+    except Exception as e:  # noqa: BLE001 — slot carry is the fallback
+        logger.warning("agent contextualize retry failed (%r)", e)
+        return ""
+    candidate = (text or "").strip()
+    if not candidate or candidate.lower() == raw_query.strip().lower():
+        return ""
+    if looks_looped(candidate):
+        return ""
+    return candidate
+
+
+def looks_standalone(query: str) -> bool:
+    """Whether a message is complete enough that rewriting it is pointless.
+
+    Naming an Act or a section, or simply asking a full-length question, means
+    there is nothing for the history to add. Without this check every such
+    message costs a wasted model call: a correct model echoes a message that is
+    already complete, and an echo is indistinguishable from a failed rewrite.
+    """
+    text = (query or "").strip()
+    if not text:
+        return True
+    if _ACT_NAME_RE.search(text) or _SECTION_RE.search(text):
+        return True
+    return len(text.split()) >= 9
+
+
 def node_intent(state: Dict[str, Any],
                 llm: Optional[Callable] = None) -> Dict[str, Any]:
     raw_query = state["query"]
@@ -574,11 +656,13 @@ def node_intent(state: Dict[str, Any],
     query_en = query
     provider = state.get("provider", "")
     history = state.get("history", [])
+    memory = state.get("memory") or {}
     if history and llm is not None:
         # Follow-up questions ("mutual", "what about my daughter?") need
         # prior turns to stand alone for retrieval, so rewrite first.
+        rewritten = ""
         try:
-            query, provider = llm([
+            rewritten, provider = llm([
                 {"role": "system",
                  "content": ("You resolve follow-up questions. Given the "
                              "conversation history and the user's last message, "
@@ -593,11 +677,35 @@ def node_intent(state: Dict[str, Any],
                 {"role": "user", "content": query},
             ])
             state["provider"] = provider
-            _add_trace(state, "contextualize",
-                       "Follow-up %r became %r using chat history."
-                       % (raw_query[:60], query.strip()[:100]))
         except Exception as e:  # noqa: BLE001 — fall back to raw query
             logger.warning("agent contextualize failed (%r); using raw query", e)
+        candidate = (rewritten or "").strip()
+        # A follow-up that comes back byte-identical was not resolved. Either
+        # it genuinely stands alone, or the model just echoed it — and an
+        # unresolved follow-up retrieves on two words and returns junk. Retry
+        # once, insisting, before giving up.
+        if candidate and candidate.lower() != raw_query.strip().lower():
+            query = candidate
+            _add_trace(state, "contextualize",
+                       "Follow-up %r became %r using chat history."
+                       % (raw_query[:60], candidate[:100]))
+        else:
+            retry = "" if looks_standalone(raw_query) else \
+                _force_contextualize(history, raw_query, llm)
+            if retry:
+                query = retry
+                _add_trace(state, "contextualize",
+                           "Follow-up %r needed a second attempt; resolved "
+                           "to %r." % (raw_query[:60], retry[:100]))
+            else:
+                _add_trace(state, "contextualize",
+                           "Follow-up %r stands alone; kept as written."
+                           % raw_query[:60])
+        # query_en was seeded from the raw query and, for English, never
+        # refreshed after the rewrite — so English follow-ups retrieved on the
+        # unresolved text while Hindi ones (translated below) retrieved on
+        # the resolved text. That asymmetry is the bug.
+        query_en = query
     if lang != "en":
         if llm is not None:
             try:
@@ -619,6 +727,18 @@ def node_intent(state: Dict[str, Any],
                           if slots.get(k) != v)
         logger.info("agent carried slots from history: %s", added)
     slots = carried
+    # Long-term memory, across sessions. Session history only helps inside one
+    # conversation; a user who asked about custody yesterday and says "what
+    # about maintenance?" today should not be asked the topic all over again.
+    updates: Dict[str, str] = {}
+    if not slots.get("topic") and memory.get("last_topic"):
+        slots["topic"] = str(memory["last_topic"])
+        _add_trace(state, "intent",
+                   "Remembered from an earlier session that you were asking "
+                   "about %s." % slots["topic"])
+    if slots.get("topic"):
+        updates["last_topic"] = str(slots["topic"])
+    state["memory_updates"] = updates
     state["slots"] = slots
     state["intent"] = classify_intent(state["query_en"], slots)
     state["oos_redirect"] = is_oos(state["query_en"])
@@ -639,20 +759,51 @@ def node_intent(state: Dict[str, Any],
     return state
 
 
-def node_planner(state: Dict[str, Any]) -> Dict[str, Any]:
+def node_planner(state: Dict[str, Any],
+                 llm: Optional[Callable] = None) -> Dict[str, Any]:
+    """Decide whether to ask the user, then decide how to search.
+
+    Both decisions used to be a keyword table running before any model was
+    consulted. The model now plans the retrieval; the slot rules stay as the
+    floor so the no-key path and the tests behave exactly as before.
+    """
     missing = missing_for(state.get("slots", {}),
                           state.get("query_en", ""),
                           is_followup=bool(state.get("history")))
     state["missing_slots"] = missing
+    if state.get("oos_redirect"):
+        # Out of scope is a decision, not a question. Asking "what is this
+        # about?" to someone who asked about land was the wrong reply — the
+        # redirect explaining our scope is the right one.
+        state["clarification"] = ""
+        state["plan"] = default_plan(state)
+        _add_trace(state, "planner",
+                   "Outside family-law scope — saying so instead of "
+                   "answering or asking.")
+        return state
     if missing:
         state["clarification"] = clarification_question(
             missing, state.get("lang", "en"))
+        # No retrieval worth planning when we are about to ask the user anyway.
+        state["plan"] = default_plan(state)
         _add_trace(state, "planner",
                    "Still need: %s — asking you instead of guessing."
                    % ", ".join(missing))
+        return state
+    state["clarification"] = ""
+    plan = plan_search(state, llm=llm)
+    state["plan"] = plan
+    steps = " then ".join(
+        "%s (%s)" % (s["tool"], (s.get("why") or s["query"])[:60])
+        for s in plan["steps"])
+    if plan["source"] == "model":
+        lead = ("Chose %s. " % (plan["governing_act"] or "the governing Act")
+                if plan["governing_act"] else "Chose an Act. ")
+        why = (" %s" % plan["reasoning"]) if plan["reasoning"] else ""
+        _add_trace(state, "planner", lead + why + " Plan: " + steps)
     else:
-        state["clarification"] = ""
-        _add_trace(state, "planner", "Nothing missing — retrieving the law.")
+        _add_trace(state, "planner",
+                   "No planner model available — fixed plan: " + steps)
     return state
 
 
@@ -661,13 +812,22 @@ def node_planner(state: Dict[str, Any]) -> Dict[str, Any]:
 # the child in a divorce?" returned Indian Divorce Act sections because
 # "divorce" outweighed "custody", and never reached Guardians and Wards.
 TOPIC_ACT = {
+    # Inter-religious and inter-caste marriage: Special Marriage Act 1954. It
+    # is placed before "marriage" because the plain-marriage fallback is HMA,
+    # which is the wrong answer for these questions.
+    "interfaith_marriage": "Special Marriage Act 1954",
     "custody": "Guardians and Wards Act 1890",
     "divorce": "Hindu Marriage Act 1955 Indian Divorce Act 1869",
-    "marriage": "Hindu Marriage Act 1955 Special Marriage Act 1954",
+    # Special Marriage Act first for inter-religious/inter-caste marriage:
+    # it is the statute that actually governs those, and putting HMA first
+    # made the assistant cite the wrong Act for "can a Hindu girl marry a
+    # Muslim boy".
+    "marriage": "Special Marriage Act 1954 Hindu Marriage Act 1955",
     "maintenance": "Hindu Adoption and Maintenance Act 1956",
     "adoption": "Hindu Adoption and Maintenance Act 1956",
-    "succession": "Hindu Succession Act 1956",
+    "succession": "Hindu Succession Act 1956 Indian Succession Act 1925",
     "domestic_violence": "Domestic Violence Act 2005",
+    "dowry": "Dowry Prohibition Act 1961",
 }
 
 _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
@@ -693,6 +853,292 @@ def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
                       flags=re.IGNORECASE)
     stripped = re.sub(r"\s+", " ", stripped).strip()
     return "%s %s %s" % (stripped or query_en, anchor, _ALL_ACTS)
+
+
+# ---------------------------------------------------------------------------
+# Planning — the model decides the act and the tools, not a keyword table.
+# ---------------------------------------------------------------------------
+
+ACT_SEARCH = "search_acts"
+WEB_SEARCH = "search_web"
+SECTION_READ = "read_section"
+TOOLS = (ACT_SEARCH, WEB_SEARCH, SECTION_READ)
+
+# Passed to the model as a catalogue so it can only pick tools that exist.
+TOOL_CATALOG = (
+    "- %s: search the bare Acts (vector search). 'act' is an optional act name "
+    "to rank results toward. The normal first choice.\n"
+    "- %s: search the live web for recent judgments, amendments and procedure. "
+    "Worth one call when the Acts may be out of date or the question is about "
+    "'what do I actually do'.\n"
+    "- %s: fetch one exact section when the user names a section number. "
+    "Precise, but only correct if the user really gave a section."
+    % (ACT_SEARCH, WEB_SEARCH, SECTION_READ))
+
+_KNOWN_ACTS = (
+    "Hindu Marriage Act 1955", "Special Marriage Act 1954",
+    "Hindu Adoption and Maintenance Act 1956", "Hindu Succession Act 1956",
+    "Guardians and Wards Act 1890", "Domestic Violence Act 2005",
+    "Indian Divorce Act 1869", "Dowry Prohibition Act 1961",
+    "Indian Succession Act 1925",
+)
+
+
+def acts_for_topic(topic: str) -> List[str]:
+    """The acts that govern a topic, split out of the TOPIC_ACT anchor."""
+    anchor = TOPIC_ACT.get(topic or "", "")
+    return [a for a in _KNOWN_ACTS if a in anchor]
+
+
+def parse_json_block(text: str) -> Optional[Dict[str, Any]]:
+    """Pull the first JSON object out of a model reply.
+
+    Small models fence their JSON, prefix it with "Here is the plan:", or trail a
+    sentence after the closing brace. All of that is recoverable, so a chatty
+    reply still plans. Returns None when there is genuinely no object, which is
+    the caller's signal to fall back to the fixed plan.
+    """
+    if not text:
+        return None
+    body = str(text).strip()
+    body = re.sub(r"^```(?:json)?", "", body).strip()
+    body = re.sub(r"```$", "", body).strip()
+    start = body.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(body)):
+        if body[i] == "{":
+            depth += 1
+        elif body[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    out = json.loads(body[start:i + 1])
+                except ValueError:
+                    return None
+                return out if isinstance(out, dict) else None
+    return None
+
+
+def default_plan(state: Dict[str, Any]) -> Dict[str, Any]:
+    """The fixed plan used when there is no model, or the model's plan is junk.
+
+    Same behaviour as the old code: anchor the query to the act that governs the
+    keyword-detected topic, then search the web as well.
+    """
+    topic = (state.get("slots") or {}).get("topic", "")
+    query_en = state.get("query_en") or state.get("query", "")
+    acts = acts_for_topic(topic)
+    steps = [{"tool": ACT_SEARCH, "query": query_en, "why": "",
+              "act": acts[0] if acts else ""}]
+    if not state.get("doc_id"):
+        steps.append({"tool": WEB_SEARCH, "query": query_en, "why": ""})
+    return {"governing_act": acts[0] if acts else "",
+            "reasoning": "", "steps": steps, "source": "fixed"}
+
+
+def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Validate a model plan. None means 'use the fixed plan instead'.
+
+    A plan that names no real tool, or no query, or nothing at all is not a
+    plan — treating it as one would be worse than the keyword table it replaces.
+    """
+    if not isinstance(raw, dict):
+        return None
+    incoming = raw.get("steps")
+    if not isinstance(incoming, list):
+        return None
+    steps: List[Dict[str, str]] = []
+    for item in incoming[:MAX_PLAN_STEPS]:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        query = str(item.get("query") or "").strip()
+        if tool not in TOOLS or not query:
+            continue
+        steps.append({"tool": tool,
+                      "query": query[:200],
+                      "why": str(item.get("why") or "").strip()[:200],
+                      "act": str(item.get("act") or "").strip()[:80]})
+    if not steps:
+        return None
+    return {"governing_act": str(raw.get("governing_act") or "").strip()[:120],
+            "reasoning": str(raw.get("reasoning") or "").strip()[:400],
+            "steps": steps, "source": "model"}
+
+
+PLAN_SYSTEM = (
+    "You are the planner of LawSaathi, a family-law assistant for India. You "
+    "do not answer the user. You decide which Act governs their question and "
+    "which searches to run.\n\n"
+    "The Acts available:\n%s\n\n"
+    "Tools available:\n%s\n\n"
+    "Rules:\n"
+    "- Decide which Act actually governs. An act's name does not make it the "
+    "right one. In particular:\n"
+    "  * Divorce, and marriage between two Hindus, Buddhists, Jains or Sikhs: "
+    "Hindu Marriage Act 1955.\n"
+    "  * Marriage between people of DIFFERENT religions, and marriage "
+    "between people of DIFFERENT castes: Special Marriage Act 1954. Never "
+    "the Hindu Marriage Act for these.\n"
+    "  * Maintenance and adoption: Hindu Adoption and Maintenance Act 1956, "
+    "but only for Hindus. For a Muslim wife it is the Muslim guardianship "
+    "and maintenance rules, which we do not hold — say so instead of "
+    "citing a Hindu Act.\n"
+    "  * Custody of a minor: Guardians and Wards Act 1890, even when the user "
+    "mentions divorce.\n"
+    "  * Inheritance: Hindu Succession Act 1956 for Hindus, Indian Succession "
+    "Act 1925 otherwise.\n"
+    "  * Protection orders, and which court: Domestic Violence Act 2005.\n"
+    "  * Dowry: Dowry Prohibition Act 1961.\n"
+    "- If the user's question is governed by a statute we do not hold, pick "
+    "the closest Act we do hold and say in 'reasoning' that the governing "
+    "statute is missing. Do not pretend the Act you picked is the right one.\n"
+    "- Write a short search query in English with the legal terms a section "
+    "would actually use, not the user's casual wording.\n"
+    "- Two or three steps. Add a web step only if the Acts may not answer it.\n"
+    "- Reply with JSON only. No preamble, no explanation outside the JSON.\n"
+    'Shape: {"governing_act": "...", "reasoning": "one sentence", '
+    '"steps": [{"tool": "...", "query": "...", "why": "...", "act": "..."}]}'
+    % ("\n".join("- " + a for a in _KNOWN_ACTS), TOOL_CATALOG))
+
+
+def plan_search(state: Dict[str, Any],
+                llm: Optional[Callable] = None) -> Dict[str, Any]:
+    """Ask the model to plan the retrieval. Falls back to the fixed plan.
+
+    This is the decision that used to be a keyword lookup, done before any model
+    ran. Now the model picks the governing Act and the tools, and its reasoning
+    is shown to the user in the Thinking panel.
+    """
+    fallback = default_plan(state)
+    if llm is None:
+        return fallback
+    slots = state.get("slots") or {}
+    bits = ["Topic so far: %s" % (slots.get("topic") or "unclear")]
+    if slots.get("section"):
+        bits.append("User named section %s." % slots["section"])
+    if slots.get("divorce_type"):
+        bits.append("Divorce type: %s." % slots["divorce_type"])
+    if slots.get("parties"):
+        bits.append("Asking for: %s." % slots["parties"])
+    user = ("Question: %s\n\n%s\n\nReturn the JSON plan only."
+            % (state.get("query_en") or state.get("query", ""),
+               " ".join(bits)))
+    try:
+        text, provider = llm([{"role": "system", "content": PLAN_SYSTEM},
+                             {"role": "user", "content": user}])
+        state["provider"] = provider
+        plan = normalise_plan(parse_json_block(strip_reasoning_leak(text)),
+                              state)
+    except Exception as e:  # noqa: BLE001 — the fixed plan is always valid
+        logger.warning("agent planner failed (%r); using the fixed plan", e)
+        plan = None
+    if not plan:
+        logger.info("agent planner returned no usable plan; using the fixed plan")
+        return fallback
+    return plan
+
+
+REPLAN_SYSTEM = (
+    "You are the planner of LawSaathi, a family-law assistant for India. A "
+    "previous search of the bare Acts did NOT answer the question, so the "
+    "answer must come from somewhere else.\n\n"
+    "Decide the recovery plan:\n"
+    "- If the question turns on a recent judgment, an amendment, a court "
+    "procedure, a filing step, or a document the user must produce, add a "
+    "%s step. That is what it is for.\n"
+    "- If the bare Acts genuinely do not govern the question (a statute we do "
+    "not hold), say so in 'reasoning' and still search the web for the "
+    "current position.\n"
+    "- Also re-query the Acts once with plainer wording, in case the first "
+    "phrasing was the problem.\n"
+    "- Steps must not repeat the failed query.\n\n"
+    "Reply with JSON only, same shape as before."
+    % WEB_SEARCH)
+
+
+def replan_after_empty(state: Dict[str, Any],
+                      llm: Optional[Callable] = None
+                      ) -> Optional[Dict[str, Any]]:
+    """Ask the planner for a second plan once the Acts have come up short.
+
+    Without this, Firecrawl is only ever used when the first plan happens to
+    include a web step — which in practice it usually does not, so the tool we
+    pay for sat unused while the assistant kept re-phrasing the same Act
+    search. Returns None when there is no model or the reply is unusable, and
+    the caller keeps the existing plan.
+    """
+    if llm is None:
+        return None
+    question = state.get("query_en") or state.get("query", "")
+    previous = "; ".join("%s: %s" % (s.get("tool"), s.get("query"))
+                         for s in (state.get("plan") or {}).get("steps", []))
+    user = ("Question: %s\n\nPlan already tried (and found nothing):\n%s\n\n"
+            "Return the recovery JSON plan only."
+            % (question, previous or "(nothing recorded)"))
+    try:
+        text, provider = llm([{"role": "system", "content": REPLAN_SYSTEM},
+                              {"role": "user", "content": user}])
+        state["provider"] = provider
+        plan = normalise_plan(parse_json_block(strip_reasoning_leak(text)),
+                              state)
+    except Exception as e:  # noqa: BLE001 — keep the original plan
+        logger.warning("agent replan failed (%r); keeping original plan", e)
+        return None
+    if not plan:
+        return None
+    # A recovery plan that repeats the failed searches is not a recovery.
+    old = {s.get("query", "").strip().lower()
+           for s in (state.get("plan") or {}).get("steps", [])}
+    fresh = [s for s in plan["steps"]
+             if s["query"].strip().lower() not in old]
+    if not fresh:
+        return None
+    plan["steps"] = fresh
+    return plan
+
+
+# A mutual-consent divorce timing question is the single most common thing
+# people ask this assistant, and the consolidated statute text that every
+# corpus — including India Code itself — publishes is the PRE-2018 version.
+# Measured on the live index: asking for "minimum period for separation"
+# returns the amendment notice first (0.897), but the moment the query is
+# anchored with the Act name, as the planner requires, the notice drops out of
+# the top 16 entirely and generic sections 13/10/4/14 take its place.
+#
+# A safety rule cannot depend on vector similarity, so the notice is fetched
+# by act and label rather than by relevance. It is a real corpus point, so it
+# is citable like any other passage.
+_AMENDMENT_LABEL = "Amendment notice"
+_TIMING_WORDS = (
+    "mutual consent", "mutual", "living separately", "live apart",
+    "lived apart", "separation period", "how long", "waiting period",
+    "cooling", "joint petition",
+)
+
+
+def wants_timing_correction(query: str) -> bool:
+    low = (query or "").lower()
+    if not any(w in low for w in _TIMING_WORDS):
+        return False
+    return any(w in low for w in ("divorce", "dissolution", "separat",
+                                 "apart", "consent"))
+
+
+def amendment_notices(state: Dict[str, Any],
+                      store: Any) -> List[Dict[str, Any]]:
+    """Fetch amendment notices for the governing Act, regardless of relevance."""
+    finder = getattr(store, "find_amendment_notices", None)
+    if not callable(finder):
+        return []
+    try:
+        return list(finder(state.get("query_en") or state.get("query", ""))
+                    or [])
+    except Exception as e:  # noqa: BLE001 — best effort, never fatal
+        logger.warning("agent amendment lookup failed (%r)", e)
+        return []
 
 
 class StubRetriever:
@@ -774,57 +1220,229 @@ def format_citation(payload: Dict[str, Any]) -> str:
     return act or section or "retrieved passage"
 
 
+def _hit_key(hit: Dict[str, Any]) -> Tuple[str, str, str]:
+    p = hit.get("payload") or {}
+    return (str(p.get("act", "")), str(p.get("section", "")),
+            str(p.get("text", ""))[:120])
+
+
+def _act_of(hit: Dict[str, Any]) -> str:
+    return str((hit.get("payload") or {}).get("act", "") or "")
+
+
+def _matches_act(hit: Dict[str, Any], act: str) -> bool:
+    """Whether a hit really belongs to the act the planner chose.
+
+    Loose comparison on purpose: ingestion writes "Hindu Marriage Act, 1955"
+    with a comma while the planner says "Hindu Marriage Act 1955" without one,
+    and act names in the corpus are not perfectly consistent.
+    """
+    if not act:
+        return True
+    got = re.sub(r"[^a-z0-9]", "", _act_of(hit).lower())
+    want = re.sub(r"[^a-z0-9]", "", act.lower())
+    if not got:
+        return False
+    return got.startswith(want) or want.startswith(got)
+
+
+def _section_of(hit: Dict[str, Any]) -> str:
+    return str((hit.get("payload") or {}).get("section", "") or "")
+
+
+def _rank_toward_section(hits: List[Dict[str, Any]],
+                         section: str) -> List[Dict[str, Any]]:
+    """Put the exact section the user named above everything else.
+
+    Pure vector similarity cannot do this. Measured on the live corpus, asking
+    for "Section 13B Hindu Marriage Act" returned the Preamble at 0.895,
+    Section 13A at 0.892 and the real Section 13B fourth at 0.890 — a 0.005
+    spread, so embeddings rank boilerplate above the provision actually asked
+    about. When the user names a section, that is a hard lexical constraint,
+    not a hint, and it should win.
+    """
+    if not section:
+        return hits
+    want = re.sub(r"[^0-9a-z]", "", section.lower())
+    # "13b" must not match "13" — compare the full token from the label.
+    def exact(hit: Dict[str, Any]) -> bool:
+        label = re.match(r"\s*section\s+([0-9]+[a-z]*)",
+                         _section_of(hit), re.IGNORECASE)
+        return bool(label) and label.group(1).lower() == want
+    return [h for h in hits if exact(h)] + [h for h in hits if not exact(h)]
+
+
+def _rank_toward_act(hits: List[Dict[str, Any]],
+                     act: str) -> List[Dict[str, Any]]:
+    """Put the governing Act's sections first, then everything else.
+
+    This is what makes the planner's choice actually change the answer. Without
+    it the plan would be decoration: vector search would return whatever it
+    liked and the Act the model reasoned about would be ignored.
+    """
+    if not act:
+        return hits
+    on = [h for h in hits if _matches_act(h, act)]
+    off = [h for h in hits if not _matches_act(h, act)]
+    return on + off
+
+
 def node_tools(state: Dict[str, Any], retriever: Any = None,
-               web_search: Optional[Callable] = None) -> Dict[str, Any]:
+               web_search: Optional[Callable] = None,
+               llm: Optional[Callable] = None) -> Dict[str, Any]:
+    """Run the steps the planner chose, one tool at a time.
+
+    Previously this made the same two calls on every question with a query
+    derived from a keyword table. Now each step names a tool and a query, so
+    the Act the planner picked is the Act we actually search.
+    """
     store = retriever or default_retriever()
-    query_en = broaden_query(state.get("query_en", state.get("query", "")),
-                             state.get("retries", 0),
-                             (state.get("slots") or {}).get("topic", ""))
+    # The Acts have nothing and we are out of breadth on this query: re-plan
+    # before searching again, or the third attempt repeats the first. Doing
+    # this here rather than in the router keeps the LangGraph path and the
+    # inline path identical — it once lived in the edge function and only one
+    # of them re-planned.
+    if (int(state.get("retries", 0)) >= MAX_RETRIES
+            and not state.get("evidence")):
+        fresh = replan_after_empty(state, llm=llm)
+        if fresh:
+            state["plan"] = fresh
+            _add_trace(state, "planner",
+                       "The Acts did not have an answer — re-planning: "
+                       + " then ".join("%s (%s)" % (s["tool"], s["query"][:50])
+                                       for s in fresh["steps"]))
+    plan = state.get("plan") or default_plan(state)
+    # On a retry the verifier's own next_queries replace the plan's queries,
+    # but the tools stay the ones the planner picked.
+    retry_queries = state.get("next_queries") or []
+    doc_id = state.get("doc_id") or ""
+    steps = plan["steps"] or default_plan(state)["steps"]
+
     evidence: List[Dict[str, Any]] = []
-    doc_id = state.get("doc_id") or state.get("doc_id", "")
-    try:
-        if doc_id and hasattr(store, "search_text"):
-            evidence = list(store.search_text(query_en, top_k=5,
+    seen = set()
+    notes: List[str] = []
+    n_web = 0
+
+    for i, step in enumerate(steps):
+        tool = step.get("tool", ACT_SEARCH)
+        query = step["query"]
+        if retry_queries:
+            if i < len(retry_queries):
+                query = retry_queries[i]
+            else:
+                # Verifier only needs as many queries as it supplied; the
+                # remaining plan steps would just repeat what already failed.
+                break
+        elif state.get("retries") and tool != WEB_SEARCH:
+            # No judge guidance (or no judge at all). Re-running the identical
+            # query against the same corpus returns the identical passages, so
+            # fall back to the broadening ladder: drop over-narrow section
+            # numbers and widen to every act in the corpus.
+            query = broaden_query(query, int(state["retries"]),
+                                  (state.get("slots") or {}).get("topic", ""))
+        shown = query[:80]
+        if tool == WEB_SEARCH:
+            ws = web_search or stub_web_search
+            try:
+                hits = list(ws(query) or [])
+            except Exception as e:  # noqa: BLE001 — web is best-effort
+                logger.warning("agent web_search failed (%r)", e)
+                notes.append('web_search "%s" unavailable (%s).'
+                             % (shown, (str(e) or e.__class__.__name__)[:60]))
+                continue
+            n_web += len(hits)
+            for h in hits:
+                k = _hit_key(h)
+                if k not in seen:
+                    seen.add(k)
+                    evidence.append(h)
+            notes.append('web_search "%s" → %d web result%s.'
+                         % (shown, len(hits),
+                            "" if len(hits) == 1 else "s"))
+            continue
+
+        # search_acts and read_section both go to the vector store; the act
+        # anchor is what separates them in practice.
+        act = step.get("act") or plan.get("governing_act") or ""
+        # Anchor the embedding query to the Act the planner chose. The model's
+        # own wording is good but e5-small needs the Act's own words to pull
+        # the right sections back — this is what stopped "custody... in a
+        # divorce?" from returning Divorce Act sections.
+        search_text = "%s %s" % (query, act) if act else query
+        try:
+            if doc_id and hasattr(store, "search_text"):
+                hits = list(store.search_text(search_text, top_k=6,
                               filter_payload={"doc_id": doc_id}) or [])
-        elif doc_id and hasattr(store, "search"):
-            # InMemoryVectorStore lacks text search; unfiltered fallback
-            evidence = list(store.search(query_en, top_k=5) or [])
+            elif doc_id and hasattr(store, "search"):
+                # InMemoryVectorStore lacks text search; unfiltered fallback
+                hits = list(store.search(query, top_k=6) or [])
+            else:
+                hits = list(store.search_text(search_text, top_k=6) or [])
+        except Exception as e:  # noqa: BLE001 — retrieval failure is retryable
+            logger.warning("agent retrieval failed (%r)", e)
+            notes.append('%s "%s" failed (%s).'
+                         % (tool, shown, (str(e) or e.__class__.__name__)[:60]))
+            continue
+        act_for_filter = act
+        if tool == SECTION_READ:
+            section = re.sub(r"[^0-9A-Za-z]", "", query).lower()
+            exact = [h for h in hits
+                     if section and section in re.sub(
+                         r"[^0-9a-z]", "", str(
+                             (h.get("payload") or {}).get("section", "")).lower())]
+            if not exact:
+                # The section the user actually named is not in the top hits.
+                # Vector search alone will keep missing it, so widen once:
+                # ask for the whole Act and take more, then let the ranking
+                # pick. Better a nearby section than answering with the wrong
+                # one and saying nothing about what was asked.
+                number = (state.get("slots") or {}).get("section", "")
+                if number:
+                    try:
+                        rescued = list(store.search_text(
+                            "%s %s" % (number, act or ""), top_k=12) or [])
+                    except Exception as e:  # noqa: BLE001 — best effort
+                        logger.warning("agent section rescue failed (%r)", e)
+                    else:
+                        if rescued:
+                            hits = rescued
+        hits = _rank_toward_section(
+            hits, (state.get("slots") or {}).get("section", "")
+            if tool == SECTION_READ else "")
+        hits = _rank_toward_act(hits, act)
+        added = 0
+        for h in hits:
+            k = _hit_key(h)
+            if k not in seen:
+                seen.add(k)
+                evidence.append(h)
+                added += 1
+        if added and act:
+            notes.append('%s "%s" → %d section%s from %s.'
+                         % (tool, shown, added, "" if added == 1 else "s", act))
+        elif added:
+            notes.append('%s "%s" → %d section%s.'
+                         % (tool, shown, added, "" if added == 1 else "s"))
         else:
-            evidence = list(store.search_text(query_en, top_k=5) or [])
-    except Exception as e:  # noqa: BLE001 — retrieval failure is retryable
-        logger.warning("agent retrieval failed (%r)", e)
-        evidence = []
-    ws = web_search or stub_web_search
-    web_hits: List[Dict[str, Any]] = []
-    web_error = ""
-    try:
-        web_hits = list(ws(query_en) or [])
-        evidence = evidence + web_hits
-    except Exception as e:  # noqa: BLE001 — web is best-effort
-        logger.warning("agent web_search failed (%r)", e)
-        web_error = str(e) or e.__class__.__name__
-    state["evidence"] = evidence
-    # Show the web search explicitly: a silent search failure is
-    # indistinguishable from "the web had nothing", and the user asked to
-    # see which query went out when the bare acts were not enough.
-    shown = query_en[:80]
-    if web_error:
-        web_note = 'web_search:"%s" unavailable (%s).' % (shown, web_error[:60])
-    elif web_hits:
-        web_note = 'web_search:"%s" → %d web result%s.' % (
-            shown, len(web_hits), "" if len(web_hits) == 1 else "s")
-    else:
-        web_note = 'web_search:"%s" → no results.' % shown
-    rag_note = ""
-    if len(evidence) - len(web_hits) > 0:
-        rag_note = "Retrieved %d act section%s. " % (
-            len(evidence) - len(web_hits),
-            "" if len(evidence) - len(web_hits) == 1 else "s")
-    elif not web_hits:
-        rag_note = "No matching sections in the bare acts. "
-    else:
-        rag_note = "Nothing in the bare acts; used the web instead. "
-    _add_trace(state, "tools", rag_note + web_note)
+            notes.append('%s "%s" → nothing new.' % (tool, shown))
+
+    state["evidence"] = evidence[:8]
+    if wants_timing_correction(state.get("query_en") or state.get("query", "")):
+        # Attach by act, not by relevance — see the note on the constant.
+        for notice in amendment_notices(state, store):
+            key = _hit_key(notice)
+            if key in seen:
+                continue
+            seen.add(key)
+            state["evidence"].append(notice)
+        if any(_AMENDMENT_LABEL in _section_of(h)
+               for h in state["evidence"]):
+            notes.append("Added the amendment notice for this Act, because "
+                         "the consolidated text is out of date.")
+    if not evidence:
+        notes.append("No evidence from any tool — the verifier will decide.")
+    _add_trace(state, "tools", " ".join(notes))
+    state.pop("next_queries", None)
     return state
 
 
@@ -846,13 +1464,34 @@ def evidence_sufficient(evidence: List[Dict[str, Any]],
 
 
 OOS_KEYWORDS = ("land", "property", "real estate", "criminal", "tax", "income tax",
-                "property law", "criminal law", "theft", "murder", "rape")
+                "property law", "criminal law", "theft", "murder", "rape",
+                "cheque", "stamp duty", "tenant", "eviction", "motor vehicle")
+
+# Signals that a question about land or property is really about *inheriting*
+# it, which is family law. "My father died and my brother is taking the
+# ancestral land" was being refused as out-of-scope property law, which is
+# exactly backwards: who inherits is Hindu Succession Act, and it is one of the
+# most common questions a family-law user asks.
+_SUCCESSION_HINTS = (
+    "died", "death", "deceased", "passed away", "ancestral", "ancestors",
+    "inherit", "inheritance", "heir", "heirs", "succession", "successor",
+    "legal heir", "family property", "left behind", "after his death",
+    "after her death", "will", "testate", "intestate", "share of the property",
+    "property left", "land left", "who gets the", "virasat", "jaydad",
+    "उत्तराधिकार", "वारिस", "ಉತ್ತರಾಧಿಕಾರ", "ವಿರಾಶ",
+)
 
 
 def is_oos(query_en: str) -> bool:
     low = (query_en or "").lower()
-    # Only redirect when clearly not family law and has OOS term
     has_oos = any(k in low for k in OOS_KEYWORDS)
+    if not has_oos:
+        return False
+    # A dispute over land *between a living father and his son* is tenancy or
+    # property law and we must not answer it. But land that changed hands
+    # because someone died is succession, and that we can and must answer.
+    if any(h in low for h in _SUCCESSION_HINTS):
+        return False
     has_family = any(k in low for k in (
         "marriage", "married", "divorce", "divorced", "custody",
         "maintenance", "adoption", "adopted", "guardians",
@@ -861,14 +1500,106 @@ def is_oos(query_en: str) -> bool:
     return has_oos and not has_family
 
 
+VERIFY_SYSTEM = (
+    "You are the verifier of LawSaathi, a family-law assistant for India. You "
+    "do not write answers. You check exactly one thing: did the draft make up "
+    "law that is not in the passages?\n\n"
+    "The draft is written in plain English for a layperson, so it paraphrases "
+    "and simplifies the passages. That is correct — never reject for it.\n\n"
+    "NEVER reject the draft for any of these, all of which are correct "
+    "behaviour:\n"
+    "- it says the passages do not cover part of the question\n"
+    "- it says it cannot verify something, or recommends a lawyer\n"
+    "- it uses different words from the passage to say the same thing\n"
+    "- it is shorter or longer than the passage\n\n"
+    "Reject ONLY if the draft states a specific legal rule — a section "
+    "number, a ground, a period, an amount, a court, a date — that the "
+    "passages do not support.\n\n"
+    "A section named in the passages' own text is supported even if the draft "
+    "words it differently. A section that appears nowhere in the passages is "
+    "the only kind of missing reference that counts.\n\n"
+    "When you are unsure, answer 'grounded'. A false rejection costs the user "
+    "a second search and a warning they did not need.\n\n"
+    'Reply with JSON only: {"verdict": "grounded"|"insufficient", "reason": '
+    '"one sentence naming the invented rule", "next_queries": ["..."]}. '
+    "next_queries may be empty."
+)
+
+
+def _evidence_block(state: Dict[str, Any], limit: int = 5) -> str:
+    lines = []
+    for i, hit in enumerate(state.get("evidence", [])[:limit], start=1):
+        if not isinstance(hit, dict):
+            continue
+        payload = hit.get("payload") or {}
+        body = plain_passage(str(payload.get("text", "") or ""), limit=400)
+        if not body:
+            continue
+        lines.append("[%d] %s — %s" % (i, format_citation(payload), body))
+    return "\n\n".join(lines)
+
+
+def verify_grounding(state: Dict[str, Any],
+                     llm: Optional[Callable] = None
+                     ) -> Optional[Dict[str, Any]]:
+    """Ask the model whether the draft is actually supported by the passages.
+
+    Returns None when there is no model or the reply was unusable, which tells
+    the caller to fall back to the old threshold check. The judge can only make
+    a run *more* suspicious than the score test, never less: an empty passage
+    list short-circuits before the model is even called.
+    """
+    passages = _evidence_block(state)
+    draft = str(state.get("draft", "") or "").strip()
+    if not passages or not draft or llm is None:
+        return None
+    user = ("Question: %s\n\nPassages:\n%s\n\nDraft answer:\n%s\n\n"
+            "Return the JSON verdict only."
+            % (state.get("query_en") or state.get("query", ""),
+               passages, draft[:3000]))
+    try:
+        text, provider = llm([{"role": "system", "content": VERIFY_SYSTEM},
+                              {"role": "user", "content": user}])
+        state["provider"] = provider
+        out = parse_json_block(strip_reasoning_leak(text))
+    except Exception as e:  # noqa: BLE001 — fall back to the threshold check
+        logger.warning("agent verifier judge failed (%r)", e)
+        return None
+    if not out:
+        return None
+    verdict = str(out.get("verdict") or "").strip().lower()
+    if verdict not in ("grounded", "insufficient"):
+        return None
+    queries = out.get("next_queries")
+    next_queries = []
+    if isinstance(queries, list):
+        for q in queries[:2]:
+            q = str(q or "").strip()
+            if q:
+                next_queries.append(q[:200])
+    return {"verdict": verdict,
+            "reason": str(out.get("reason") or "").strip()[:300],
+            "next_queries": next_queries}
+
+
 def node_verifier(state: Dict[str, Any],
-                  min_score: float = 0.0) -> Dict[str, Any]:
-    sufficient = evidence_sufficient(state.get("evidence", []),
-                                     min_score=min_score)
+                  min_score: float = 0.0,
+                  llm: Optional[Callable] = None) -> Dict[str, Any]:
+    """Decide whether the draft holds up, and ask for better evidence if not.
+
+    Two gates. The hard floor is unchanged: no passage text means no answer,
+    whatever any model says. Above that floor a model judge reads the draft
+    against the passages, which is the check the score threshold never could
+    do. With no judge available the threshold is the whole test, exactly as
+    before.
+    """
+    has_floor = evidence_sufficient(state.get("evidence", []),
+                                    min_score=min_score)
     retries = int(state.get("retries", 0))
-    # Emit confidence: max score of sufficient hits, else 0.0
+
+    # Confidence stays a retrieval statistic: how strong the best match was.
     confidence = 0.0
-    if sufficient:
+    if has_floor:
         scores = []
         for hit in state.get("evidence", []):
             score = hit.get("score", 1.0) if isinstance(hit, dict) else 1.0
@@ -878,8 +1609,44 @@ def node_verifier(state: Dict[str, Any],
                 scores.append(1.0)
         confidence = max(scores) if scores else 0.0
     state["confidence"] = confidence
-    if sufficient:
+
+    verdict = None
+    if has_floor:
+        verdict = verify_grounding(state, llm=llm)
+
+    if verdict and verdict["verdict"] == "grounded":
         state["verified"] = True
+        state["needs_retry"] = False
+        reason = verdict["reason"] or "every claim traces to a passage"
+        _add_trace(state, "verifier",
+                   "Checked the draft against the passages — %s. Confidence %.2f."
+                   % (reason, confidence))
+        return state
+
+    if verdict:
+        # A model saw something the score threshold could not see.
+        state["verified"] = False
+        reason = verdict["reason"] or "not supported by the passages"
+        if retries < MAX_RETRIES:
+            state["retries"] = retries + 1
+            state["needs_retry"] = True
+            if verdict["next_queries"]:
+                state["next_queries"] = verdict["next_queries"]
+            _add_trace(state, "verifier",
+                       "Rejected the draft — %s Searching again with better "
+                       "queries (retry %d/%d)." % (reason, retries + 1,
+                                                    MAX_RETRIES))
+        else:
+            state["needs_retry"] = False
+            _add_trace(state, "verifier",
+                       "Rejected the draft — %s Out of retries, so the answer "
+                       "carries a caution." % reason)
+        return state
+
+    # No judge: the old threshold behaviour, unchanged.
+    if has_floor:
+        state["verified"] = True
+        state["needs_retry"] = False
         _add_trace(state, "verifier",
                    "Citations cover the answer — confidence %.2f."
                    % confidence)
@@ -919,6 +1686,14 @@ LOW_CONFIDENCE_DISCLAIMER = {
     "en": "Caution: this answer has lower verification confidence. Please consult a lawyer for your specific situation before acting.",
     "hi": "सावधानी: इस उत्तर का सत्यापन विश्वास कम है। कृपया कार्य करने से पहले अपनी स्थिति के लिए वकील से सलाह लें।",
     "kn": "ಎಚ್ಚರಿಕೆ: ಈ ಉತ್ತರದ ಪರಿಶೀಲನೆಯ ವಿಶ್ವಾಸ ಕಡಿಮೆ. ಕ್ರಮವಿರುವ ಮೊದಲು ನಿಮ್ಮ ನಿರ್ದಿಷ್ಟ ಪರಿಸ್ಥಿತಿಗೆ ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
+}
+
+NOT_FULLY_VERIFIED = {
+    "en": "Note: I could not fully verify this answer against the sections I "
+          "retrieved. Treat it as a starting point, not a confirmed position — "
+          "check with a lawyer before you act on it.",
+    "hi": "नोट: मैं इस उत्तर को प्राप्त अनुच्छेदों के विरुद्ध पूरी तरह सत्यापित नहीं कर सका। इसे केवल शुरुआती बिंदु मानें, पुष्टि नहीं — कार्रवाई से पहले वकील से जाँच कराएँ।",
+    "kn": "ಗಮನಿಸಿ: ನಾನು ಈ ಉತ್ತರವನ್ನು ಪಡೆದ ವಿಭಾಗಗಳ ವಿರುದ್ಧ ಸಂಪೂರ್ಣವಾಗಿ ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಇದನ್ನು ಆರಂಭಿಕ ಬಿಂದು ಎಂದು ಪರಿಗಣಿಸಿ, ಖಚಿತ ಸ್ಥಿತಿ ಎಂದು ಅಲ್ಲ — ಕ್ರಮವಿರುವ ಮೊದಲು ವಕೀಲರಿಂದ ಪರಿಶೀಲಿಸಿಕೊಳ್ಳಿ.",
 }
 
 NEXT_STEPS = {
@@ -1050,7 +1825,16 @@ def compose_answer(state: Dict[str, Any],
     next_steps = NEXT_STEPS.get(lang, NEXT_STEPS["en"])
     confidence = float(state.get("confidence", 1.0))
     low_warn = ""
-    if confidence < 0.7:
+    if not state.get("verified"):
+        # The verifier read the draft and did not sign it off — either it ran
+        # out of retries, or there was no model to judge it. Either way the
+        # user is getting an answer we could not confirm, and must be told.
+        # Keying this on `verified` rather than on confidence is deliberate: a
+        # rejected draft can still have a strong retrieval score, and a 0.9
+        # score is not evidence that the prose built on it is sound.
+        low_warn = "\n\n> " + NOT_FULLY_VERIFIED.get(lang,
+                                                     NOT_FULLY_VERIFIED["en"])
+    elif confidence < 0.7:
         low_warn = "\n\n> " + LOW_CONFIDENCE_DISCLAIMER.get(
             lang, LOW_CONFIDENCE_DISCLAIMER["en"])
 
@@ -1120,10 +1904,21 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "- Write in English, in plain everyday words.\n"
         "- Answer only from the numbered passages. Never add a section, a "
         "provision or a fact that is not in them.\n"
-        "- If the passages do not cover the question, say what they do cover "
-        "and what is missing. Do not guess.\n"
+        "- Talk to the user, never about your inputs. Do NOT write 'the "
+        "passages', 'the provided text', 'the excerpts', 'the documents "
+        "above', or 'I was given'. The user does not know those exist. Open "
+        "by answering the question itself.\n"
+        "- If the passages do not cover the question, still answer as far as "
+        "they do, then say plainly what could not be confirmed — for example "
+        "'the exact amount is not fixed by the Act' — rather than apologising "
+        "for your sources.\n"
         "- Refer to a source as [1], [2] inline, right after the claim it "
         "supports. Use the numbers exactly as given.\n"
+        "- If a passage is an AMENDMENT NOTICE, follow it. The consolidated "
+        "statute text in the other passages is out of date. Never state a "
+        "waiting period, separation period or timeline as the current rule "
+        "from a passage that an amendment notice has flagged. Name the "
+        "amending Act and tell the reader to confirm the current figures.\n"
         "- Do NOT reproduce the passages. Do NOT quote the acts. Do NOT use "
         "'the court may deem', 'provided that', or any wording lifted from the "
         "raw text. Explain the meaning instead.\n"
@@ -1154,9 +1949,8 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
     if not text or len(text) < 40 or looks_looped(text):
         logger.info("agent plain answer unusable (short or looping); using template")
         return ""
-    _add_trace(state, "response",
-               "Rewrote the raw sections as a plain-language explanation "
-               "(%d chars) for topic %s." % (len(text), topic))
+    # No trace here: node_reason owns the "reason" line for the Thinking panel,
+    # and tracing from both places showed the step twice.
     return text
 
 
@@ -1182,9 +1976,88 @@ def looks_looped(text: str, limit: int = 6) -> bool:
     return False
 
 
+def node_reason(state: Dict[str, Any],
+                llm: Optional[Callable] = None) -> Dict[str, Any]:
+    """Write the draft explanation the verifier will then judge.
+
+    Split out from the response node on purpose. The old order was
+    tools -> verifier -> response, so the verifier only ever saw a bag of
+    passages and could check nothing except whether one had text in it. Now the
+    draft exists before verification, which is the only way a check like "does
+    this claim follow from that passage" is even possible.
+    """
+    draft = ""
+    if llm is not None and evidence_sufficient(state.get("evidence", [])):
+        draft = write_plain_answer(state, llm)
+    state["draft"] = draft
+    if draft:
+        _add_trace(state, "reason",
+                   "Drafted a %d-character explanation of %d passage%s, ready "
+                   "to be checked against them."
+                   % (len(draft), len(state.get("evidence", [])),
+                      "" if len(state.get("evidence", [])) == 1 else "s"))
+    else:
+        _add_trace(state, "reason",
+                   "No draft to check — nothing readable came back from the "
+                   "retrieval.")
+    return state
+
+
+AMENDMENT_CAVEAT = {
+    "en": ("Important: this waiting period was changed by the Special "
+           "Marriage (Amendment) Act, 2018 (Act 2 of 2019), in force from "
+           "1 June 2019. The section text above is the pre-amendment "
+           "version, so do not rely on the figure it quotes. Check the "
+           "current period against the amended Act, or ask a family-law "
+           "lawyer, before you act on it."),
+    "hi": ("महत्वपूर्ण: यह प्रतीक्षा अवधि विशेष विवाह (संशोधन) अधिनियम, 2018 "
+           "(अधिनियम 2 of 2019) द्वारा बदल दी गई है, जो 1 जून 2019 से लागू "
+           "हुआ। ऊपर दिया गया धारा का पाठ पुराना है, इसलिए उसकी अवधि पर "
+           "भरोसा न करें। संशोधित अधिनियम से वर्तमान अवधि जाँच लें, या "
+           "परामर्श के लिए पारिवारिक कानून वकील से बात करें।"),
+    "kn": ("ಮುಖ್ಯ: ಈ ಕಾಯದುಪಡಿ ಅವಧಿಯನ್ನು ವಿಶೇಷ ವಿವಾಹ (ತಿದ್ದುಪಡಿ) "
+           "ಅಧಿನಿಯಮ, 2018 (ಕಾಯ 2 of 2019) ಮೂಲಕ ಬದಲಾಗಿದೆ, ಅದು 1 "
+           "ಜೂನ್ 2019ರಿಂದ ಜಾರಿಯಾಗಿದೆ. ಮೇಲಿನ ವಿಭಾಗದ ಪಠ್ಯ ಹಳೆಯದ್ದು, "
+           "ಆದ್ದರಿಂದ ಅದರ ಅವಧಿಗೆ ನಂಬಬೇಡಿ. ತಿದ್ದುಪಡಿ ಕಾಯದಿಂದ ಪ್ರಸ್ತುತ "
+           "ಅವಧಿ ಪರಿಶೀಲಿಸಿ, ಅಥವಾ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು "
+           "ಸಂಪರ್ಕಿಸಿ."),
+}
+
+# Any duration figure. If an amendment notice is in evidence and the draft
+# quotes one of these, the draft is relying on text we know is out of date.
+_DURATION_RE = re.compile(
+    r"\b(one|two|three|four|five|six|seven|eight|nine|ten|twelve|eighteen|"
+    r"twenty|1|2|3|4|5|6|7|8|9|10|12|18|24)\s*[-–]?\s*"
+    r"(month|year|week|day)s?\b", re.IGNORECASE)
+
+
+def apply_amendment_guard(state: Dict[str, Any], answer: str) -> str:
+    """Stop a stale duration being presented as current law.
+
+    The amendment notice is in the passages, but the writing model ignores it
+    and the verifier — which only checks that a claim matches a passage —
+    approves the stale figure, because in the stale passage the stale figure
+    *is* correct. Prompts did not fix this; only enforcing it does. The caveat
+    names the amending Act, which is a fact we hold in the corpus, and does
+    not assert any replacement figure.
+    """
+    has_notice = any(_AMENDMENT_LABEL in _section_of(h)
+                     for h in state.get("evidence", []))
+    if not has_notice:
+        return answer
+    if not _DURATION_RE.search(answer or ""):
+        return answer
+    lang = state.get("lang", "en")
+    caveat = AMENDMENT_CAVEAT.get(lang, AMENDMENT_CAVEAT["en"])
+    if caveat in answer:
+        return answer
+    return "%s\n\n> %s" % (answer, caveat)
+
+
 def node_response(state: Dict[str, Any],
                   llm: Optional[Callable] = None,
                   translate_in: Optional[Callable] = None) -> Dict[str, Any]:
+    memory = state.get("memory") or {}
     lang = state.get("lang", "en")
     if state.get("clarification"):
         # Clarification path: answer in the user's language, no guessing.
@@ -1215,9 +2088,9 @@ def node_response(state: Dict[str, Any],
                    "Asked you for: %s." % ", ".join(missing) if missing
                    else "Asked you a follow-up question.")
         return state
-    written = ""
-    if llm is not None and evidence_sufficient(state.get("evidence", [])):
-        written = write_plain_answer(state, llm)
+    # The draft was written and checked in node_reason; this node assembles
+    # the user-facing answer. Re-writing here would throw away the judge's work.
+    written = str(state.get("draft", "") or "")
     answer_en, citations, citation_sources = compose_answer(state, written)
     final = strip_reasoning_leak(answer_en)
     translated = False
@@ -1249,6 +2122,13 @@ def node_response(state: Dict[str, Any],
         except Exception as e:  # noqa: BLE001 — English answer still usable
             logger.warning("agent answer translate failed (%r)", e)
             final = written
+    guarded = apply_amendment_guard(state, final)
+    if guarded != final:
+        _add_trace(state, "response",
+                   "The passages carried an amendment notice and the draft "
+                   "quoted a duration, so the answer now carries the amending "
+                   "Act rather than the pre-amendment figure.")
+        final = guarded
     state["answer"] = final
     state["citations"] = citations
     state["citation_sources"] = citation_sources
@@ -1269,51 +2149,94 @@ def node_response(state: Dict[str, Any],
 node_intent = _maybe_trace("intent")(node_intent)
 node_planner = _maybe_trace("planner")(node_planner)
 node_tools = _maybe_trace("tools")(node_tools)
+node_reason = _maybe_trace("reason")(node_reason)
 node_verifier = _maybe_trace("verifier")(node_verifier)
 node_response = _maybe_trace("response")(node_response)
+
+
+def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
+                      llm_fn, web_search, min_score, doc_id,
+                      history) -> Dict[str, Any]:
+    """The graph's node order, hand-rolled. Used when langgraph is absent.
+
+    Must stay identical to build_graph()'s trace; test_agent.py asserts the
+    two paths agree so they cannot quietly drift apart.
+    """
+    state = new_state(query, lang=lang, memory=memory, history=history)
+    state["tone"] = tone
+    state["doc_id"] = doc_id
+    state = node_intent(state, llm=llm_fn)
+    state = node_planner(state, llm=llm_fn)
+    if state.get("clarification") or state.get("oos_redirect"):
+        state = node_response(state, llm=llm_fn,
+                              translate_in=translate_complete)
+        state.pop("needs_retry", None)
+        return state
+    store = retriever if retriever is not None else default_retriever()
+    state = node_tools(state, retriever=store, web_search=web_search,
+                       llm=llm_fn)
+    while True:
+        state = node_reason(state, llm=llm_fn)
+        state = node_verifier(state, min_score=min_score, llm=llm_fn)
+        if not state.pop("needs_retry", False):
+            break
+        state = node_tools(state, retriever=store, web_search=web_search,
+                           llm=llm_fn)
+    state = node_response(state, llm=llm_fn,
+                          translate_in=translate_complete)
+    state.pop("needs_retry", None)
+    return state
+
+
+# Sentinel for "use whatever provider is configured". Passing llm=None
+# explicitly means "no model at all", which is what the tests and the offline
+# demo want. Before this sentinel existed both cases collapsed to the same
+# thing, so a developer's .env leaked a live Groq key into the test suite and
+# the agent's behaviour depended on what the model happened to return.
+_USE_CONFIGURED_LLM = object()
 
 
 def run_agent(query: str, lang: str = "en",
               memory: Optional[Dict[str, str]] = None,
               tone: str = "simple",
               retriever: Any = None,
-              llm: Optional[Callable] = None,
+              llm: Any = _USE_CONFIGURED_LLM,
               web_search: Optional[Callable] = None,
               min_score: float = 0.0,
               doc_id: str = "",
               history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
-    """Run intent -> planner -> [clarify | tools <-> verifier] -> response.
+    """Run intent -> planner -> [clarify | tools -> reason -> verifier] -> response.
 
     Returns the shared state dict (includes trace, answer, citations,
-    provider, retries). Verifier loops back to tools at most MAX_RETRIES.
+    provider, retries). The verifier can send the run back to tools at most
+    MAX_RETRIES times, with its own replacement queries.
+
+    LangGraph drives this when it is installed; the inline runner above is the
+    fallback for a bare checkout. Either way the same nodes run in the same
+    order, and ``state["trace"]`` is identical.
+
+    ``llm``: omit it to use the configured provider, pass None for no model, or
+    pass a callable taking (messages) and returning (text, provider).
     """
     state = new_state(query, lang=lang, memory=memory, history=history)
     state["tone"] = tone
     state["doc_id"] = doc_id
-    # Default LLM: live Groq/OpenRouter when keys exist, else None (templates).
-    llm_fn = llm
-    if llm_fn is None:
+    if llm is _USE_CONFIGURED_LLM:
+        llm_fn = None
         if os.environ.get("GROQ_API_KEY", "") or os.environ.get(
                 "OPENROUTER_API_KEY", ""):
             llm_fn = chat_complete
+    else:
+        llm_fn = llm
+    runner = build_graph(retriever=retriever, llm=llm_fn,
+                         web_search=web_search, min_score=min_score)
     try:
-        state = node_intent(state, llm=llm_fn)
-        state = node_planner(state)
-        if state.get("clarification"):
-            state = node_response(state, llm=llm_fn,
-                                  translate_in=translate_complete)
-            state.pop("needs_retry", None)
-            return state
-        store = retriever if retriever is not None else default_retriever()
-        state = node_tools(state, retriever=store, web_search=web_search)
-        state = node_verifier(state, min_score=min_score)
-        while state.pop("needs_retry", False):
-            state = node_tools(state, retriever=store, web_search=web_search)
-            state = node_verifier(state, min_score=min_score)
-        state = node_response(state, llm=llm_fn,
-                              translate_in=translate_complete)
-        state.pop("needs_retry", None)
-        return state
+        if getattr(runner, "is_graph", False):
+            state.update(runner.invoke(state))
+        else:
+            state = _run_agent_inline(query, lang, memory, tone, retriever,
+                                      llm_fn, web_search, min_score, doc_id,
+                                      history)
     except Exception:
         # A crashed run is exactly what you want to see in LangSmith, so
         # mark it before letting the error reach the router.
@@ -1321,6 +2244,8 @@ def run_agent(query: str, lang: str = "en",
         raise
     finally:
         trace_run(state)
+    state.pop("needs_retry", None)
+    return state
 
 
 # T10 eval hook (ADR-0006): eval_t10.py runs run_agent against golden_qas.json.
@@ -1336,59 +2261,86 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
                 min_score: float = 0.0) -> Any:
     """Build the LangGraph StateGraph when langgraph is installed.
 
-    Falls back to a small runner with the same node order so tests and
-    bare checkouts work without the dependency. Both paths record the
-    five node names in ``state["trace"]``.
+    This is the real runtime, not a diagram. When langgraph cannot be imported
+    the caller gets a marker object instead, and run_agent() falls back to the
+    inline runner with the identical node order.
+
+    Edges:
+        intent -> planner
+        planner -> response (asking the user) | tools
+        tools -> reason
+        reason -> verifier
+        verifier -> tools (insufficient evidence) | response
+        response -> END
     """
     try:
         from langgraph.graph import END, StateGraph  # type: ignore
     except Exception:
-        def runner(query: str, lang: str = "en",
-                   memory: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-            return run_agent(query, lang=lang, memory=memory,
-                             retriever=retriever, llm=llm,
-                             web_search=web_search, min_score=min_score)
-        runner.graph_name = "lawsaathi-fallback"  # type: ignore[attr-defined]
-        return runner
+        return _NO_GRAPH
 
     def _intent(s: Dict[str, Any]) -> Dict[str, Any]:
         return node_intent(dict(s), llm=llm)
 
     def _planner(s: Dict[str, Any]) -> Dict[str, Any]:
-        return node_planner(dict(s))
+        return node_planner(dict(s), llm=llm)
 
     def _tools(s: Dict[str, Any]) -> Dict[str, Any]:
         store = retriever if retriever is not None else default_retriever()
-        return node_tools(dict(s), retriever=store, web_search=web_search)
+        return node_tools(dict(s), retriever=store, web_search=web_search,
+                          llm=llm)
+
+    def _reason(s: Dict[str, Any]) -> Dict[str, Any]:
+        return node_reason(dict(s), llm=llm)
 
     def _verifier(s: Dict[str, Any]) -> Dict[str, Any]:
-        return node_verifier(dict(s), min_score=min_score)
+        return node_verifier(dict(s), min_score=min_score, llm=llm)
 
     def _response(s: Dict[str, Any]) -> Dict[str, Any]:
-        return node_response(dict(s), llm=llm)
+        return node_response(dict(s), llm=llm,
+                             translate_in=translate_complete)
 
     graph = StateGraph(dict)
     graph.add_node("intent", _intent)
     graph.add_node("planner", _planner)
     graph.add_node("tools", _tools)
+    graph.add_node("reason", _reason)
     graph.add_node("verifier", _verifier)
     graph.add_node("response", _response)
     graph.set_entry_point("intent")
     graph.add_edge("intent", "planner")
 
     def _after_planner(s: Dict[str, Any]) -> str:
-        return "response" if s.get("clarification") else "tools"
+        # Out of scope and "I need to ask you something" both end the run at
+        # the response node — neither benefits from a retrieval round trip.
+        return "response" if (s.get("clarification") or s.get("oos_redirect")) \
+            else "tools"
 
     graph.add_conditional_edges("planner", _after_planner,
                                 {"response": "response", "tools": "tools"})
 
     def _after_verifier(s: Dict[str, Any]) -> str:
-        if s.pop("needs_retry", False):
+        # Read, never pop: LangGraph owns this state and a local pop does not
+        # write the channel back. node_verifier always sets the flag, so this
+        # is a read of a value that is guaranteed to be correct.
+        if s.get("needs_retry"):
             return "tools"
         return "response"
 
     graph.add_conditional_edges("verifier", _after_verifier,
                                 {"tools": "tools", "response": "response"})
-    graph.add_edge("tools", "verifier")
+    graph.add_edge("tools", "reason")
+    graph.add_edge("reason", "verifier")
     graph.add_edge("response", END)
-    return graph.compile()
+    compiled = graph.compile()
+    compiled.is_graph = True  # type: ignore[attr-defined]
+    return compiled
+
+
+class _NoGraph:
+    """Returned when langgraph is missing; run_agent then runs inline."""
+
+    is_graph = False
+    graph_name = "lawsaathi-inline"  # type: ignore[attr-defined]
+
+
+_NO_GRAPH = _NoGraph()
