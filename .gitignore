@@ -12,3 +12,15 @@ __pycache__/
 .pytest_cache/
 *.tsbuildinfo
 .DS_Store
+
+# Loose design/asset exports that live in web/public/images/ already.
+# The root copies were duplicates and only cluttered the repo root.
+/auth-side.png
+/bare-act-texture.png
+/center.png
+/hero-families.png
+/voice-mic.png
+/law saathi logo.png
+
+# Scratch file from an earlier debugging session.
+api/tests/test_debug_tmp.py
