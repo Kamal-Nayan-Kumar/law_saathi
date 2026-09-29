@@ -8,8 +8,12 @@ from app.agent import (
     NODES,
     StubRetriever,
     chat_complete,
+    clarification_question,
+    extract_slots,
+    missing_for,
     new_state,
     node_planner,
+    node_tools,
     run_agent,
 )
 
@@ -165,6 +169,95 @@ def test_ask_endpoint_clarification_path(client):
     assert body["trace"] == ["intent", "planner", "response"]
     history = client.get("/sessions/%d/messages" % sid, headers=h).json()
     assert [m["role"] for m in history] == ["user", "assistant"]
+
+
+def test_web_search_shows_in_the_trace_with_its_query():
+    """The product owner asked to see web_search:"query" in the Thinking
+    steps, and to know when the RAG alone was not enough."""
+    hits = [{"payload": {"url": "https://example.org/law", "title": "Law page",
+                         "text": "some text"}, "score": 0.85}]
+    st = new_state("quantum physics entanglement", lang="en")
+    st["query_en"] = "quantum physics entanglement"
+    st = node_tools(st, retriever=StubRetriever(),
+                    web_search=lambda q, top_k=3: hits)
+    steps = [d["detail"] for d in st["trace_detail"] if d["node"] == "tools"]
+    assert steps, "tools must record a step"
+    assert "web_search" in steps[0]
+    assert "quantum physics entanglement" in steps[0]
+    # web hits must be reachable for citation
+    assert st["evidence"] == hits
+
+
+def test_web_search_failure_is_visible_in_the_trace():
+    """A silent web-search failure is indistinguishable from 'no results'."""
+    def boom(q, top_k=3):
+        raise RuntimeError("firecrawl down")
+
+    st = new_state("obscure topic", lang="en")
+    st["query_en"] = "obscure topic"
+    st = node_tools(st, retriever=StubRetriever(), web_search=boom)
+    steps = [d["detail"] for d in st["trace_detail"] if d["node"] == "tools"]
+    assert "web_search" in steps[0]
+    assert "unavailable" in steps[0]
+
+
+def test_act_name_alone_does_not_set_the_topic():
+    """"Section 13B of the Hindu Marriage Act" is about DIVORCE, not
+    marriage. Matching the act's name against the topic keywords made the
+    Quick answer describe marriage law for a divorce question."""
+    slots = extract_slots("What is Section 13B of the Hindu Marriage Act?")
+    assert slots.get("section") == "13B"
+    assert slots.get("topic") != "marriage", slots
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("Section 13B of the Hindu Marriage Act?", "divorce"),
+    ("What does Section 7 of the Hindu Marriage Act say?", "marriage"),
+    ("my wife wants maintenance", "maintenance"),
+    ("who gets custody of my son", "custody"),
+])
+def test_section_number_wins_over_act_name(query, expected):
+    assert extract_slots(query).get("topic") == expected
+
+
+def test_missing_for_never_reasks_on_a_followup():
+    """A follow-up must never come back with the same clarification.
+
+    Regression: `is_followup` was checked *after* the topic test, so a
+    follow-up whose topic failed extraction returned ["topic"] forever and
+    the bot asked the same question over and over instead of answering.
+    """
+    # Follow-up that carries no topic of its own — the old code said "topic".
+    assert missing_for({}, "mutual consent", is_followup=True) == []
+    # Follow-up for a divorce thread that still lacks divorce_type.
+    assert missing_for({"topic": "divorce"}, "mutual", is_followup=True) == []
+    # A genuinely vague FIRST question must still be clarified.
+    assert missing_for({}, "I want divorce", is_followup=False) == ["topic"]
+
+
+def test_planner_does_not_repeat_a_slot_it_already_asked(client_stub=None):
+    """Once a slot has been asked, the planner must not ask it again."""
+    hist = [{"role": "user", "content": "I want divorce"},
+            {"role": "assistant", "content": "Mutual or contested?"}]
+    st = new_state("", lang="en", history=hist)
+    st = node_planner(st)
+    assert st["missing_slots"] == []
+    assert st["clarification"] == ""
+
+
+def test_clarify_question_is_not_broken_grammar():
+    """Non-Latin scripts have no letter case, so lowercasing the first
+    character corrupts Hindi/Kannada. Regression: the lead-in plus a
+    lowercased template produced 'यह ... तलाक क्या है?'."""
+    for lang in ("hi", "kn"):
+        q = clarification_question(["divorce_type"], lang)
+        assert q.rstrip().endswith("?"), (lang, q)
+        # The template's own sentence must survive intact after the lead-in.
+        template = agent_module.CLARIFY_TEMPLATES[lang]["divorce_type"]
+        assert q.endswith(template), (lang, q)
+        # must not end with the mangled '...क्या है?' pattern
+        assert not q.rstrip().endswith("क्या है?"), (lang, q)
+        assert not q.rstrip().endswith("ಏನು?"), (lang, q)
 
 
 def test_trace_mode_off_by_default(monkeypatch):

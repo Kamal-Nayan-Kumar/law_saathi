@@ -63,6 +63,41 @@ _DIVORCE_TYPE_RE = re.compile(
 _SECTION_RE = re.compile(
     r"section\s+(\d+[A-Z\-]*)|धारा\s+(\d+)|dhara\s+(\d+)", re.IGNORECASE)
 
+# Act names carry the word "marriage", so asking about "the Hindu Marriage
+# Act" used to set topic=marriage even for a divorce section. When the user
+# names a section, the section decides the topic.
+_SECTION_TOPIC = {
+    "4": "marriage", "5": "marriage", "6": "marriage", "7": "marriage",
+    "8": "marriage", "9": "marriage", "10": "marriage", "11": "marriage",
+    "12": "marriage",
+    "13": "divorce", "13A": "divorce", "13B": "divorce", "14": "divorce",
+    "24": "domestic_violence", "25": "domestic_violence",
+    "26": "domestic_violence", "27": "domestic_violence",
+}
+# Same intent, romanised / other script.
+_SECTION_TOPIC_ALIASES = {
+    "13a": "divorce", "13b": "divorce",
+}
+
+# Names of the acts themselves. These must NOT decide the topic — an act
+# covers many topics, and its name is always in play.
+_ACT_NAME_RE = re.compile(
+    r"hindu\s+marriage\s+act|special\s+marriage\s+act|"
+    r"hindu\s+adoption\s+and\s+maintenance\s+act|"
+    r"hindu\s+succession\s+act|guardians\s+and\s+wards\s+act|"
+    r"domestic\s+violence\s+act|indian\s+divorce\s+act|"
+    r"hindu\s+minority\s+act", re.IGNORECASE)
+
+
+def _section_topic(section: str) -> Optional[str]:
+    """Topic implied by a bare section number, or None if unknown."""
+    if not section:
+        return None
+    key = section.strip().upper()
+    if key in _SECTION_TOPIC:
+        return _SECTION_TOPIC[key]
+    return _SECTION_TOPIC_ALIASES.get(key.lower())
+
 
 # Roman-Hindi (Hinglish) signals: users often type Hindi in Latin script
 # ("kitna umar hona chahiye shadi ke liye"), which no Indic script matches.
@@ -145,8 +180,16 @@ def new_state(query: str, lang: str = "en",
 def extract_slots(query_en: str) -> Dict[str, str]:
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
+    sec = _SECTION_RE.search(query_en or "")
+    section = (sec.group(1) or sec.group(2) or sec.group(3) or "") if sec else ""
+
+    # An act name mentions "marriage" but says nothing about the topic —
+    # "Section 13B of the Hindu Marriage Act" is a divorce question. Strip
+    # act names before keyword matching so they cannot decide the topic.
+    bare = _ACT_NAME_RE.sub(" ", low)
+
     topics = [t for t, kws in TOPIC_KEYWORDS.items()
-              if any(k in low for k in kws)]
+              if any(k in bare for k in kws)]
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
         for pref in ("maintenance", "custody", "adoption", "succession",
@@ -154,6 +197,11 @@ def extract_slots(query_en: str) -> Dict[str, str]:
             if pref in topics:
                 slots["topic"] = pref
                 break
+    # A named section is the most specific signal available — let it win.
+    sec_topic = _section_topic(section)
+    if sec_topic:
+        slots["topic"] = sec_topic
+
     m = _DIVORCE_TYPE_RE.search(query_en or "")
     if m:
         word = m.group(0).lower()
@@ -163,12 +211,11 @@ def extract_slots(query_en: str) -> Dict[str, str]:
             slots["divorce_type"] = ("mutual" if "mutual" in word or "आपसी" in word
                                      else "contested")
     for p in PARTY_WORDS:
-        if p in low:
+        if p in bare:
             slots["parties"] = p
             break
-    sec = _SECTION_RE.search(query_en or "")
-    if sec:
-        slots["section"] = sec.group(1) or sec.group(2) or sec.group(3) or ""
+    if section:
+        slots["section"] = section
     return slots
 
 
@@ -184,16 +231,22 @@ def classify_intent(query_en: str, slots: Dict[str, str]) -> str:
 
 def missing_for(slots: Dict[str, str], query_en: str,
                 is_followup: bool = False) -> List[str]:
-    """Key slots the planner needs before guessing (T3 accept rule)."""
+    """Key slots the planner needs before guessing (T3 accept rule).
+
+    ``is_followup`` short-circuits *first*: once the user has already been
+    asked something in this session, answer with what you have. Otherwise a
+    follow-up whose topic fails extraction returns ["topic"] again and the
+    bot asks the same question forever.
+    """
     if slots.get("section"):
         return []  # exact-section lookup is answerable as-is
+    if is_followup:
+        return []
     topic = slots.get("topic")
     if not topic:
         return ["topic"]
     if topic == "divorce" and not slots.get("divorce_type"):
         return ["divorce_type"]
-    if is_followup:
-        return []  # user already answered once — answer, don't interrogate
     words = (query_en or "").split()
     if topic in ("divorce", "maintenance", "custody") \
             and not slots.get("parties") and len(words) < 6:
@@ -218,20 +271,37 @@ CLARIFY_TEMPLATES = {
 }
 
 _CLARIFY_LEAD = {
-    "en": "To guide you correctly, ",
-    "hi": "सही मार्गदर्शन के लिए, ",
-    "kn": "ಸರಿಯಾಗಿ ಮಾರ್ಗದರ್ಶನ ನೀಡಲು, ",
+    "en": "To guide you correctly — ",
+    "hi": "सही मार्गदर्शन के लिए — ",
+    "kn": "ಸರಿಯಾಗಿ ಮಾರ್ಗದರ್ಶನ ನೀಡಲು — ",
 }
 
 
 def clarification_question(missing: List[str], lang: str) -> str:
+    """Build the follow-up question in the user's own language.
+
+    Every template is already a full, standalone question. Do not lowercase
+    the first character: Hindi and Kannada have no letter case, so doing that
+    only produces broken grammar ("...तलाक क्या है?").
+    """
     bank = CLARIFY_TEMPLATES.get(lang, CLARIFY_TEMPLATES["en"])
     lead = _CLARIFY_LEAD.get(lang, _CLARIFY_LEAD["en"])
     asked = [bank.get(m, m) for m in missing[:2]]
     if len(asked) == 1:
-        return lead + asked[0][0].lower() + asked[0][1:]
+        return lead + _sentence_case(asked[0], lang)
     return lead + " ".join("(%d) %s" % (i + 1, q)
                            for i, q in enumerate(asked))
+
+
+def _sentence_case(text: str, lang: str) -> str:
+    """Capitalise an English question that now follows a lead-in.
+
+    Only English has letter case, so this is a no-op for hi/kn — which is
+    exactly the point: lowercasing their first character corrupts them.
+    """
+    if lang != "en" or not text:
+        return text
+    return text[0].upper() + text[1:]
 
 
 # ---------------------------------------------------------------------------
@@ -626,21 +696,36 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
         logger.warning("agent retrieval failed (%r)", e)
         evidence = []
     ws = web_search or stub_web_search
+    web_hits: List[Dict[str, Any]] = []
+    web_error = ""
     try:
-        extra = ws(query_en) or []
-        evidence = evidence + list(extra)
+        web_hits = list(ws(query_en) or [])
+        evidence = evidence + web_hits
     except Exception as e:  # noqa: BLE001 — web is best-effort
         logger.warning("agent web_search failed (%r)", e)
+        web_error = str(e) or e.__class__.__name__
     state["evidence"] = evidence
-    n = len(evidence)
-    if n:
-        top = format_citation((evidence[0].get("payload") or {})
-                              if isinstance(evidence[0], dict) else {})
-        _add_trace(state, "tools",
-                   "Retrieved %d section%s — top hit: %s."
-                   % (n, "" if n == 1 else "s", top))
+    # Show the web search explicitly: a silent search failure is
+    # indistinguishable from "the web had nothing", and the user asked to
+    # see which query went out when the bare acts were not enough.
+    shown = query_en[:80]
+    if web_error:
+        web_note = 'web_search:"%s" unavailable (%s).' % (shown, web_error[:60])
+    elif web_hits:
+        web_note = 'web_search:"%s" → %d web result%s.' % (
+            shown, len(web_hits), "" if len(web_hits) == 1 else "s")
     else:
-        _add_trace(state, "tools", "No matching sections found.")
+        web_note = 'web_search:"%s" → no results.' % shown
+    rag_note = ""
+    if len(evidence) - len(web_hits) > 0:
+        rag_note = "Retrieved %d act section%s. " % (
+            len(evidence) - len(web_hits),
+            "" if len(evidence) - len(web_hits) == 1 else "s")
+    elif not web_hits:
+        rag_note = "No matching sections in the bare acts. "
+    else:
+        rag_note = "Nothing in the bare acts; used the web instead. "
+    _add_trace(state, "tools", rag_note + web_note)
     return state
 
 
