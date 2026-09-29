@@ -65,33 +65,42 @@ function detectLang(text: string): "en" | "hi" | "kn" {
 
 type Meta = { trace: string[]; steps: TraceStep[]; citations: string[]; sources: string[] };
 
-// Turn each known citation string in the answer into a numbered anchor
-// link that jumps to the matching item in that answer's Sources list.
-function linkifyCitations(text: string, citations: string[], msgId: number): string {
-  let out = text;
-  citations.forEach((c, i) => {
-    if (!c || c.length > 80 || /[\[\]]/.test(c)) return;
-    const esc = c.replace(/[.*+?^${}()|\\]/g, "\\$&");
-    out = out.replace(new RegExp(esc), `[${c}](#src-${msgId}-${i + 1})`);
+// How a source is labelled in the Sources list. `kind` picks the tag colour.
+const SOURCE_TAGS: Record<string, { label: string; kind: string }> = {
+  bare_act: { label: "bare act", kind: "act" },
+  web: { label: "web source", kind: "web" },
+  doc: { label: "document", kind: "doc" },
+};
+
+function sourceTag(type: string): { label: string; kind: string } {
+  return SOURCE_TAGS[type] || { label: "source", kind: "other" };
+}
+
+// Turn each citation marker in the answer — `[1]` or `[1,2,3]` — into a small
+// link to the matching item in that answer's Sources list. Only markers whose
+// number exists in `citations` are touched, so nothing else is rewritten.
+function linkCitationMarkers(text: string, citations: string[], msgId: number): string {
+  const count = citations.length;
+  if (!count) return text;
+  return text.replace(/\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\](?!\()/g, (match, group: string) => {
+    const nums = group.split(",").map((n) => Number(n.trim()));
+    if (nums.some((n) => n < 1 || n > count)) return match;
+    return nums.map((n) => `[${n}](#src-${msgId}-${n})`).join(", ");
   });
-  return out;
 }
 
 function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
   const [showThink, setShowThink] = useState(false);
-  const [showSrc, setShowSrc] = useState(false);
   const text =
-    m && m.citations.length ? linkifyCitations(msg.content, m.citations, msg.id) : msg.content;
+    m && m.citations.length ? linkCitationMarkers(msg.content, m.citations, msg.id) : msg.content;
 
+  // Sources are always on screen, so an inline marker only needs to scroll.
   function onCite(e: React.MouseEvent) {
     const a = (e.target as HTMLElement).closest('a[href^="#src-"]');
     if (!a) return;
     e.preventDefault();
-    setShowSrc(true);
     const id = (a.getAttribute("href") || "").slice(1);
-    setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 60);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   return (
@@ -126,22 +135,19 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
       </div>
       {m && m.citations.length > 0 && (
         <div className="src">
-          <button type="button" className="src-toggle" onClick={() => setShowSrc((v) => !v)}>
-            {showSrc ? `▾ Sources (${m.citations.length})` : `▸ Sources (${m.citations.length})`}
-          </button>
-          {showSrc && (
-            <ol className="src-list">
-              {m.citations.map((c, i) => (
+          <p className="src-head">Sources ({m.citations.length})</p>
+          <ol className="src-list">
+            {m.citations.map((c, i) => {
+              const tag = m.sources[i] ? sourceTag(m.sources[i]) : null;
+              return (
                 <li key={i} id={`src-${msg.id}-${i + 1}`} className="src-item">
                   <span className="src-n">{i + 1}</span>
-                  <span>{c}</span>
-                  {m.sources[i] && (
-                    <span className="src-tag">{m.sources[i] === "bare_act" ? "bare act" : "web"}</span>
-                  )}
+                  <span className="src-text">{c}</span>
+                  {tag && <span className={`src-tag src-tag-${tag.kind}`}>{tag.label}</span>}
                 </li>
-              ))}
-            </ol>
-          )}
+              );
+            })}
+          </ol>
         </div>
       )}
     </div>

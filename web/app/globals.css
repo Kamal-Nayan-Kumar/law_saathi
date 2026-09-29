@@ -708,7 +708,7 @@ button.primary {
 .think { border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 8px; }
 .think-top { border-top: none; border-bottom: 1px dashed var(--line); margin-top: 0; margin-bottom: 12px; padding-top: 0; padding-bottom: 8px; }
 .think-done { color: #a8a396; font-weight: 400; }
-.think-toggle, .src-toggle {
+.think-toggle {
   background: none;
   border: none;
   color: var(--maroon);
@@ -720,43 +720,62 @@ button.primary {
 .think-steps { margin: 6px 0 4px 20px; font-size: 0.84rem; color: var(--muted); }
 .think-steps li { margin-bottom: 6px; }
 .step-detail { display: block; font-weight: 400; color: var(--muted); }
-.src { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 8px; }
-.src-list { list-style: none; margin: 8px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Inline citation marker inside the answer: small blue superscript link. */
+.md a[href^="#src-"] {
+  color: #1d4ed8;
+  font-size: 0.72em;
+  font-weight: 700;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  padding: 0 1px;
+}
+.md a[href^="#src-"]:hover { text-decoration: underline; }
+
+.src { border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 8px; }
+.src-head {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.src-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .src-item {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: baseline;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink);
+  padding: 3px 6px;
+  border-radius: 6px;
   scroll-margin-top: 140px;
 }
+.src-item:target { background: var(--marigold-soft); }
 .src-n {
   flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--maroon);
-  color: var(--paper);
-  font-size: 0.75rem;
+  min-width: 18px;
+  text-align: right;
+  color: #1d4ed8;
+  font-size: 0.72rem;
   font-weight: 700;
-  display: inline-grid;
-  place-items: center;
-  transform: translateY(4px);
+  font-variant-numeric: tabular-nums;
 }
+.src-text { min-width: 0; }
 .src-tag {
-  margin-left: auto;
   flex: none;
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   background: #eae2c8;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
   color: var(--maroon);
+  white-space: nowrap;
 }
+.src-tag-web { background: #dde7f7; color: #1d4ed8; }
+.src-tag-doc { background: #dcefe0; color: #1f6b3a; }
 
 /* ---------- Auth (login / signup split card) ---------- */
 main.auth-wrap { max-width: 1100px; }
