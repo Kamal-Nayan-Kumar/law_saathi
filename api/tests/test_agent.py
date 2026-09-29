@@ -1,5 +1,6 @@
 """T3 tests: planner clarification, verifier retry, LLM fallback, trace shape."""
 import os
+import re
 
 import pytest
 
@@ -7,14 +8,18 @@ from app import agent as agent_module
 from app.agent import (
     NODES,
     StubRetriever,
+    write_plain_answer,
     chat_complete,
     clarification_question,
+    compose_answer,
     broaden_query,
     extract_slots,
     missing_for,
     new_state,
     node_planner,
     node_tools,
+    looks_looped,
+    plain_passage,
     run_agent,
 )
 
@@ -170,6 +175,129 @@ def test_ask_endpoint_clarification_path(client):
     assert body["trace"] == ["intent", "planner", "response"]
     history = client.get("/sessions/%d/messages" % sid, headers=h).json()
     assert [m["role"] for m in history] == ["user", "assistant"]
+
+
+RAW_ACT_TEXT = (
+    "Act: The Hindu Marriage Act, 1955 (Act 25 of 1955) | India | Central | "
+    "In Force\nSection 13B: Divorce by mutual consent\n\n"
+    "**13B. Divorce by mutual consent.—** ( _1_ ) Subject to the provisions of "
+    "this Act a petition for dissolution of marriage by a decree of divorce may "
+    "be presented to the district court by both the parties to a marriage "
+    "together, on the ground that they have been living apart for one year or "
+    "more."
+)
+
+
+def test_looped_model_output_is_rejected():
+    """qwen-2.5-7b loops when pushed into Hindi/Kannada. A user must never
+    see the same sentence twenty times, so the run must be detected and the
+    template answer used instead."""
+    looped = "दर्जन की बारिश " * 60
+    assert looks_looped(looped) is True
+    normal = ("If you both agree, you can ask the court to end the marriage. "
+              "You must have lived apart for a year. A lawyer files it for you.")
+    assert looks_looped(normal) is False
+    assert looks_looped("") is False
+
+
+def test_hindi_answer_never_repeats_a_phrase():
+    """End-to-end guard: whatever the model returns, the delivered Hindi
+    answer must not contain a repeated 4-gram."""
+    def loopy_llm(msgs):
+        return "दोनों पति और पत्नी " * 30, "test:loop"
+
+    out = run_agent("आपसी सहमति से तलाक कैसे मिलता है?", lang="hi",
+                    llm=loopy_llm, retriever=HitRetriever(),
+                    web_search=lambda q: [])
+    assert not looks_looped(out["answer"]), out["answer"][:200]
+
+
+def test_plain_answer_is_written_not_pasted_and_stays_grounded():
+    """The body of the answer must be written by the model from the
+    passages, in the user's language, and must not paste the raw act text."""
+    captured = {}
+
+    def fake_llm(msgs):
+        captured["system"] = msgs[0]["content"]
+        captured["user"] = msgs[1]["content"]
+        return ("If both of you agree, you can ask the court to end the "
+                "marriage [1]. You need to have lived apart for a year [1]. "
+                "A lawyer will file it for you."), "test:fake"
+
+    st = new_state("How do I get a mutual consent divorce?", lang="hi")
+    st["evidence"] = [{"score": 0.9, "payload": {
+        "act": "Hindu Marriage Act, 1955", "section": "Section 13B",
+        "text": RAW_ACT_TEXT}}]
+    st["slots"] = {"topic": "divorce"}
+    out = write_plain_answer(st, fake_llm)
+    assert "petition for dissolution" not in out, "must not paste the act text"
+    # prompt must instruct plain language, grounding, and English-first writing
+    assert "Write in English" in captured["system"]
+    assert "everyday words" in captured["system"]
+    assert "Never add a section" in captured["system"]
+    # passages must be handed over, numbered, and cleaned
+    assert "[1]" in captured["user"]
+    assert "Act: The Hindu Marriage Act" not in captured["user"]
+
+
+def test_plain_answer_falls_back_to_template_when_model_fails():
+    def boom(msgs):
+        raise RuntimeError("model down")
+
+    st = new_state("q", lang="en")
+    st["evidence"] = [{"score": 0.9, "payload": {"act": "A", "section": "1",
+                                                "text": RAW_ACT_TEXT}}]
+    assert write_plain_answer(st, boom) == ""
+    # compose_answer must still produce a usable answer with no model output
+    answer, cites, _ = compose_answer(st, "")
+    assert cites and "What to do next" in answer
+    assert "Act: The Hindu Marriage Act" not in answer
+
+
+def test_plain_passage_drops_scraper_metadata_and_markup():
+    """The stored chunks carry an ingestion header and markdown noise. Both
+    were being shown to the user verbatim, which is what made every answer
+    look like a database dump rather than advice."""
+    out = plain_passage(RAW_ACT_TEXT)
+    assert "Act:" not in out
+    assert "| India |" not in out
+    assert "In Force" not in out
+    assert "**" not in out
+    assert "_1_" not in out
+    # the title is stated twice in the chunk; both copies must go, since the
+    # Sources list already shows the act and section name
+    assert "divorce by mutual consent" not in out.lower(), out
+    # the operative law must survive
+    assert "petition for dissolution of marriage" in out
+
+
+def test_plain_passage_never_ends_mid_sentence():
+    """A hard 160-char cut produced '... they have been living as…'."""
+    for limit in (60, 90, 120, 160):
+        out = plain_passage(RAW_ACT_TEXT, limit=limit)
+        assert out.endswith("…") or out.endswith((".", "!", "?")), out
+        if out.endswith("…"):
+            # must end on a whole word, not a fragment of one
+            assert not re.search(r"\b\w*…$", out[:-1].rstrip()), out
+
+
+def test_written_answer_replaces_the_template_body():
+    """When the model writes an explanation, that becomes the body — no
+    rigid 'Quick answer / What the law says' scaffolding, and no raw act
+    text pasted underneath it."""
+    state = new_state("How do I get a mutual consent divorce?", lang="en")
+    state["evidence"] = [{"score": 0.9, "payload": {
+        "act": "Hindu Marriage Act, 1955", "section": "Section 13B",
+        "text": RAW_ACT_TEXT}}]
+    state["verified"] = True
+    state["confidence"] = 0.9
+    written = "If you both agree, you can ask the court to end the marriage [1]."
+    answer, cites, _ = compose_answer(state, written)
+    assert answer.startswith(written)
+    assert "### What the law says" not in answer
+    assert "Act: The Hindu Marriage Act" not in answer
+    assert "| India |" not in answer
+    assert cites, "the sources list must still be returned"
 
 
 def test_trace_run_sends_a_summary_for_a_bad_run(monkeypatch):

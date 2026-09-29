@@ -398,6 +398,33 @@ def should_trace(state: Dict[str, Any]) -> bool:
     return not state.get("verified")
 
 
+def translate_complete(messages: List[Dict[str, str]],
+                       http_post: Optional[Callable] = None,
+                       timeout: float = 45.0) -> Tuple[str, str]:
+    """Translate using Groq only, falling back to the shared chat path.
+
+    The default OpenRouter model is qwen-2.5-7b, which is weak in Hindi and
+    Kannada — it produced garbled text and repeated phrases. Groq's
+    gpt-oss-120b handled both cleanly, so translation routes there.
+    """
+    if os.environ.get("GROQ_API_KEY", "") or http_post is not None:
+        post = http_post or _post_json
+        try:
+            data = post(
+                GROQ_URL,
+                {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
+                 "Content-Type": "application/json"},
+                {"model": GROQ_MODEL, "messages": messages,
+                 "temperature": 0.2, "max_tokens": 1500},
+            )
+            text = data["choices"][0]["message"]["content"].strip()
+            logger.info("agent translate provider=groq model=%s", GROQ_MODEL)
+            return text, "groq:" + GROQ_MODEL
+        except Exception as e:  # noqa: BLE001 — caller falls back
+            logger.warning("agent groq translate failed (%r)", e)
+    return chat_complete(messages, http_post=http_post, timeout=timeout)
+
+
 def _maybe_trace(name: str) -> Callable:
     """LangSmith traceable decorator when tracing is on; else no-op.
 
@@ -894,14 +921,61 @@ TOPIC_SUMMARY = {
 }
 
 
+# Ingestion stamps every chunk with a provenance header and leaves markdown
+# noise in the text. Both were reaching the user verbatim, which is what made
+# an answer read like a database dump instead of advice.
+_META_HEADER_RE = re.compile(r"^Act:.*?\n", re.DOTALL)
+_SECTION_LINE_RE = re.compile(
+    r"^Section\s+\d+[A-Za-z\-]*\s*:\s*", re.IGNORECASE)
+
+
+def plain_passage(text: str, limit: int = 160) -> str:
+    """Clean one retrieved chunk for human reading.
+
+    Strips the scraper header and the markdown residue from the act text,
+    drops the title the chunk repeats twice, and collapses to one line. The
+    cut lands on a clause boundary so an answer never ends mid-sentence.
+    """
+    body = (text or "").strip()
+    body = _META_HEADER_RE.sub("", body, count=1)
+    body = re.sub(r"\*\*([^*]+)\*\*", r"\1", body)       # **13B. ...**
+    body = re.sub(r"\(\s*_([^_]+)_\s*\)", r"(\1)", body)  # ( _1_ )
+    body = re.sub(r"(?<![\w])_+([^_]+?)_+(?![\w])", r"\1", body)  # _i_
+
+    # The chunk states its title twice: a "Section 13B: Divorce by mutual
+    # consent" line, then "13B. Divorce by mutual consent.—" in the body.
+    # Keep the first and cut the echo.
+    if _SECTION_LINE_RE.match(body):
+        head, _, rest = body.partition("\n")
+        title = head.split(":", 1)[-1].strip() if ":" in head else ""
+        probe = " ".join(title.lower().split()[-3:])
+        if probe and probe in rest.lower()[:80]:
+            at = rest.lower().index(probe) + len(probe)
+            rest = rest[at:].lstrip(" .—-")
+        body = rest
+    else:
+        body = _SECTION_LINE_RE.sub("", body, count=1)
+
+    one_line = re.sub(r"\s+", " ", body).strip(" -–—")
+    if not one_line:
+        return ""
+    if len(one_line) <= limit:
+        return one_line
+    cut = one_line[:limit]
+    # Prefer the last clause boundary; fall back to the last space.
+    for sep in (". ", "; ", ", ", " and ", " "):
+        idx = cut.rfind(sep)
+        if idx > limit * 0.5:
+            return cut[:idx].rstrip(" ,;:-") + "…"
+    return cut.rstrip() + "…"
+
+
 def _short_meaning(text: str, limit: int = 160) -> str:
-    one_line = re.sub(r"\s+", " ", (text or "").strip())
-    if len(one_line) > limit:
-        return one_line[:limit].rstrip() + "…"
-    return one_line
+    return plain_passage(text, limit=limit)
 
 
-def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
+def compose_answer(state: Dict[str, Any],
+                   written: str = "") -> Tuple[str, List[str], List[str]]:
     evidence = state.get("evidence", [])
     lang = state.get("lang", "en")
     tone = state.get("tone", "simple")
@@ -925,17 +999,9 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
         _evidence_source_type(h) if isinstance(h, dict) else "bare_act"
         for h in evidence[:5]
     ]
-    lines = []
-    for i, hit in enumerate(evidence[:5], start=1):
-        payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
-        text = str(payload.get("text", "") or "").strip()
-        cite = format_citation(payload)
-        lines.append("- **[%d] %s** — %s" % (
-            i, cite, _short_meaning(text)))
     slots = state.get("slots", {})
     topic = slots.get("topic", "general")
     summary = TOPIC_SUMMARY.get(topic, TOPIC_SUMMARY["general"])
-    sections_md = "\n".join(lines)
     disclaimer = DISCLAIMER.get(lang, DISCLAIMER["en"])
     next_steps = NEXT_STEPS.get(lang, NEXT_STEPS["en"])
     confidence = float(state.get("confidence", 1.0))
@@ -943,34 +1009,154 @@ def compose_answer(state: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
     if confidence < 0.7:
         low_warn = "\n\n> " + LOW_CONFIDENCE_DISCLAIMER.get(
             lang, LOW_CONFIDENCE_DISCLAIMER["en"])
-    answer = (
-        "## Quick answer\n\n%s\n\n"
-        "### What the law says\n\n%s\n\n"
-        "### Next steps\n\n%s%s\n\n"
-        "*%s*"
-        % (summary, sections_md, next_steps, low_warn, disclaimer))
-    if tone == "detailed":
-        detail = ("\n\n> Note: sections above are short summaries of the bare-act "
-                  "text. Share a section number if you need the exact wording.")
-        answer = "%s%s" % (answer, detail)
+
+    if written.strip():
+        # The model wrote a plain-language explanation grounded in the
+        # passages above. Show it as the answer; the passages themselves
+        # belong in the Sources list, not in the body.
+        answer = "%s\n\n### What to do next\n\n%s%s\n\n*%s*" % (
+            written.strip(), next_steps, low_warn, disclaimer)
+    else:
+        # No model available: fall back to the template plus cleaned passages.
+        lines = ["- **[%d] %s** — %s" % (
+            i, format_citation(h.get("payload", {}) if isinstance(h, dict) else {}),
+            _short_meaning((h.get("payload", {}) or {}).get("text", "")
+                           if isinstance(h, dict) else ""))
+            for i, h in enumerate(evidence[:5], start=1)]
+        answer = (
+            "## Quick answer\n\n%s\n\n"
+            "### What the law says\n\n%s\n\n"
+            "### What to do next\n\n%s%s\n\n"
+            "*%s*"
+            % (summary, "\n".join(lines), next_steps, low_warn, disclaimer))
     return answer, citations, citation_sources
 
 
+TONE_GUIDE = {
+    "simple": "Keep it short — 3 to 5 short sentences. Skip legal jargon. "
+              "If you must use a term like 'petition', explain it in the same "
+              "sentence.",
+    "detailed": "Give a fuller but still plain explanation — 5 to 8 sentences. "
+                "Name the sections you rely on, but explain what each one means "
+                "in ordinary words.",
+}
+
+
+def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
+    """Explain the retrieved law to a layperson, in English.
+
+    Previously the body of the answer was the raw act text with an ingestion
+    header attached, which read like a database dump. The model now writes the
+    explanation itself, grounded strictly in the numbered passages, and cites
+    them as [1], [2] so every claim still traces back to a section.
+
+    Always written in English, then translated. Asking the 7B model to write
+    Hindi or Kannada directly made it loop badly (it repeated a phrase dozens
+    of times); it is far steadier at plain English, and translating that is
+    the step it is actually good at.
+    """
+    tone = state.get("tone", "simple")
+    passages = []
+    for i, hit in enumerate(state.get("evidence", [])[:5], start=1):
+        if not isinstance(hit, dict):
+            continue
+        payload = hit.get("payload") or {}
+        body = plain_passage(str(payload.get("text", "") or ""), limit=600)
+        if not body:
+            continue
+        passages.append("[%d] %s — %s" % (i, format_citation(payload), body))
+    if not passages:
+        return ""
+    topic = (state.get("slots") or {}).get("topic", "general")
+    system = (
+        "You are LawSaathi, a patient family-law advisor speaking to a normal "
+        "person in India — not a lawyer. Explain the law below the way a good "
+        "lawyer would explain it across a table.\n\n"
+        "Rules:\n"
+        "- Write in English, in plain everyday words.\n"
+        "- Answer only from the numbered passages. Never add a section, a "
+        "provision or a fact that is not in them.\n"
+        "- If the passages do not cover the question, say what they do cover "
+        "and what is missing. Do not guess.\n"
+        "- Refer to a source as [1], [2] inline, right after the claim it "
+        "supports. Use the numbers exactly as given.\n"
+        "- Do NOT reproduce the passages. Do NOT quote the acts. Do NOT use "
+        "'the court may deem', 'provided that', or any wording lifted from the "
+        "raw text. Explain the meaning instead.\n"
+        "- Be direct and warm, like a person talking, not a form letter. No "
+        "headings, no bullet lists, no preamble, no closing pleasantries.\n"
+        "- Never repeat a sentence or phrase. Every sentence must be new.\n"
+        "- 2 to 4 short paragraphs. Output ONLY the explanation.\n"
+        "%s" % TONE_GUIDE.get(tone, TONE_GUIDE["simple"])
+    )
+    user = ("Question: %s\n\nPassages:\n%s"
+            % (state.get("query_en") or state.get("query", ""),
+               "\n\n".join(passages)))
+    try:
+        text, provider = llm([
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ])
+    except Exception as e:  # noqa: BLE001 — template answer is the fallback
+        logger.warning("agent plain answer failed (%r)", e)
+        return ""
+    state["provider"] = provider
+    text = strip_reasoning_leak(text or "")
+    # A refusal, a loop, or an empty response must not blank the answer.
+    if not text or len(text) < 40 or looks_looped(text):
+        logger.info("agent plain answer unusable (short or looping); using template")
+        return ""
+    _add_trace(state, "response",
+               "Rewrote the raw sections as a plain-language explanation "
+               "(%d chars) for topic %s." % (len(text), topic))
+    return text
+
+
+_LOOP_NGRAM = 4
+
+
+def looks_looped(text: str, limit: int = 6) -> bool:
+    """True when a phrase repeats, which small models fall into.
+
+    qwen-2.5-7b occasionally emits the same sentence over and over when asked
+    for Hindi or Kannada directly. A user must never see that, so the answer
+    is rejected and the template used instead.
+    """
+    words = re.findall(r"\w+", (text or "").lower())
+    if len(words) < (_LOOP_NGRAM + 1) * 2:
+        return False
+    seen: Dict[str, int] = {}
+    for i in range(len(words) - _LOOP_NGRAM + 1):
+        gram = " ".join(words[i:i + _LOOP_NGRAM])
+        seen[gram] = seen.get(gram, 0) + 1
+        if seen[gram] > limit:
+            return True
+    return False
+
+
 def node_response(state: Dict[str, Any],
-                  llm: Optional[Callable] = None) -> Dict[str, Any]:
+                  llm: Optional[Callable] = None,
+                  translate_in: Optional[Callable] = None) -> Dict[str, Any]:
     lang = state.get("lang", "en")
     if state.get("clarification"):
         # Clarification path: answer in the user's language, no guessing.
         text = state["clarification"]
         if lang != "en" and llm is not None:
             try:
-                text, provider = llm([
+                rendered, provider = llm([
                     {"role": "system",
                      "content": "Render this clarification question in %s. "
-                                "Output only the translation. No explanations, no preamble." % lang},
+                                "Translate it once. Output only the translation. "
+                                "No explanations, no preamble." % lang},
                     {"role": "user", "content": text},
                 ])
-                state["provider"] = provider
+                # Never show a looped translation; the local template is
+                # already correct in all three languages.
+                if rendered and not looks_looped(rendered):
+                    text = rendered
+                    state["provider"] = provider
+                elif rendered:
+                    logger.warning("agent clarify translation looped; keeping template")
             except Exception as e:  # noqa: BLE001 — template is already local
                 logger.warning("agent clarify translate failed (%r)", e)
         state["answer"] = text
@@ -981,33 +1167,51 @@ def node_response(state: Dict[str, Any],
                    "Asked you for: %s." % ", ".join(missing) if missing
                    else "Asked you a follow-up question.")
         return state
-    answer_en, citations, citation_sources = compose_answer(state)
-    final = answer_en
-    if lang != "en" and llm is not None and evidence_sufficient(
-            state.get("evidence", [])):
+    written = ""
+    if llm is not None and evidence_sufficient(state.get("evidence", [])):
+        written = write_plain_answer(state, llm)
+    answer_en, citations, citation_sources = compose_answer(state, written)
+    final = strip_reasoning_leak(answer_en)
+    translated = False
+    if written and lang != "en":
+        # Written in English because the model is far steadier there; now
+        # translate the finished explanation into the user's language.
+        # Prefer Groq here: qwen-2.5-7b produced garbled Hindi ("माफिक आरोप
+        # कार्यक्रम") where gpt-oss-120b was clean.
+        translator = translate_in or llm
         try:
-            final, provider = llm([
+            final, provider = translator([
                 {"role": "system",
-                 "content": ("You are a translator. Translate the user text "
-                             "into %s. Keep markdown structure (##, ###, -, "
-                             "**, *), citations, act names and section names "
-                             "in English. Output ONLY the translated answer. "
+                 "content": ("You are a translator. Translate the text into %s. "
+                             "Keep the [1], [2] citation markers exactly as they "
+                             "are. Keep act names and section names in English. "
+                             "Translate each sentence once — never repeat a "
+                             "sentence or a phrase. Output ONLY the translation. "
                              "Do NOT explain, do NOT think aloud, no preamble, "
                              "no code blocks, no commentary." % lang)},
-                {"role": "user", "content": answer_en},
+                {"role": "user", "content": written},
             ])
             final = strip_reasoning_leak(final)
-            state["provider"] = provider
+            if looks_looped(final):
+                logger.warning("agent translation looped; keeping English")
+                final = written
+            else:
+                translated = True
+                state["provider"] = provider
         except Exception as e:  # noqa: BLE001 — English answer still usable
             logger.warning("agent answer translate failed (%r)", e)
-    else:
-        final = strip_reasoning_leak(final)
+            final = written
     state["answer"] = final
     state["citations"] = citations
     state["citation_sources"] = citation_sources
+    how = ("wrote a plain-language answer" if written
+           else "used the template answer (no model)")
+    if translated:
+        how += " and translated it"
     _add_trace(state, "response",
-               "Wrote the final answer with %d citation%s%s."
-               % (len(citations), "" if len(citations) == 1 else "s",
+               "%s with %d citation%s%s."
+               % (how[0].upper() + how[1:], len(citations),
+                  "" if len(citations) == 1 else "s",
                   " in " + LANG_NAMES[lang]
                   if lang != "en" and lang in LANG_NAMES else ""))
     return state
@@ -1048,7 +1252,8 @@ def run_agent(query: str, lang: str = "en",
         state = node_intent(state, llm=llm_fn)
         state = node_planner(state)
         if state.get("clarification"):
-            state = node_response(state, llm=llm_fn)
+            state = node_response(state, llm=llm_fn,
+                                  translate_in=translate_complete)
             state.pop("needs_retry", None)
             return state
         store = retriever if retriever is not None else default_retriever()
@@ -1057,7 +1262,8 @@ def run_agent(query: str, lang: str = "en",
         while state.pop("needs_retry", False):
             state = node_tools(state, retriever=store, web_search=web_search)
             state = node_verifier(state, min_score=min_score)
-        state = node_response(state, llm=llm_fn)
+        state = node_response(state, llm=llm_fn,
+                              translate_in=translate_complete)
         state.pop("needs_retry", None)
         return state
     except Exception:
