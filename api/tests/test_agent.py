@@ -7,6 +7,7 @@ import pytest
 from app import agent as agent_module
 from app.agent import (
     NODES,
+    OPENROUTER_URL,
     StubRetriever,
     write_plain_answer,
     chat_complete,
@@ -18,6 +19,7 @@ from app.agent import (
     new_state,
     node_planner,
     node_tools,
+    opencode_complete,
     looks_looped,
     plain_passage,
     run_agent,
@@ -135,20 +137,21 @@ def test_marriage_age_question_answers_directly():
 
 
 def test_llm_fallback_switch_on_groq_failure():
+    """OpenRouter is primary; when it is down the answer must come from Groq
+    without the user seeing an error."""
     calls = []
 
     def fake_post(url, headers, payload):
         calls.append(url)
-        if "groq" in url:
+        if "openrouter" in url:
             raise RuntimeError("429 rate limited")
         return {"choices": [{"message": {"content": "fallback answer"}}]}
 
     text, provider = chat_complete([{"role": "user", "content": "hi"}],
                                    http_post=fake_post)
     assert text == "fallback answer"
-    assert provider.startswith("openrouter:")
-    assert any("groq" in u for u in calls)
-    assert any("openrouter" in u for u in calls)
+    assert provider.startswith("groq:")
+    assert calls[0].startswith(OPENROUTER_URL)
 
 
 def test_llm_primary_groq_no_fallback():
@@ -186,6 +189,60 @@ RAW_ACT_TEXT = (
     "together, on the ground that they have been living apart for one year or "
     "more."
 )
+
+
+def test_opencode_is_the_free_last_resort():
+    """Groq and OpenRouter can both be down or rate-limited. OpenCode Zen's
+    space-bunny-free model costs nothing, so it is the final fallback that
+    keeps chat working instead of returning a bare error."""
+    order = []
+    msg = [{"role": "user", "content": "hi"}]
+
+    def dead(url, headers, payload):
+        order.append(url)
+        raise RuntimeError("503 upstream down")
+
+    with pytest.raises(RuntimeError):
+        chat_complete(msg, http_post=dead)
+    # OpenRouter, then Groq, then OpenCode
+    assert len(order) == 3, order
+    assert "openrouter" in order[0]
+    assert "groq" in order[1]
+    assert "opencode" in order[2], order
+
+
+def test_opencode_completion_returns_text_and_provider():
+    captured = {}
+
+    def fake_post(url, headers, payload):
+        captured["url"] = url
+        captured["model"] = payload["model"]
+        captured["auth"] = headers.get("Authorization")
+        captured["ua"] = headers.get("User-Agent")
+        return {"choices": [{"message": {"content": "hello from bunny"}}]}
+
+    text, provider = opencode_complete([{"role": "user", "content": "hi"}],
+                                       http_post=fake_post)
+    assert text == "hello from bunny"
+    assert provider == "opencode:space-bunny-free"
+    assert captured["model"] == "space-bunny-free"
+    # Cloudflare rejects the default urllib UA with a 403
+    assert captured["ua"], "must send a User-Agent or Zen returns 403"
+
+
+def test_opencode_reasoning_content_is_not_shown_to_the_user():
+    """Zen returns a `reasoning_content` field alongside the answer. It must
+    never reach the user, or every reply opens with 'We need to...'."""
+    def fake_post(url, headers, payload):
+        return {"choices": [{"message": {
+            "content": "The real answer.",
+            "reasoning_content": "We need answer this carefully. Let me parse."}}]}
+
+    text, _ = opencode_complete([{"role": "user", "content": "hi"}],
+                                http_post=fake_post)
+    assert text == "The real answer."
+    assert "We need" not in text
+    assert "Let me parse" not in text
 
 
 def test_looped_model_output_is_rejected():

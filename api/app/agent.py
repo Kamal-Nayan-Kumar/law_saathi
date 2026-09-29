@@ -25,6 +25,12 @@ OPENROUTER_MODEL = os.environ.get(
     "OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
+# Last-resort provider: OpenCode Zen's free tier costs nothing per token, so
+# chat keeps working when Groq and OpenRouter are both rate-limited.
+OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions"
+OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "space-bunny-free")
+# Cloudflare in front of Zen answers 403 to urllib's default user agent.
+OPENCODE_UA = os.environ.get("OPENCODE_USER_AGENT", "LawSaathi/1.0")
 MAX_RETRIES = 2
 
 NODES = ("intent", "planner", "tools", "verifier", "response")
@@ -305,7 +311,7 @@ def _sentence_case(text: str, lang: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM layer: Groq primary, OpenRouter fallback, stub when keys are absent.
+# LLM layer: OpenRouter primary, Groq for translation, OpenCode Zen last.
 # ---------------------------------------------------------------------------
 
 def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any],
@@ -317,14 +323,45 @@ def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any],
     return resp.json()
 
 
+def opencode_complete(messages: List[Dict[str, str]],
+                      http_post: Optional[Callable] = None,
+                      timeout: float = 45.0) -> Tuple[str, str]:
+    """Call OpenCode Zen's free tier. Returns (text, provider).
+
+    Used as the last-resort fallback so a user still gets an answer when
+    Groq and OpenRouter are both rate-limited. Zen returns a
+    ``reasoning_content`` field next to the answer; it must never be shown.
+    """
+    key = os.environ.get("OPENCODE_API_KEY", "")
+    if not key and http_post is None:
+        raise RuntimeError("no OPENCODE_API_KEY")
+    post = http_post or _post_json
+    data = post(
+        OPENCODE_URL,
+        {"Authorization": "Bearer " + key,
+         "Content-Type": "application/json",
+         "User-Agent": OPENCODE_UA},
+        {"model": OPENCODE_MODEL, "messages": messages,
+         "temperature": 0.2, "max_tokens": 1500},
+    )
+    message = data["choices"][0]["message"] or {}
+    text = (message.get("content") or "").strip()
+    # Drop the model's scratchpad if it leaked into content.
+    text = strip_reasoning_leak(text)
+    if not text:
+        raise RuntimeError("opencode returned an empty message")
+    logger.info("agent llm provider=opencode model=%s", OPENCODE_MODEL)
+    return text, "opencode:" + OPENCODE_MODEL
+
+
 def chat_complete(messages: List[Dict[str, str]],
                   http_post: Optional[Callable] = None,
                   timeout: float = 45.0) -> Tuple[str, str]:
-    """Chat via OpenRouter (free endpoint preferred), falling back to Groq. Returns (text, provider).
+    """Chat with fallbacks: OpenRouter -> Groq -> OpenCode Zen.
 
-    ``http_post`` is a test seam: ``fn(url, headers, payload) -> dict`` with
-    the OpenAI-chat-completions shape. Raises RuntimeError when no backend
-    (keys or seam) is available.
+    Returns (text, provider). ``http_post`` is a test seam:
+    ``fn(url, headers, payload) -> dict`` in the OpenAI-chat-completions shape.
+    Raises RuntimeError when no backend is available.
     """
     post = http_post or _post_json
     groq_key = os.environ.get("GROQ_API_KEY", "")
@@ -359,11 +396,18 @@ def chat_complete(messages: List[Dict[str, str]],
             text = data["choices"][0]["message"]["content"].strip()
             logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
             return text, "groq:" + GROQ_MODEL
-        except Exception as e:  # noqa: BLE001 — caller sees the last error
+        except Exception as e:  # noqa: BLE001 — fallback must catch all
             last_error = e
-            logger.warning("agent groq failed (%r)", e)
-    raise RuntimeError("no LLM backend (OPENROUTER_API_KEY/GROQ_API_KEY empty; "
-                       "pass http_post in tests) :: %r" % (last_error,))
+            logger.warning("agent groq failed (%r); trying opencode", e)
+    # Free last resort: a rate-limited Groq/OpenRouter should not end the chat.
+    try:
+        return opencode_complete(messages, http_post=post, timeout=timeout)
+    except Exception as e:  # noqa: BLE001 — caller sees the last error
+        last_error = e
+        logger.warning("agent opencode failed (%r)", e)
+    raise RuntimeError("no LLM backend (OPENROUTER_API_KEY/GROQ_API_KEY/"
+                       "OPENCODE_API_KEY empty; pass http_post in tests) :: %r"
+                       % (last_error,))
 
 
 TRACE_MODES = ("off", "errors", "all")
@@ -1035,10 +1079,10 @@ def compose_answer(state: Dict[str, Any],
 TONE_GUIDE = {
     "simple": "Keep it short — 3 to 5 short sentences. Skip legal jargon. "
               "If you must use a term like 'petition', explain it in the same "
-              "sentence.",
+              "sentence. Prefer a couple of clear sentences over a long list.",
     "detailed": "Give a fuller but still plain explanation — 5 to 8 sentences. "
                 "Name the sections you rely on, but explain what each one means "
-                "in ordinary words.",
+                "in ordinary words. Bullets under a heading are welcome here.",
 }
 
 
@@ -1083,8 +1127,12 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "- Do NOT reproduce the passages. Do NOT quote the acts. Do NOT use "
         "'the court may deem', 'provided that', or any wording lifted from the "
         "raw text. Explain the meaning instead.\n"
-        "- Be direct and warm, like a person talking, not a form letter. No "
-        "headings, no bullet lists, no preamble, no closing pleasantries.\n"
+        "- Be direct and warm, like a person talking, not a form letter.\n"
+        "- Use markdown when it genuinely helps: a short '##' heading with "
+        "bullets underneath for steps, conditions, or a list of what counts "
+        "as grounds. Write flowing paragraphs when it does not. Never use "
+        "markdown just to fill space, and never repeat the same heading "
+        "template every time.\n"
         "- Never repeat a sentence or phrase. Every sentence must be new.\n"
         "- 2 to 4 short paragraphs. Output ONLY the explanation.\n"
         "%s" % TONE_GUIDE.get(tone, TONE_GUIDE["simple"])
