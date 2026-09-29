@@ -167,6 +167,56 @@ def test_ask_endpoint_clarification_path(client):
     assert [m["role"] for m in history] == ["user", "assistant"]
 
 
+def test_trace_mode_off_by_default(monkeypatch):
+    """Tracing costs money past 5k traces/mo, so it must be opt-in."""
+    monkeypatch.delenv("LAWSAATHI_TRACE", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+    assert agent_module.trace_mode() == "off"
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("off", "off"), ("errors", "errors"), ("all", "all"),
+    ("ALL", "all"), ("nonsense", "off"),
+])
+def test_trace_mode_reads_env(monkeypatch, value, expected):
+    monkeypatch.setenv("LAWSAATHI_TRACE", value)
+    assert agent_module.trace_mode() == expected
+
+
+def test_trace_mode_errors_trace_only_bad_runs(monkeypatch):
+    monkeypatch.setenv("LAWSAATHI_TRACE", "errors")
+    good = {"trace": ["intent", "planner", "tools", "verifier", "response"],
+            "verified": True, "evidence": [dict(HIT)], "confidence": 0.9,
+            "provider": "groq:x", "answer": "ok", "clarification": ""}
+    bad = dict(good, verified=False, evidence=[], confidence=0.0)
+    assert agent_module.should_trace(good) is False
+    assert agent_module.should_trace(bad) is True
+
+
+def test_trace_mode_all_traces_everything(monkeypatch):
+    monkeypatch.setenv("LAWSAATHI_TRACE", "all")
+    good = {"trace": ["intent", "response"], "verified": True,
+            "evidence": [dict(HIT)], "confidence": 0.9}
+    assert agent_module.should_trace(good) is True
+
+
+@pytest.mark.parametrize("table_name", [
+    "DISCLAIMER", "LOW_CONFIDENCE_DISCLAIMER", "NEXT_STEPS", "OOS_REDIRECT",
+])
+def test_user_facing_strings_are_pure_script(table_name):
+    """Hindi/Kannada copy must not mix Latin letters into the Devanagari or
+    Kannada script. A hand-typed string once shipped as
+    'ವಕೀlru' — invisible unless something checks the script."""
+    import re
+    table = getattr(agent_module, table_name)
+    for lang in ("hi", "kn"):
+        text = table[lang]
+        assert not re.search(r"[A-Za-z]", text), (
+            "%s[%r] mixes Latin into native script: %r"
+            % (table_name, lang, text))
+        assert text.strip()
+
+
 @pytest.mark.skipif(not os.environ.get("GROQ_API_KEY", ""),
                     reason="no GROQ_API_KEY — live trace needs keys")
 def test_live_trace_smoke():

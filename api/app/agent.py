@@ -296,12 +296,48 @@ def chat_complete(messages: List[Dict[str, str]],
                        "pass http_post in tests) :: %r" % (last_error,))
 
 
+TRACE_MODES = ("off", "errors", "all")
+
+
+def trace_mode() -> str:
+    """How much to send to LangSmith: off | errors | all.
+
+    LangSmith's free tier allows only 5k base traces/month, and a single
+    question costs ~6 (five nodes plus LLM calls). Tracing every question
+    would run dry at ~700 questions/month, so tracing is opt-in via
+    LAWSAATHI_TRACE. "errors" is the useful default: it spends the
+    allowance on runs that actually went wrong.
+    """
+    raw = (os.environ.get("LAWSAATHI_TRACE", "") or "").strip().lower()
+    return raw if raw in TRACE_MODES else "off"
+
+
+def should_trace(state: Dict[str, Any]) -> bool:
+    """Whether this finished run is worth spending a trace on."""
+    mode = trace_mode()
+    if mode == "off":
+        return False
+    if mode == "all":
+        return True
+    # mode == "errors": the runs you actually need to see are the ones with
+    # no verified evidence, no answer, or a low-confidence answer.
+    if not state.get("answer"):
+        return True
+    if state.get("confidence", 1.0) < 0.7:
+        return True
+    return not state.get("verified")
+
+
 def _maybe_trace(name: str) -> Callable:
-    """LangSmith traceable decorator when tracing is on; else no-op."""
+    """LangSmith traceable decorator when tracing is on; else no-op.
+
+    Node-level tracing is expensive (one trace per node per question), so it
+    only turns on in "all" mode. "errors" mode traces the whole run at the
+    end instead, via trace_run().
+    """
     try:
-        if os.environ.get("LANGCHAIN_TRACING_V2", "").lower() not in (
-                "true", "1"):
-            raise ImportError("tracing off")
+        if trace_mode() != "all":
+            raise ImportError("node tracing needs LAWSAATHI_TRACE=all")
         if not os.environ.get("LANGCHAIN_API_KEY", ""):
             raise ImportError("no langsmith key")
         from langsmith import traceable  # type: ignore
@@ -311,6 +347,42 @@ def _maybe_trace(name: str) -> Callable:
         def deco(fn: Callable) -> Callable:
             return fn
         return deco
+
+
+def trace_run(state: Dict[str, Any]) -> None:
+    """Send one summary trace for a finished run, if it is worth one.
+
+    Best-effort: any LangSmith failure is swallowed so tracing can never
+    break a user's answer.
+    """
+    if not should_trace(state):
+        return
+    try:
+        if not os.environ.get("LANGCHAIN_API_KEY", ""):
+            return
+        from langsmith import Client  # type: ignore
+        client = Client()
+        client.create_run(
+            name="lawsaathi:run",
+            project_name=os.environ.get("LANGCHAIN_PROJECT", "lawsathi"),
+            run_type="chain",
+            inputs={"query": str(state.get("query", ""))[:500],
+                    "lang": state.get("lang", ""),
+                    "query_en": str(state.get("query_en", ""))[:500]},
+            outputs={"answer": str(state.get("answer", ""))[:2000],
+                     "citations": state.get("citations", []),
+                     "provider": state.get("provider", ""),
+                     "confidence": state.get("confidence", 0.0),
+                     "verified": state.get("verified", False),
+                     "retries": state.get("retries", 0),
+                     "oos_redirect": state.get("oos_redirect", False),
+                     "missing_slots": state.get("missing_slots", []),
+                     "trace": state.get("trace", []),
+                     "trace_detail": state.get("trace_detail", [])},
+            error=bool(state.get("trace_error")),
+        )
+    except Exception as e:  # noqa: BLE001 — tracing must never break chat
+        logger.warning("agent trace_run failed (%r)", e)
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +734,7 @@ OOS_REDIRECT = {
 LOW_CONFIDENCE_DISCLAIMER = {
     "en": "Caution: this answer has lower verification confidence. Please consult a lawyer for your specific situation before acting.",
     "hi": "सावधानी: इस उत्तर का सत्यापन विश्वास कम है। कृपया कार्य करने से पहले अपनी स्थिति के लिए वकील से सलाह लें।",
-    "kn": "ಎಚ್ಚರಿಕೆ: ಈ ಉತ್ತರದ ಪರಿಶೀಲನಾ ನ confidence ಕಡಿಮೆ. ದಯವಿಟ್ಟು ನಿಮ್ಮ specifieke ಪರಿಸ್ಥಿತige ವಕೀlru samparkisi.",
+    "kn": "ಎಚ್ಚರಿಕೆ: ಈ ಉತ್ತರದ ಪರಿಶೀಲನೆಯ ವಿಶ್ವಾಸ ಕಡಿಮೆ. ಕ್ರಮವಿರುವ ಮೊದಲು ನಿಮ್ಮ ನಿರ್ದಿಷ್ಟ ಪರಿಸ್ಥಿತಿಗೆ ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
 
 NEXT_STEPS = {
@@ -859,21 +931,29 @@ def run_agent(query: str, lang: str = "en",
         if os.environ.get("GROQ_API_KEY", "") or os.environ.get(
                 "OPENROUTER_API_KEY", ""):
             llm_fn = chat_complete
-    state = node_intent(state, llm=llm_fn)
-    state = node_planner(state)
-    if state.get("clarification"):
+    try:
+        state = node_intent(state, llm=llm_fn)
+        state = node_planner(state)
+        if state.get("clarification"):
+            state = node_response(state, llm=llm_fn)
+            state.pop("needs_retry", None)
+            return state
+        store = retriever if retriever is not None else default_retriever()
+        state = node_tools(state, retriever=store, web_search=web_search)
+        state = node_verifier(state, min_score=min_score)
+        while state.pop("needs_retry", False):
+            state = node_tools(state, retriever=store, web_search=web_search)
+            state = node_verifier(state, min_score=min_score)
         state = node_response(state, llm=llm_fn)
         state.pop("needs_retry", None)
         return state
-    store = retriever if retriever is not None else default_retriever()
-    state = node_tools(state, retriever=store, web_search=web_search)
-    state = node_verifier(state, min_score=min_score)
-    while state.pop("needs_retry", False):
-        state = node_tools(state, retriever=store, web_search=web_search)
-        state = node_verifier(state, min_score=min_score)
-    state = node_response(state, llm=llm_fn)
-    state.pop("needs_retry", None)
-    return state
+    except Exception:
+        # A crashed run is exactly what you want to see in LangSmith, so
+        # mark it before letting the error reach the router.
+        state["trace_error"] = True
+        raise
+    finally:
+        trace_run(state)
 
 
 # T10 eval hook (ADR-0006): eval_t10.py runs run_agent against golden_qas.json.

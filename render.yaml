@@ -22,3 +22,12 @@ services:
         sync: false
       - key: FIRECRAWL_API_KEY
         sync: false
+      # LangSmith tracing is opt-in: the free tier allows 5k traces/month
+      # and a single question costs ~6 node traces. "errors" traces only the
+      # runs that went wrong, so the allowance lasts.
+      - key: LAWSAATHI_TRACE
+        value: errors
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_PROJECT
+        value: lawsathi
