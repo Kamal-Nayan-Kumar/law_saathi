@@ -13,14 +13,11 @@ __pycache__/
 *.tsbuildinfo
 .DS_Store
 
-# Loose design/asset exports that live in web/public/images/ already.
-# The root copies were duplicates and only cluttered the repo root.
-/auth-side.png
-/bare-act-texture.png
-/center.png
-/hero-families.png
-/voice-mic.png
-/law saathi logo.png
+# Raw ChatGPT downloads before scripts/prep_assets.py crops them.
+tmp/
+
+# Staged job file for scripts/gpt_job.py.
+scripts/.gpt-job.json
 
 # Scratch file from an earlier debugging session.
 api/tests/test_debug_tmp.py

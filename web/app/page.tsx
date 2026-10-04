@@ -1,220 +1,356 @@
+"use client";
+
 import Link from "next/link";
+import Image from "next/image";
+import Icon from "@/components/Icon";
+import IconDisc from "@/components/IconDisc";
+import "./landing.css";
+
+/* ---------- copy ------------------------------------------------------ */
+
+const LANGS = [
+  { code: "en", label: "English", native: "English" },
+  { code: "hi", label: "Hindi", native: "हिन्दी" },
+  { code: "kn", label: "Kannada", native: "ಕನ್ನಡ" },
+];
 
 const FEATURES = [
   {
-    icon: "◉",
-    title: "Speak or type your question",
-    body: "Multilingual ASR + language ID at the edge. Ask about maintenance, custody, divorce — by voice or text.",
+    icon: "chat" as const,
+    tint: "peach" as const,
+    title: "Ask in Your Language",
+    body: "Type or speak in English, Hindi, or Kannada.",
   },
   {
-    icon: "§",
-    title: "Grounded in bare acts",
-    body: "RAG over 7 in-force family-law acts (1,132 chunks) from India Code. Every claim needs evidence.",
+    icon: "document" as const,
+    tint: "peach" as const,
+    title: "Reliable Information",
+    body: "Get answers grounded in authentic legal sources.",
   },
   {
-    icon: "◐",
-    title: "Context-aware reasoning",
-    body: "LLM agent plans, retrieves, verifies and answers in simple language with section + act citations.",
+    icon: "shield" as const,
+    tint: "peach" as const,
+    title: "Clear & Simple Answers",
+    body: "Understand complex legal terms in easy language.",
   },
   {
-    icon: "♪",
-    title: "Hear it back",
-    body: "Multilingual TTS replies in English, Hindi and Kannada. Built for low-literacy and hands-free access.",
+    icon: "users" as const,
+    tint: "peach" as const,
+    title: "Accessible for Everyone",
+    body: "Designed for individuals and families across India.",
   },
-  {
-    icon: "✓",
-    title: "Explainable by design",
-    body: "Expandable tool-call steps (intent → retrieve → verify) and grouped bare-act vs web sources.",
-  },
-  {
-    icon: "⬢",
-    title: "Private & scoped",
-    body: "Family law only. Secure session chat, saved language + tone, and a clear not-a-lawyer disclaimer.",
-  },
+];
+
+const STATS = [
+  { icon: "users" as const, value: "7 Acts", label: "Family laws covered" },
+  { icon: "book" as const, value: "424", label: "In-force sections" },
+  { icon: "globe" as const, value: "3+", label: "Languages supported" },
+  { icon: "shield" as const, value: "100%", label: "Cited answers" },
 ];
 
 const STEPS = [
-  { n: "01 — Ask", h: "Ask naturally", p: "Speak or type in EN / HI / KN. We detect the language automatically." },
-  { n: "02 — Retrieve", h: "We find the law", p: "Agentic RAG pulls exact sections from Hindu Marriage, PWDV, Guardians & Wards and more." },
-  { n: "03 — Verify", h: "We check & reason", p: "The verifier rejects uncited claims, then drafts a simple, context-aware answer." },
-  { n: "04 — Answer", h: "Read or listen", p: "Get text with citations — or press play and hear it in your language." },
+  {
+    icon: "mic" as const,
+    tint: "peach" as const,
+    n: "1.",
+    title: "Ask",
+    body: "Type or speak your question in your preferred language.",
+  },
+  {
+    icon: "document" as const,
+    tint: "cream" as const,
+    n: "2.",
+    title: "Understand",
+    body: "Our AI identifies the language and finds relevant legal information.",
+  },
+  {
+    icon: "sparkle" as const,
+    tint: "butter" as const,
+    n: "3.",
+    title: "Get Answer",
+    body: "Receive clear, accurate and explainable responses with legal context.",
+  },
+  {
+    icon: "users" as const,
+    tint: "sage" as const,
+    n: "4.",
+    title: "Take Next Steps",
+    body: "Understand your options and what you can do next.",
+  },
 ];
 
-const ACTS = [
-  "Hindu Marriage Act 1955",
-  "Special Marriage Act 1954",
-  "Hindu Adoption & Maintenance 1956",
-  "Hindu Succession Act 1956",
-  "Guardians & Wards Act 1890",
-  "PWDV Act 2005",
-  "Indian Divorce Act 1869",
+const CHECKS = [
+  "Multilingual support (English, Hindi, Kannada)",
+  "Voice and text based interaction",
+  "Context-aware and explainable responses",
 ];
+
+const FAQS = [
+  {
+    q: "Is Law Saathi a lawyer?",
+    a: "No. Law Saathi gives legal information, not legal advice. Every answer says so, and tells you when to consult a professional lawyer.",
+  },
+  {
+    q: "Which family laws are covered?",
+    a: "Marriage, divorce, custody, maintenance, adoption, succession and domestic violence — from seven in-force acts including the Hindu Marriage Act, PWDV Act and Guardians & Wards Act.",
+  },
+  {
+    q: "Where do the answers come from?",
+    a: "Every answer is retrieved from bare acts published on India Code and Open India Law, and each claim carries the section it came from.",
+  },
+  {
+    q: "Can I use it in my own language?",
+    a: "Yes. Ask in English, Hindi or Kannada by voice or text, and the answer comes back in the language you used.",
+  },
+];
+
+/* ---------- floating question chips over the illustration -------------- */
+
+const CHIPS = [
+  { text: "Child custody rights?", style: { top: "6%", left: "0%" } },
+  { text: "Maintenance rules?", style: { top: "30%", right: "0%" } },
+  { text: "Divorce process?", style: { bottom: "16%", left: "0%" } },
+  { text: "Property rights in family law?", style: { bottom: "0%", right: "0%" } },
+];
+
+/* ---------- page ------------------------------------------------------ */
 
 export default function Landing() {
   return (
-    <main className="landing">
-      {/* HERO */}
+    <>
+      {/* ============ HERO ============ */}
       <section className="hero">
-        <div>
-          <h1>
-            Family law, <em>in your language.</em> Spoken or typed.
-          </h1>
-          <p className="lede">
-            Law Saathi is a multilingual agentic AI that answers questions on marriage, divorce,
-            custody, maintenance, adoption, succession and domestic violence — with real
-            section citations, not guesses.
-          </p>
-          <div className="hero-ctas">
-            <Link href="/chat" className="btn-maroon">
-              Ask a question →
-            </Link>
-            <Link href="/login" className="btn-outline">
-              Log in / Sign up
-            </Link>
+        <div className="shell hero-grid">
+          <div className="hero-copy">
+            <span className="eyebrow-pill">Your Friendly Legal Companion</span>
+            <h1>
+              Clear Family Law Guidance,{" "}
+              <span className="gold">In Your Language.</span>
+            </h1>
+            <p className="lede">
+              Law Saathi is a multilingual, AI-powered legal support system that
+              helps you understand family law in simple words — through text or
+              voice.
+            </p>
+
+            <div className="lang-pills" role="list" aria-label="Supported languages">
+              {LANGS.map((l, i) => (
+                <span
+                  key={l.code}
+                  role="listitem"
+                  className={`lang-pill${i === 0 ? " active" : ""}`}
+                >
+                  <Icon name="globe" size={16} />
+                  {l.native}
+                </span>
+              ))}
+            </div>
+
+            <div className="hero-ctas">
+              <Link href="/login?mode=register" className="btn btn-primary">
+                Start a Conversation
+                <Icon name="arrowRight" size={17} />
+              </Link>
+              <Link href="/cases" className="btn btn-outline">
+                <Icon name="play" size={16} />
+                Practice a Case
+              </Link>
+            </div>
+          </div>
+
+          <div className="hero-art">
+            <Image
+              src="/images/hero-scene.png"
+              alt="A woman asking a family law question by voice and getting an answer with citations"
+              width={1000}
+              height={1250}
+              priority
+              sizes="(max-width: 900px) 92vw, 44vw"
+            />
           </div>
         </div>
 
-        {/* Signature element: voice → citation ticket */}
-        <div className="voice-card" aria-label="Voice query demo">
-          <div className="voice-top">
-            <span className="live-dot" /> Listening · हिन्दी detected → answering in Hindi
-          </div>
-          <div className="wave" aria-hidden="true">
-            {[
-              14, 26, 38, 22, 34, 12, 30, 40, 18, 28, 36, 16, 24, 32, 20, 38, 14, 26, 30, 18,
-            ].map((h, i) => (
-              <span key={i} style={{ height: h, animationDelay: `${i * 0.08}s` }} />
+        <div className="skyline" aria-hidden="true">
+          <Image
+            src="/images/skyline.png"
+            alt=""
+            width={1400}
+            height={600}
+            sizes="100vw"
+          />
+        </div>
+      </section>
+
+      {/* ============ FEATURES ============ */}
+      <section className="section" id="features">
+        <div className="shell">
+          <div className="feature-grid">
+            {FEATURES.map((f) => (
+              <article className="feature" key={f.title}>
+                <IconDisc name={f.icon} tint={f.tint} size={64} />
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
             ))}
           </div>
-          <div className="query-lines">
-            <div>“आपसी सहमति से तलाक़ कैसे मिलता है?”</div>
-            <div>“ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನ ಹೇಗೆ ಪಡೆಯುವುದು?”</div>
-            <div>“How do I get a mutual-consent divorce?”</div>
-          </div>
-          <div className="answer-ticket">
-            <b>Saathi answers:</b> Under <code>HMA Sec 13B</code>, both spouses can file a
-            joint petition after living separately for a year… <br />
-            <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
-              ▸ 2 bare-act citations · ⏵ Listen in Hindi / Kannada
-            </span>
-          </div>
         </div>
       </section>
 
-      {/* LANGUAGES */}
-      <section className="section" id="languages">
-        <h2>One question, three tongues.</h2>
-        <p className="sub">
-          English-pivot pipeline: detect → retrieve + reason in English → answer back in your
-          language. Extensible to more Indian languages.
-        </p>
-        <div className="lang-split">
-          <img src="/images/voice-mic.png" alt="Elderly woman speaking into a phone in her language" className="lang-photo" />
-          <div className="lang-strip">
-          <span className="lang-pill">
-            <b>EN</b> — “What are grounds for mutual-consent divorce?”
-          </span>
-          <span className="lang-pill">
-            <b>HI</b> — “आपसी सहमति से तलाक़ कैसे होता है?”
-          </span>
-          <span className="lang-pill">
-            <b>KN</b> — “ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನ ಹೇಗೆ?”
-          </span>
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section className="section" id="features">
-        <h2>What Law Saathi gives you</h2>
-        <div className="feat-grid">
-          {FEATURES.map((f) => (
-            <div className="feat" key={f.title}>
-              <div className="icon">{f.icon}</div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
+      {/* ============ WHY ============ */}
+      <section className="section why">
+        <div className="shell why-grid">
+          <div className="why-art">
+            {/* The clip holds the image so the rounded corners stay clean; the
+                chips are siblings so they can overlap the frame on desktop and
+                drop into normal flow on a phone without being clipped. */}
+            <div className="why-clip">
+              <Image
+                src="/images/family-scales.png"
+                alt="A family standing together in front of scales of justice"
+                width={1254}
+                height={1254}
+                sizes="(max-width: 900px) 88vw, 44vw"
+              />
+              {CHIPS.map((c) => (
+                <span className="why-chip" key={c.text} style={c.style}>
+                  {c.text}
+                </span>
+              ))}
             </div>
-          ))}
+          </div>
+
+          <div className="why-copy">
+            <span className="eyebrow">Why Law Saathi</span>
+            <h2>
+              Making Family Law Information Accessible to Everyone
+            </h2>
+            <p className="lede">
+              Family law can be confusing and overwhelming. Law Saathi helps you
+              get clear, reliable, and easy-to-understand information so that you
+              can make informed decisions for yourself and your family.
+            </p>
+            <ul className="check-list">
+              {CHECKS.map((c) => (
+                <li key={c}>
+                  <Icon name="checkCircle" size={20} />
+                  {c}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
-      {/* HOW */}
+      {/* ============ STATS ============ */}
+      <section className="section-tight">
+        <div className="shell">
+          <div className="stats-strip">
+            {STATS.map((s, i) => (
+              <div className="stat" key={s.label}>
+                <Icon name={s.icon} size={30} className="stat-icon" />
+                <p>
+                  <b>{s.value}</b>
+                  <span>{s.label}</span>
+                </p>
+                {i < STATS.length - 1 && <span className="stat-div" aria-hidden="true" />}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ HOW IT WORKS ============ */}
       <section className="section" id="how">
-        <h2>How it works</h2>
-        <div className="steps">
-          {STEPS.map((s) => (
-            <div className="step" key={s.n}>
-              <div className="n">{s.n}</div>
-              <h4>{s.h}</h4>
-              <p>{s.p}</p>
+        <div className="shell">
+          <div className="section-head">
+            <span className="eyebrow">How it works</span>
+            <h2>Get Answers in 4 Simple Steps</h2>
+          </div>
+
+          <ol className="steps">
+            {STEPS.map((s, i) => (
+              <li className="step" key={s.n}>
+                <div className="step-disc-row">
+                  <IconDisc name={s.icon} tint={s.tint} size={76} />
+                  {i < STEPS.length - 1 && (
+                    <span className="step-connector" aria-hidden="true" />
+                  )}
+                </div>
+                <h4>
+                  <span>{s.n}</span> {s.title}
+                </h4>
+                <p>{s.body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* ============ FAQ ============ */}
+      <section className="section" id="faqs">
+        <div className="shell">
+          <div className="section-head">
+            <span className="eyebrow">FAQs</span>
+            <h2>Questions people ask us</h2>
+          </div>
+          <div className="faq-grid">
+            {FAQS.map((f) => (
+              <details className="faq" key={f.q}>
+                <summary>
+                  {f.q}
+                  <Icon name="chevronDown" size={19} />
+                </summary>
+                <p>{f.a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ CTA BAND ============ */}
+      <section className="section-tight">
+        <div className="shell">
+          <div className="cta-band">
+            <span className="cta-flourish cta-flourish-l" aria-hidden="true" />
+            <span className="cta-flourish cta-flourish-r" aria-hidden="true" />
+            <div className="cta-copy">
+              <span className="eyebrow cta-eyebrow">Ready to get started?</span>
+              <h2>Ask Your Question, Anytime.</h2>
+              <p>
+                Get trusted family law information in your language, with the
+                help of AI.
+              </p>
             </div>
-          ))}
+            <Link href="/login?mode=register" className="btn btn-light cta-btn">
+              Start a Conversation
+              <Icon name="arrowRight" size={17} />
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* ACTS */}
-      <section className="section" id="acts">
-        <h2>Grounded in real law</h2>
-        <p className="sub">
-          Retrieval over in-force sections only (repealed rows dropped). Sources: Open India Law
-          corpus + India Code ground truth.
-        </p>
-        <div className="acts-banner">
-          <img src="/images/bare-act-texture.png" alt="Open Hindu Marriage Act bare-act book with stacked law volumes" />
-        </div>
-        <div className="acts">
-          {ACTS.map((a) => (
-            <span className="act" key={a}>
-              {a}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      {/* DEMO */}
-      <section className="section" id="demo">
-        <h2>Try it in your head first</h2>
-        <p className="sub">Same question, same evidence — answered in the language you asked.</p>
-        <div className="demo">
-          <div className="demo-box">
-            <b>You (Hindi, voice):</b>
-            <p>“मुझे घरेलू हिंसा में क्या सुरक्षा मिल सकती है?”</p>
-            <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: 8 }}>
-              → Saathi replies in Hindi with PWDV Act Sections 17–22: protection order,
-              residence order, monetary relief — plus where to get help.
-            </p>
-          </div>
-          <div className="demo-box">
-            <b>You (Kannada, typed):</b>
-            <p>“ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ?”</p>
-            <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: 8 }}>
-              → Saathi replies in Kannada with Guardians &amp; Wards Act + welfare-of-child
-              principle, custody vs guardianship explained simply.
-            </p>
-          </div>
-        </div>
-        <div className="cta-band">
-          <h2 style={{ fontFamily: "var(--font-display)" }}>Ask Saathi anything about family law.</h2>
-          <p>Free to try. Answers cite the exact section — and say when to see a lawyer.</p>
-          <Link href="/chat" className="btn-solid" style={{ display: "inline-block" }}>
-            Start chatting →
-          </Link>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer className="footer">
-        <div className="foot-brand">
-          <img src="/images/logo.png" alt="Law Saathi logo" />
-          <div>
-            <b>Law Saathi</b>
-            <p>Multilingual family-law information (EN / HI / KN).</p>
-          </div>
-        </div>
-        <p className="foot-note">
-          Legal information, not legal advice. Verify with a professional.
-        </p>
-      </footer>
-    </main>
+      {/* ============ LEGAL ANCHORS ============ */}
+      <div className="shell legal-anchors" id="privacy">
+        <section id="terms">
+          <h2>Terms &amp; disclaimer</h2>
+          <p className="lede">
+            Law Saathi provides legal information to help you understand your
+            options. It is not a law firm and nothing here is legal advice. Every
+            answer is generated from published bare acts and should be verified
+            with a qualified lawyer before you act on it.
+          </p>
+        </section>
+        <section id="contact">
+          <h2>Contact</h2>
+          <p className="lede">
+            Found something wrong, or want to help? Write to{" "}
+            <a href="mailto:hello@lawsaathi.in" className="link">
+              hello@lawsaathi.in
+            </a>
+            .
+          </p>
+        </section>
+      </div>
+    </>
   );
 }

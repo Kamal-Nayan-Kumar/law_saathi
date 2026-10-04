@@ -1,0 +1,644 @@
+/* ==========================================================================
+   Landing page — laid out from "Law Saathi_ Family Law Guidance.png".
+   Every rule here exists to fix one of the three problems: alignment, icons,
+   and images that were dropped in rather than placed.
+   ========================================================================== */
+
+/* ---------- hero ------------------------------------------------------ */
+
+.hero {
+  padding-top: var(--s8);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  gap: var(--s8);
+  align-items: center;
+  padding-bottom: var(--s8);
+}
+
+.hero-copy {
+  /* A soft cream wash behind the copy so it never sits on the artwork. */
+  position: relative;
+  z-index: 1;
+}
+
+.hero-copy h1 {
+  margin: var(--s4) 0 var(--s5);
+  max-width: 15ch;
+}
+
+/* The reference wraps the gold phrase onto its own line — force that. */
+.hero-copy h1 .gold {
+  display: block;
+}
+
+.hero-copy .lede {
+  max-width: 30rem;
+}
+
+.lang-pills {
+  display: flex;
+  gap: var(--s3);
+  margin-top: var(--s5);
+  flex-wrap: wrap;
+}
+
+.lang-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  padding: 10px 18px;
+  font-size: 0.92rem;
+  color: var(--ink-2);
+}
+
+.lang-pill.active {
+  background: var(--maroon);
+  border-color: var(--maroon);
+  color: #fff;
+}
+
+.hero-ctas {
+  display: flex;
+  gap: var(--s4);
+  margin-top: var(--s5);
+  flex-wrap: wrap;
+}
+
+/* The artwork sits in a sized slot rather than being dropped in the flow. */
+.hero-art {
+  position: relative;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  aspect-ratio: 4 / 5;
+  max-height: 620px;
+  margin-left: auto;
+  width: 100%;
+  max-width: 520px;
+}
+
+.hero-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Full-bleed band under the hero, cropped tight so no sky shows. */
+.skyline {
+  line-height: 0;
+  width: 100%;
+  overflow: hidden;
+  margin-top: calc(var(--s6) * -1);
+}
+
+.skyline img {
+  width: 100%;
+  height: clamp(90px, 11vw, 168px);
+  object-fit: cover;
+  object-position: center bottom;
+}
+
+/* ---------- features -------------------------------------------------- */
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s6);
+}
+
+.feature {
+  /* Column: disc, then title, then body. Title and body are pushed to the
+     same baseline in every column because the grid stretches them equally. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s4);
+}
+
+.feature h3 {
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+
+.feature p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  max-width: 22ch;
+}
+
+/* ---------- why ------------------------------------------------------- */
+
+.why {
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-warm) 100%);
+}
+
+.why-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s8);
+  align-items: center;
+}
+
+/* A rounded art panel with the question chips overlapping its edges, exactly
+   like the reference. The chips are positioned against the frame, so they stay
+   put at any width. */
+.why-clip {
+  position: relative;
+  border-radius: var(--r-xl);
+  aspect-ratio: 1 / 1;
+  background: var(--surface-2);
+  isolation: isolate;
+}
+
+.why-clip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--r-xl);
+}
+
+.why-chip {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-1);
+  padding: 12px 18px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 46%;
+  line-height: 1.35;
+}
+
+.why-copy h2 {
+  margin: var(--s3) 0 var(--s4);
+}
+
+.why-copy .lede {
+  max-width: 32rem;
+}
+
+.check-list {
+  list-style: none;
+  margin-top: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.check-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  color: var(--ink-2);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.check-list svg {
+  color: var(--gold);
+  flex: none;
+  margin-top: 2px;
+}
+
+/* ---------- stats strip ----------------------------------------------- */
+
+.stats-strip {
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  padding: var(--s5) var(--s6);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  position: relative;
+  padding: 0 var(--s5);
+}
+
+.stat:first-child {
+  padding-left: 0;
+}
+
+.stat:last-child {
+  padding-right: 0;
+}
+
+.stat-icon {
+  color: var(--maroon);
+  flex: none;
+}
+
+.stat p {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.stat b {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.stat span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stat-div {
+  position: absolute;
+  right: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 1px;
+  background: var(--line);
+}
+
+/* ---------- steps ----------------------------------------------------- */
+
+.steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s6);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* The disc row spans the full column so the dotted connector reaches the next
+   disc — this is what lines the four circles up on one horizontal axis. */
+.step-disc-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  justify-content: center;
+  margin-bottom: var(--s5);
+}
+
+.step-connector {
+  position: absolute;
+  left: calc(50% + 52px);
+  right: calc(-50% + 52px);
+  height: 0;
+  border-top: 2px dotted var(--line);
+}
+
+.step h4 {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--maroon);
+  margin-bottom: var(--s3);
+}
+
+.step h4 span {
+  color: inherit;
+}
+
+.step p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  max-width: 24ch;
+}
+
+/* ---------- faq -------------------------------------------------------- */
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s4);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.faq {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s4) var(--s5);
+}
+
+.faq summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--maroon);
+  list-style: none;
+}
+
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq summary svg {
+  color: var(--gold);
+  flex: none;
+  transition: transform 0.18s ease;
+}
+
+.faq[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.faq p {
+  margin-top: var(--s3);
+  color: var(--muted);
+  font-size: 0.93rem;
+}
+
+/* ---------- cta band -------------------------------------------------- */
+
+.cta-band {
+  position: relative;
+  overflow: hidden;
+  background: var(--maroon);
+  border-radius: var(--r-lg);
+  padding: var(--s7) var(--s8);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s7);
+}
+
+.cta-band h2 {
+  color: #fff;
+  margin-top: var(--s2);
+}
+
+.cta-band p {
+  color: #f0dcc6;
+  margin-top: var(--s3);
+  max-width: 30rem;
+  font-size: 1rem;
+}
+
+.cta-eyebrow {
+  color: #e8b98c;
+}
+
+.cta-btn {
+  flex: none;
+}
+
+.cta-copy {
+  position: relative;
+  z-index: 1;
+}
+
+/* Corner leaf flourishes, drawn with borders so there is no image to load. */
+.cta-flourish {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border: 2px solid rgba(233, 194, 150, 0.28);
+  border-radius: 50% 0 50% 50%;
+  pointer-events: none;
+}
+
+.cta-flourish-l {
+  left: -60px;
+  bottom: -70px;
+  transform: rotate(20deg);
+}
+
+.cta-flourish-r {
+  right: -60px;
+  top: -70px;
+  transform: rotate(200deg);
+}
+
+/* ---------- legal anchors --------------------------------------------- */
+
+.legal-anchors {
+  padding-top: var(--s8);
+  padding-bottom: var(--s8);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s7);
+}
+
+.legal-anchors h2 {
+  font-size: 1.4rem;
+  margin-bottom: var(--s3);
+}
+
+.legal-anchors .lede {
+  font-size: 0.95rem;
+}
+
+.link {
+  color: var(--maroon);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 1080px) {
+  .hero-grid {
+    gap: var(--s6);
+  }
+
+  .hero-art {
+    max-height: 520px;
+  }
+
+  .feature-grid,
+  .steps {
+    gap: var(--s5);
+  }
+
+  .stat {
+    padding: 0 var(--s4);
+  }
+}
+
+@media (max-width: 900px) {
+  .hero {
+    padding-top: var(--s6);
+  }
+
+  .hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s6);
+    padding-bottom: var(--s6);
+  }
+
+  .hero-copy h1 {
+    max-width: none;
+  }
+
+  /* Art after copy, centred, and shorter so the fold still shows the buttons. */
+  .hero-art {
+    max-width: 460px;
+    margin: 0 auto;
+    max-height: 460px;
+    aspect-ratio: 4 / 3;
+  }
+
+  .skyline {
+    margin-top: 0;
+  }
+
+  .feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s6) var(--s5);
+  }
+
+  .why-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s7);
+  }
+
+  .why-clip {
+    max-width: 520px;
+    margin: 0 auto;
+  }
+
+  .stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s5) 0;
+    padding: var(--s5);
+  }
+
+  /* Dividers only make sense on the wide single-row layout. */
+  .stat-div {
+    display: none;
+  }
+
+  .stat:nth-child(odd) {
+    padding-left: 0;
+  }
+
+  .stat:nth-child(even) {
+    padding-right: 0;
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s7) var(--s5);
+  }
+
+  /* Connectors only exist on the single horizontal row. */
+  .step-connector {
+    display: none;
+  }
+
+  .faq-grid,
+  .legal-anchors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cta-band {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    padding: var(--s6);
+    gap: var(--s5);
+  }
+
+  .cta-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-copy h1 {
+    font-size: 2.15rem;
+  }
+
+  .hero-ctas {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-ctas .btn {
+    width: 100%;
+  }
+
+  /* On a phone the chips would cover the art, so they drop into a wrapped row
+     under it instead of overlapping. */
+  .why-chip {
+    position: static;
+    display: inline-block;
+    max-width: none;
+    padding: 9px 14px;
+    font-size: 0.85rem;
+  }
+
+  .why-clip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s3);
+    aspect-ratio: auto;
+  }
+
+  .why-clip img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+  }
+
+  .feature-grid,
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s6);
+  }
+
+  .feature p,
+  .step p {
+    max-width: 30ch;
+  }
+
+  .stats-strip {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s4);
+  }
+
+  .stat {
+    padding: 0 !important;
+  }
+
+  .step-disc-row {
+    margin-bottom: var(--s4);
+  }
+
+  .cta-band {
+    padding: var(--s5);
+    border-radius: var(--r-md);
+  }
+
+  .cta-band h2 {
+    font-size: 1.6rem;
+  }
+}
