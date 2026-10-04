@@ -3,9 +3,10 @@ import logging
 import os
 from typing import Iterator, Optional
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.schema import CreateColumn
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,32 @@ def database_url() -> str:
 
 def make_engine(url: str) -> Engine:
     if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+        # Two requests overlapping (a long agent run while the sidebar refreshes
+        # the session list) took the SQLite write lock and the loser failed with
+        # "database is locked". WAL lets readers run during a write, and the
+        # busy timeout makes a writer wait rather than error immediately.
+        return create_engine(
+            url,
+            connect_args={"check_same_thread": False, "timeout": 30},
+            poolclass=StaticPool if ":memory:" in url else None,
+        )
     return create_engine(url, pool_pre_ping=True)
+
+
+def _sqlite_pragmas(engine: Engine) -> None:
+    """Turn on WAL and a busy timeout for every SQLite connection."""
+    if engine.dialect.name != "sqlite":
+        return
+    try:
+        @event.listens_for(engine, "connect")
+        def _set_pragmas(dbapi_conn, _record):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=30000")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.close()
+    except Exception as exc:  # noqa: BLE001 - never block startup on this
+        logger.warning("sqlite pragmas not applied (%r)", exc)
 
 
 def _add_missing_columns(engine: Engine) -> None:
@@ -59,6 +84,7 @@ def init_db(engine: Engine) -> None:
     from app.models import Base
 
     Base.metadata.create_all(engine)
+    _sqlite_pragmas(engine)
     _add_missing_columns(engine)
     _engine = engine
     _Session = sessionmaker(bind=engine, autoflush=False)

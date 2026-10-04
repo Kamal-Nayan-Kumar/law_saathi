@@ -22,8 +22,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+# OpenRouter is the *fallback* (ADR-0002). The old default was a 7B model, which
+# is too small to write a grounded legal explanation: in persona testing it
+# produced vague answers with no inline citations and a wrong section list. The
+# fallback should still be a model that can reason over five passages.
 OPENROUTER_MODEL = os.environ.get(
-    "OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct")
+    "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 # Last-resort provider: OpenCode Zen's free tier costs nothing per token, so
@@ -380,10 +384,41 @@ def opencode_complete(messages: List[Dict[str, str]],
     return text, "opencode:" + OPENCODE_MODEL
 
 
+# gpt-oss spends part of its budget reasoning out loud before it answers. 1500
+# tokens was not enough: the model finished its reasoning and returned an empty
+# content field, which the caller used verbatim as the answer.
+MAX_TOKENS = int(os.environ.get("LAWSAATHI_MAX_TOKENS", "6000"))
+
+
+def _message_text(data: Dict[str, Any]) -> str:
+    """Pull the answer out of an OpenAI-shaped response.
+
+    Reasoning models put their scratchpad in `reasoning` / `reasoning_content`
+    and the answer in `content`. Only `content` is ever shown to a user.
+    """
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    text = (message.get("content") or "").strip()
+    if not text:
+        # Some gateways return the answer under a different key when content is
+        # empty; take it rather than showing the user a blank answer.
+        for key in ("output_text", "text", "response"):
+            alt = message.get(key) or data.get(key)
+            if isinstance(alt, str) and alt.strip():
+                return alt.strip()
+    return text
+
+
 def chat_complete(messages: List[Dict[str, str]],
                   http_post: Optional[Callable] = None,
                   timeout: float = 45.0) -> Tuple[str, str]:
-    """Chat with fallbacks: OpenRouter -> Groq -> OpenCode Zen.
+    """Chat with fallbacks: Groq -> OpenRouter -> OpenCode Zen.
+
+    Groq is primary per ADR-0002. The order used to be reversed, which meant the
+    small OpenRouter model answered almost every question and the good model was
+    only reached when OpenRouter happened to be down.
 
     Returns (text, provider). ``http_post`` is a test seam:
     ``fn(url, headers, payload) -> dict`` in the OpenAI-chat-completions shape.
@@ -393,6 +428,25 @@ def chat_complete(messages: List[Dict[str, str]],
     groq_key = os.environ.get("GROQ_API_KEY", "")
     or_key = os.environ.get("OPENROUTER_API_KEY", "")
     last_error: Optional[Exception] = None
+    if groq_key or http_post is not None:
+        try:
+            data = post(
+                GROQ_URL,
+                {"Authorization": "Bearer " + groq_key,
+                 "Content-Type": "application/json"},
+                {"model": GROQ_MODEL, "messages": messages,
+                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
+            )
+            text = _message_text(data)
+            if not text:
+                # An empty completion is a failure, not an answer: falling through
+                # beats showing the user a blank reply.
+                raise RuntimeError("groq returned no content")
+            logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
+            return text, "groq:" + GROQ_MODEL
+        except Exception as e:  # noqa: BLE001 — fallback must catch all
+            last_error = e
+            logger.warning("agent groq failed (%r); trying openrouter", e)
     if or_key or http_post is not None:
         try:
             data = post(
@@ -402,29 +456,16 @@ def chat_complete(messages: List[Dict[str, str]],
                  "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
                  "X-Title": "LawSaathi"},
                 {"model": OPENROUTER_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 1500},
+                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
             )
-            text = data["choices"][0]["message"]["content"].strip()
+            text = _message_text(data)
+            if not text:
+                raise RuntimeError("openrouter returned no content")
             logger.info("agent llm provider=openrouter model=%s", OPENROUTER_MODEL)
             return text, "openrouter:" + OPENROUTER_MODEL
         except Exception as e:  # noqa: BLE001 — fallback must catch all
             last_error = e
-            logger.warning("agent openrouter failed (%r); trying groq", e)
-    if groq_key or http_post is not None:
-        try:
-            data = post(
-                GROQ_URL,
-                {"Authorization": "Bearer " + groq_key,
-                 "Content-Type": "application/json"},
-                {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 1500},
-            )
-            text = data["choices"][0]["message"]["content"].strip()
-            logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
-            return text, "groq:" + GROQ_MODEL
-        except Exception as e:  # noqa: BLE001 — fallback must catch all
-            last_error = e
-            logger.warning("agent groq failed (%r); trying opencode", e)
+            logger.warning("agent openrouter failed (%r); trying opencode", e)
     # Free last resort: a rate-limited Groq/OpenRouter should not end the chat.
     try:
         return opencode_complete(messages, http_post=post, timeout=timeout)
@@ -473,9 +514,9 @@ def translate_complete(messages: List[Dict[str, str]],
                        timeout: float = 45.0) -> Tuple[str, str]:
     """Translate using Groq only, falling back to the shared chat path.
 
-    The default OpenRouter model is qwen-2.5-7b, which is weak in Hindi and
-    Kannada — it produced garbled text and repeated phrases. Groq's
-    gpt-oss-120b handled both cleanly, so translation routes there.
+    Groq's model handles Hindi and Kannada cleanly; the OpenRouter default was
+    weak in both and produced garbled, repeated text. Translation therefore
+    tries Groq first regardless of the order `chat_complete` uses.
     """
     if os.environ.get("GROQ_API_KEY", "") or http_post is not None:
         post = http_post or _post_json
@@ -485,9 +526,11 @@ def translate_complete(messages: List[Dict[str, str]],
                 {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
                  "Content-Type": "application/json"},
                 {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": 1500},
+                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
             )
-            text = data["choices"][0]["message"]["content"].strip()
+            text = _message_text(data)
+            if not text:
+                raise RuntimeError("groq returned no content")
             logger.info("agent translate provider=groq model=%s", GROQ_MODEL)
             return text, "groq:" + GROQ_MODEL
         except Exception as e:  # noqa: BLE001 — caller falls back

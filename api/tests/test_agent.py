@@ -7,6 +7,8 @@ import pytest
 from app import agent as agent_module
 from app.agent import (
     NODES,
+    GROQ_URL,
+    OPENROUTER_MODEL,
     OPENROUTER_URL,
     StubRetriever,
     write_plain_answer,
@@ -138,21 +140,46 @@ def test_marriage_age_question_answers_directly():
 
 
 def test_llm_fallback_switch_on_groq_failure():
-    """OpenRouter is primary; when it is down the answer must come from Groq
-    without the user seeing an error."""
+    """Groq is primary (ADR-0002); when it is down the answer must come from
+    OpenRouter without the user seeing an error."""
     calls = []
 
     def fake_post(url, headers, payload):
         calls.append(url)
-        if "openrouter" in url:
+        if "groq" in url:
             raise RuntimeError("429 rate limited")
         return {"choices": [{"message": {"content": "fallback answer"}}]}
 
     text, provider = chat_complete([{"role": "user", "content": "hi"}],
                                    http_post=fake_post)
     assert text == "fallback answer"
-    assert provider.startswith("groq:")
-    assert calls[0].startswith(OPENROUTER_URL)
+    assert provider.startswith("openrouter:")
+    assert calls[0].startswith(GROQ_URL)
+
+
+def test_llm_never_returns_empty_answer():
+    """A reasoning model that spends its budget on scratchpad returns an empty
+    content field. That must fall through to the next provider, not reach the
+    user as a blank reply."""
+    calls = []
+
+    def fake_post(url, headers, payload):
+        calls.append(url)
+        if "groq" in url:
+            return {"choices": [{"message": {"content": "",
+                                             "reasoning": "thinking..."}}]}
+        return {"choices": [{"message": {"content": "real answer"}}]}
+
+    text, provider = chat_complete([{"role": "user", "content": "hi"}],
+                                   http_post=fake_post)
+    assert text == "real answer"
+    assert provider.startswith("openrouter:")
+
+
+def test_llm_max_tokens_leaves_room_for_reasoning():
+    """A 7B fallback silently degraded every legal answer; the fallback must be
+    a model that can reason over the passages."""
+    assert OPENROUTER_MODEL not in ("qwen/qwen-2.5-7b-instruct",)
 
 
 def test_llm_primary_groq_no_fallback():
@@ -205,10 +232,10 @@ def test_opencode_is_the_free_last_resort():
 
     with pytest.raises(RuntimeError):
         chat_complete(msg, http_post=dead)
-    # OpenRouter, then Groq, then OpenCode
+    # Groq, then OpenRouter, then OpenCode
     assert len(order) == 3, order
-    assert "openrouter" in order[0]
-    assert "groq" in order[1]
+    assert "groq" in order[0]
+    assert "openrouter" in order[1]
     assert "opencode" in order[2], order
 
 

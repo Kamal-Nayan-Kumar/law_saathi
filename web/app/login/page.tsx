@@ -19,7 +19,7 @@ const LANGS = [
 const PERKS = [
   "Ask in your own language, by voice or text",
   "Every answer cites the exact section of law",
-  "Practice courtroom scenarios with a case coach",
+  "Private, and free to try",
 ];
 
 function LoginForm() {
@@ -32,6 +32,9 @@ function LoginForm() {
   const [lang, setLang] = useState("en");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState("");
+  // Shown while a language preference is being saved after signup. The user is
+  // already routed to /chat by then, so this never blocks the screen.
+  const [savedHint, setSavedHint] = useState("");
   // A tap on a slow phone gave zero feedback while the request was in flight,
   // so it looked like the button was broken.
   const [busy, setBusy] = useState(false);
@@ -41,6 +44,9 @@ function LoginForm() {
   useEffect(() => {
     const q = searchParams.get("mode");
     if (q === "register" || q === "login") setMode(q);
+    // The settings menu links here with ?lang= to change the answer language.
+    const l = searchParams.get("lang");
+    if (l === "en" || l === "hi" || l === "kn") setLang(l);
   }, [searchParams]);
 
   async function submit(e: React.FormEvent) {
@@ -57,13 +63,13 @@ function LoginForm() {
         setError(error.message || "Failed");
         return;
       }
-      // The saved language is what the agent answers in, so set it now rather
-      // than making the user find it later.
+      // Route away first. Saving the language is a second round-trip and must
+      // never be the reason the user waits on a spinner after signing in.
+      router.push("/chat");
       if (mode === "register") {
-        await api("/me", { method: "PUT", body: JSON.stringify({ preferred_lang: lang }) })
-          .catch(() => {});
+        api("/me", { method: "PUT", body: JSON.stringify({ preferred_lang: lang }) })
+          .catch(() => setSavedHint("We could not save your language. Pick it in chat instead."));
       }
-      router.push("/dashboard");
     } catch {
       setError("Could not sign you in. Check your connection and try again.");
     } finally {
@@ -180,6 +186,11 @@ function LoginForm() {
           {error && (
             <p className="alert alert-error" role="alert">
               {error}
+            </p>
+          )}
+          {savedHint && (
+            <p className="alert alert-error" role="status">
+              {savedHint}
             </p>
           )}
 
