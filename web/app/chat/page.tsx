@@ -1,10 +1,15 @@
 "use client";
+
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
+import Icon from "@/components/Icon";
+import Logo from "@/components/Logo";
+import "./chat.css";
 
 type Msg = {
   id: number;
@@ -14,7 +19,7 @@ type Msg = {
 };
 
 // A message as returned by GET /sessions/{id}/messages. The source fields were
-// added after the first release, so older rows simply don't carry them.
+// added after the first release, so older rows simply do not carry them.
 type StoredMsg = Msg & {
   citations?: string[];
   citation_sources?: string[];
@@ -44,16 +49,13 @@ const SUGGESTIONS = [
   "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ?",
 ];
 
-const STAGES = ["Understanding intent…", "Planning…", "Retrieving bare acts…", "Verifying citations…", "Writing answer…"];
-
-const TRACE_LABELS: Record<string, string> = {
-  contextualize: "Intent — understood follow-up using chat history",
-  intent: "Intent — detected topic and language",
-  planner: "Planner — checked what's clear, what needs asking",
-  tools: "Tools — retrieved bare-act sections",
-  verifier: "Verifier — checked citations cover the answer",
-  response: "Response — wrote the final answer",
-};
+const STAGES = [
+  "Understanding intent…",
+  "Planning…",
+  "Retrieving bare acts…",
+  "Verifying citations…",
+  "Writing answer…",
+];
 
 const STEP_TITLES: Record<string, string> = {
   contextualize: "Follow-up",
@@ -65,8 +67,8 @@ const STEP_TITLES: Record<string, string> = {
 };
 
 function detectLang(text: string): "en" | "hi" | "kn" {
-  if (/\u0C80-\u0CFF/.test(text)) return "kn";
-  if (/\u0900-\u097F/.test(text)) return "hi";
+  if (/[ಀ-೿]/.test(text)) return "kn";
+  if (/[ऀ-ॿ]/.test(text)) return "hi";
   return "en";
 }
 
@@ -101,7 +103,7 @@ function sourceTag(type: string): { label: string; kind: string } {
   return SOURCE_TAGS[type] || { label: "source", kind: "other" };
 }
 
-// Turn each citation marker in the answer — `[1]` or `[1,2,3]` — into a small
+// Turn each citation marker in the answer — [1] or [1,2,3] — into a small
 // link to the matching item in that answer's Sources list. Only markers whose
 // number exists in `citations` are touched, so nothing else is rewritten.
 function linkCitationMarkers(text: string, citations: string[], msgId: number): string {
@@ -135,24 +137,18 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
       {m && m.steps.length > 0 && (
         <div className="think think-top">
           <button type="button" className="think-toggle" onClick={() => setShowThink((v) => !v)}>
-            {showThink ? "▾ Thinking" : "▸ Thinking"}
+            <Icon name={showThink ? "chevronDown" : "chevronDown"} size={15} className="think-caret" />
+            Thinking
+            <span className="think-count">{m.steps.length}</span>
           </button>
           {showThink && (
             <ol className="think-steps">
-              {m.steps.length > 0
-                ? m.steps.map((s, i) => (
-                    <li key={`${s.node}-${i}`}>
-                      <strong>{STEP_TITLES[s.node] || s.node}</strong>
-                      <span className="step-detail">{s.detail}</span>
-                      <span className="think-done"> — done</span>
-                    </li>
-                  ))
-                : m.trace.map((t) => (
-                    <li key={t}>
-                      <strong>{TRACE_LABELS[t] || t}</strong>
-                      <span className="think-done"> — done</span>
-                    </li>
-                  ))}
+              {m.steps.map((s, i) => (
+                <li key={`${s.node}-${i}`}>
+                  <strong>{STEP_TITLES[s.node] || s.node}</strong>
+                  <span className="step-detail">{s.detail}</span>
+                </li>
+              ))}
             </ol>
           )}
         </div>
@@ -162,7 +158,10 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
       </div>
       {m && m.citations.length > 0 && (
         <div className="src">
-          <p className="src-head">Sources ({m.citations.length})</p>
+          <p className="src-head">
+            <Icon name="book" size={14} />
+            Sources ({m.citations.length})
+          </p>
           <ol className="src-list">
             {m.citations.map((c, i) => {
               const tag = m.sources[i] ? sourceTag(m.sources[i]) : null;
@@ -196,20 +195,11 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 860px)");
-    const upd = () => setIsMobile(mq.matches);
-    upd();
-    mq.addEventListener("change", upd);
-    return () => mq.removeEventListener("change", upd);
+  const isNarrow = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 900px)").matches;
   }, []);
-
-  function toggleSide() {
-    if (window.matchMedia("(max-width: 860px)").matches) setSideOpen((v) => !v);
-    else setCollapsed((v) => !v);
-  }
 
   // Redirect guests to login (middleware also guards /chat server-side)
   useEffect(() => {
@@ -220,14 +210,16 @@ export default function Chat() {
     try {
       const list = (await api("/sessions")) as ChatSession[];
       setSessions([...list].reverse());
-    } catch (e) {}
+    } catch {
+      // A failed sidebar refresh is not worth interrupting the user over.
+    }
   }, []);
 
   // Load profile + sidebar history (no auto-create; new chat stays draft)
   useEffect(() => {
     if (authPending || !authSession) return;
     api("/me")
-      .then((u: any) => {
+      .then((u: { preferred_lang?: string; tone?: string }) => {
         setLang(u.preferred_lang || "en");
         setTone(u.tone || "simple");
       })
@@ -235,9 +227,9 @@ export default function Chat() {
     // The API exposes memories under /me/memories; "/memories" 404s, which
     // silently dropped the saved language and tone on every load.
     api("/me/memories")
-      .then((m: any) => {
+      .then((m: { memories?: { key: string; value: string }[] }) => {
         const mem: Record<string, string> = {};
-        (m.memories || []).forEach((item: any) => (mem[item.key] = item.value));
+        (m.memories || []).forEach((item) => (mem[item.key] = item.value));
         if (mem.tone) setTone(mem.tone);
         if (mem.preferred_lang) setLang(mem.preferred_lang);
       })
@@ -249,20 +241,22 @@ export default function Chat() {
   useEffect(() => {
     if (draft.trim().length > 1) {
       const d = detectLang(draft);
-      if (d !== lang) {
-        setLang(d);
-      }
+      if (d !== lang) setLang(d);
     }
   }, [draft, lang]);
 
   // Rotate the "working…" stage label while an answer is being generated.
-  // Stages are a client-side progress hint; the real node trace lands in Thinking after.
   useEffect(() => {
     if (!loading) return;
     setStage(0);
     const t = setInterval(() => setStage((s) => (s + 1) % STAGES.length), 1800);
     return () => clearInterval(t);
   }, [loading]);
+
+  function toggleSide() {
+    if (isNarrow()) setSideOpen((v) => !v);
+    else setCollapsed((v) => !v);
+  }
 
   function openSession(id: number) {
     setSessionId(id);
@@ -309,7 +303,7 @@ export default function Chat() {
       if (sid === null) {
         const s = (await api("/sessions", {
           method: "POST",
-          body: JSON.stringify({ title: "New chat" }),
+          body: JSON.stringify({ title: query.slice(0, 60) }),
         })) as ChatSession;
         sid = s.id;
         setSessionId(sid);
@@ -329,7 +323,12 @@ export default function Chat() {
         sources: answerObj.citation_sources || [],
       };
       const botId = Date.now() + 1;
-      const botMsg: Msg = { id: botId, role: "assistant", content: answerObj.answer, lang: sendLang };
+      const botMsg: Msg = {
+        id: botId,
+        role: "assistant",
+        content: answerObj.answer,
+        lang: sendLang,
+      };
       setMsgs((prev) => [...prev, botMsg]);
       setMeta((prev) => ({ ...prev, [botId]: tmeta }));
       api(`/sessions/${sid}/messages`)
@@ -338,7 +337,9 @@ export default function Chat() {
           setMsgs(list);
           // Stored citations for the whole thread, then re-attach this answer's
           // live trace to its real server id (ids change on reload).
-          const match = list.find((m) => m.role === "assistant" && m.content === answerObj.answer);
+          const match = list.find(
+            (m) => m.role === "assistant" && m.content === answerObj.answer,
+          );
           const next = metaFromList(list);
           if (match) next[match.id] = tmeta;
           delete next[botId];
@@ -346,7 +347,7 @@ export default function Chat() {
         })
         .catch(() => {});
       refreshSessions();
-    } catch (err: any) {
+    } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
       setLoading(false);
@@ -358,32 +359,20 @@ export default function Chat() {
     await sendText(draft);
   }
 
-  async function savePref(key: string, value: string) {
-    try {
-      await api("/me", { method: "PUT", body: JSON.stringify({ [key]: value }) });
-      await api("/me/memories", {
-        method: "PUT",
-        body: JSON.stringify([{ key, value }]),
-      });
-      if (key === "preferred_lang") setLang(value);
-      if (key === "tone") setTone(value);
-    } catch (e) {}
-  }
-
   async function signOut() {
     try {
       await authClient.signOut();
-    } catch (e) {}
+    } catch {
+      // Local sign-out is still correct if the network call fails.
+    }
     router.push("/");
   }
 
   if (authPending || !authSession) {
     return (
-      <main>
-        <div className="card">
-          <p style={{ color: "var(--muted)" }}>Checking sign-in… redirecting to login.</p>
-        </div>
-      </main>
+      <div className="chat-layout">
+        <div className="chat-gate">Checking your sign-in…</div>
+      </div>
     );
   }
 
@@ -392,21 +381,35 @@ export default function Chat() {
   return (
     <div className={`chat-layout${collapsed ? " side-hidden" : ""}`}>
       {sideOpen && <div className="side-backdrop" onClick={() => setSideOpen(false)} />}
-      {/* History sidebar */}
+
       <aside className={`sidebar${sideOpen ? " open" : ""}`} aria-label="Chat history">
         <div className="side-toprow">
           <button type="button" className="side-new" onClick={newChat}>
-            ＋ New chat
+            <Icon name="plus" size={17} />
+            New chat
           </button>
-          <button type="button" className="side-hide" onClick={toggleSide} aria-label={collapsed ? "Show history" : "Hide history"} title={collapsed ? "Show history" : "Hide history"}>
-            {collapsed ? "»" : "«"}
+          <button
+            type="button"
+            className="side-hide"
+            onClick={toggleSide}
+            aria-label={collapsed ? "Show history" : "Hide history"}
+            title={collapsed ? "Show history" : "Hide history"}
+          >
+            <Icon name="chevronDown" size={18} className={collapsed ? "flip-x" : "flip-y"} />
           </button>
         </div>
+
         <div className="side-list">
           {sessions.map((s) => (
             <div key={s.id} className={`side-item${s.id === sessionId ? " active" : ""}`}>
-              <button type="button" className="side-open" onClick={() => openSession(s.id)} title={s.title}>
-                {s.title || "New chat"}
+              <button
+                type="button"
+                className="side-open"
+                onClick={() => openSession(s.id)}
+                title={s.title}
+              >
+                <Icon name="chat" size={15} />
+                <span>{s.title || "New chat"}</span>
               </button>
               <button
                 type="button"
@@ -414,7 +417,7 @@ export default function Chat() {
                 aria-label={`Delete ${s.title}`}
                 onClick={() => deleteSession(s.id)}
               >
-                ×
+                <Icon name="close" size={15} />
               </button>
             </div>
           ))}
@@ -422,46 +425,59 @@ export default function Chat() {
             <p className="side-empty">No chats yet — ask something to start.</p>
           )}
         </div>
-        <a className="side-home" href="/" title="Home">
-          {collapsed ? "⌂" : "⌂ Home"}
-        </a>
+
+        <nav className="side-nav">
+          <Link href="/dashboard">
+            <Icon name="chart" size={17} />
+            <span className="side-label">Dashboard</span>
+          </Link>
+          <Link href="/cases">
+            <Icon name="folder" size={17} />
+            <span className="side-label">Practice cases</span>
+          </Link>
+          <Link href="/">
+            <Icon name="arrowRight" size={17} className="flip-180" />
+            <span className="side-label">Home</span>
+          </Link>
+          <button type="button" className="side-signout" onClick={signOut}>
+            <Icon name="logout" size={17} />
+            <span className="side-label">Sign out</span>
+          </button>
+        </nav>
       </aside>
 
       <div className="chat-shell">
-        {/* Chat header (replaces marketing nav on this page) */}
         <header className="chat-top">
           <div className="chat-top-inner">
-            {/* Row 1: history toggle, logo, wordmark, sign out */}
-            <div className="chat-head-row">
-              {isMobile && (
-                <button type="button" className="side-toggle" onClick={toggleSide} aria-label="Show history" title="Show history">
-                  ☰
-                </button>
-              )}
-              <img src="/images/logo.png" alt="Law Saathi logo" className="chat-logo" />
-              <b className="chat-wordmark">
-                Law <span>Saathi</span>
-              </b>
-              <button type="button" className="chat-signout" onClick={signOut}>
-                Sign out
-              </button>
-            </div>
-            {/* Row 2: slogan. The language and tone pickers were removed —
-                the answer now follows the language of the question, and the
-                default tone is the simple one. */}
-            <p className="chat-slogan">Ask about family law — in any language.</p>
+            <button
+              type="button"
+              className="side-toggle"
+              onClick={toggleSide}
+              aria-label="Toggle chat history"
+              title="Chat history"
+            >
+              <Icon name="list" size={20} />
+            </button>
+            <Logo size={30} />
+            <Link href="/cases" className="chat-practice">
+              <Icon name="gavel" size={16} />
+              Practice a case
+            </Link>
           </div>
         </header>
 
-        {/* Thread */}
         <div className="chat-main">
           {isEmpty ? (
             <div className="chat-empty">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/images/chat-empty.png"
-                alt="Law Saathi assistant answering family-law questions in three languages"
+                alt="Scales of justice with two speech bubbles"
+                width={1254}
+                height={1254}
               />
-              <p className="chat-empty-hint">Ask your first question — try one of these:</p>
+              <h2>Ask about family law, in any language.</h2>
+              <p className="chat-empty-hint">Try one of these to start:</p>
               <div className="chips">
                 {SUGGESTIONS.map((s) => (
                   <button
@@ -480,18 +496,18 @@ export default function Chat() {
             <div className="thread">
               {msgs.map((m) =>
                 m.role === "user" ? (
-                  <div key={m.id} className="bubble-user" style={{ whiteSpace: "pre-wrap" }}>
+                  <div key={m.id} className="bubble-user">
                     {m.content}
                   </div>
                 ) : (
                   <AssistantBlock key={m.id} msg={m} m={meta[m.id]} />
-                )
+                ),
               )}
               {loading && (
                 <div className="thinking-live" aria-live="polite">
                   <div className="live-head">
                     <span className="pulse" />
-                    Thinking…
+                    Working on it…
                   </div>
                   <ol className="live-steps">
                     {STAGES.map((s, i) => (
@@ -504,27 +520,25 @@ export default function Chat() {
               )}
             </div>
           )}
-          {error && <p className="error">{error}</p>}
+          {error && <p className="alert alert-error">{error}</p>}
         </div>
 
-        {/* Composer */}
         <div className="composer">
           <form onSubmit={send} className="composer-row">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Ask a question…"
+              placeholder="Ask a question about family law…"
               aria-label="Question"
             />
-            <button className="composer-send" type="submit"
+            <button
+              className="composer-send"
+              type="submit"
               disabled={loading || !draft.trim()}
-              aria-label="Send question" title="Send">
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
-                fill="none" stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 19V5" />
-                <path d="M5 12l7-7 7 7" />
-              </svg>
+              aria-label="Send question"
+              title="Send"
+            >
+              <Icon name="send" size={19} />
             </button>
           </form>
         </div>

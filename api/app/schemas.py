@@ -36,6 +36,10 @@ class MessageOut(BaseModel):
     lang: str
     citations: List[str] = []
     citation_sources: List[str] = []
+    # The dashboard charts activity per day, which it cannot do without a real
+    # timestamp. Rows written before this existed still carry one, because
+    # created_at has a column default.
+    created_at: Optional[str] = None
 
 
 class MemoryIn(BaseModel):

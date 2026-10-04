@@ -8,8 +8,8 @@ import Icon from "./Icon";
 const TOP = [
   { href: "/#features", label: "Features" },
   { href: "/#how", label: "How it Works" },
-  { href: "/cases", label: "Practice Cases" },
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/#acts", label: "Acts covered" },
+  { href: "/#faqs", label: "FAQs" },
 ];
 
 const LEGAL = [
@@ -38,11 +38,9 @@ export default function Footer() {
     <footer className="footer">
       <div className="footer-main">
         <div className="footer-brand">
-          <Logo size={46} />
-          <div>
-            <b>
-              Law <span>Saathi</span>
-            </b>
+          {/* Logo already renders the wordmark, so only the tagline goes here. */}
+          <div className="footer-brand-text">
+            <Logo size={46} />
             <p>Legal information. In your language.</p>
           </div>
         </div>

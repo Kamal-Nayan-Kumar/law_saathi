@@ -29,7 +29,8 @@ def _message_out(msg: Message) -> MessageOut:
     """Rows written before the citations columns existed hold NULL there."""
     return MessageOut(id=msg.id, role=msg.role, content=msg.content, lang=msg.lang,
                       citations=list(msg.citations or []),
-                      citation_sources=list(msg.citation_sources or []))
+                      citation_sources=list(msg.citation_sources or []),
+                      created_at=msg.created_at.isoformat() if msg.created_at else None)
 
 
 def _session_owned(session_id: int, user: User, db: Session) -> ChatSession:

@@ -23,54 +23,52 @@ const waitMs = Number(job.waitMs || 180000);
 const task = await taskSpace(SPACE);
 const page = task.page("p1");
 
-// Count images already in the chat so we can tell which one is new.
-async function countImages() {
-  return page.evaluate(
-    () => document.querySelectorAll('button[aria-label^="Generated image"]').length,
-  );
+// The newest generated image is the last generated <img> in the thread. Older
+// turns get virtualised out of the DOM as the thread grows, so counting them is
+// unreliable — comparing the tail src is not. The src is a blob: URL, so it can
+// only be fetched from inside the page.
+async function lastSrc() {
+  return page.evaluate(() => {
+    const imgs = [...document.querySelectorAll("img")].filter((i) =>
+      /^Generated image/i.test(i.alt || ""),
+    );
+    const last = imgs[imgs.length - 1];
+    return last ? last.currentSrc || last.src || "" : "";
+  });
 }
 
-const before = await countImages();
+const before = await lastSrc();
 
 await page.fill('textarea[name="prompt"], div[contenteditable="true"][role="textbox"]', prompt);
 await page.keyboard.press("Enter");
 
-// Generation takes 30-90s. Wait until a new image button appears.
+// Generation takes 30-90s. Wait for the tail image src to change, then for the
+// stream to settle.
 const deadline = Date.now() + waitMs;
-let after = before;
+let src = "";
 while (Date.now() < deadline) {
   await page.waitForTimeout(4000);
-  const busy = await page.evaluate(() => {
-    const b = document.querySelector('button[aria-label="Stop generating"]');
-    return !!b;
-  });
-  after = await countImages();
-  if (after > before && !busy) break;
-  if (after > before && busy) {
-    // keep waiting for streaming to settle
-    continue;
+  const busy = await page.evaluate(() =>
+    !!document.querySelector('button[aria-label="Stop generating"]'),
+  );
+  const now = await lastSrc();
+  if (now && now !== before) {
+    if (!busy) {
+      src = now;
+      break;
+    }
+    src = now;
   }
 }
-if (after <= before) {
+if (!src) {
   console.error("TIMEOUT: no new image appeared");
   process.exit(2);
 }
 
-await page.waitForTimeout(3000);
-// The Nth generated-image button is the newest.
-const idx = after - 1;
-const buttons = await page.evaluate(() =>
-  [...document.querySelectorAll('button[aria-label^="Generated image"]')].map((b) => {
-    const img = b.querySelector("img");
-    return { alt: img?.getAttribute("alt") || "", src: img?.currentSrc || img?.src || "" };
-  }),
-);
-const target = buttons[idx];
-if (!target?.src) {
-  console.error("could not read image src", JSON.stringify(buttons.slice(-2)));
-  process.exit(3);
-}
+// Let the image finish loading at full resolution before reading its src again.
+await page.waitForTimeout(2500);
+const finalSrc = (await lastSrc()) || src;
 
 await mkdir(path.dirname(out), { recursive: true });
-const res = await page.fetch(target.src, { saveAs: out, timeout: 60000 });
-console.log(JSON.stringify({ out, ok: res.ok, status: res.status, total: after }));
+const res = await page.fetch(finalSrc, { saveAs: out, timeout: 60000 });
+console.log(JSON.stringify({ out, ok: res.ok, status: res.status }));

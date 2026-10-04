@@ -77,11 +77,13 @@
   position: relative;
   border-radius: var(--r-xl);
   overflow: hidden;
-  aspect-ratio: 4 / 5;
-  max-height: 620px;
+  /* 4:5 at this width would be 650px tall, taller than the copy column, which
+     pushed the skyline off the fold. Cap the height and let cover fill. */
+  aspect-ratio: 5 / 6;
+  max-height: 560px;
   margin-left: auto;
   width: 100%;
-  max-width: 520px;
+  max-width: 500px;
 }
 
 .hero-art img {
@@ -90,19 +92,27 @@
   object-fit: cover;
 }
 
-/* Full-bleed band under the hero, cropped tight so no sky shows. */
+/* Full-bleed band under the hero. The art is a 7.4:1 letterbox that already
+   has its own cream sky, so it is pinned to the bottom edge and given no
+   negative margin — the reference has cream sky above the rooftops too. */
 .skyline {
   line-height: 0;
   width: 100%;
   overflow: hidden;
-  margin-top: calc(var(--s6) * -1);
 }
 
+/* Pin the ratio in CSS rather than trusting the intrinsic size, so the band
+   height is correct even if the optimiser serves a stale cached variant. */
 .skyline img {
   width: 100%;
-  height: clamp(90px, 11vw, 168px);
+  height: auto;
+  aspect-ratio: 1400 / 318;
   object-fit: cover;
   object-position: center bottom;
+}
+
+.brand-word-light {
+  color: #fff;
 }
 
 /* ---------- features -------------------------------------------------- */
@@ -296,13 +306,23 @@
   width: 100%;
   justify-content: center;
   margin-bottom: var(--s5);
+  /* Lift the disc above the connector line drawn on .steps::before. */
+  z-index: 1;
 }
 
-.step-connector {
+/* One continuous dotted line behind all four discs: it starts at the edge of
+   the first disc and ends at the edge of the last, so it reads as a single
+   journey rather than four separate stubs. */
+.steps {
+  position: relative;
+}
+
+.steps::before {
+  content: "";
   position: absolute;
-  left: calc(50% + 52px);
-  right: calc(-50% + 52px);
-  height: 0;
+  top: 38px; /* half the 76px disc */
+  left: calc(12.5% + 38px);
+  right: calc(12.5% + 38px);
   border-top: 2px dotted var(--line);
 }
 
@@ -413,25 +433,34 @@
 }
 
 /* Corner leaf flourishes, drawn with borders so there is no image to load. */
+/* Two concentric quarter-arcs in the corners, like the reference's leaf
+   flourishes. Circles rather than leaf shapes — an SVG blob at this size reads
+   as a smudge, a clean arc reads as intentional. */
 .cta-flourish {
   position: absolute;
-  width: 190px;
-  height: 190px;
-  border: 2px solid rgba(233, 194, 150, 0.28);
-  border-radius: 50% 0 50% 50%;
+  width: 150px;
+  height: 150px;
+  border: 2px solid rgba(233, 194, 150, 0.3);
+  border-radius: 50%;
   pointer-events: none;
 }
 
+.cta-flourish::after {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border: 2px solid rgba(233, 194, 150, 0.18);
+  border-radius: 50%;
+}
+
 .cta-flourish-l {
-  left: -60px;
-  bottom: -70px;
-  transform: rotate(20deg);
+  left: -78px;
+  bottom: -78px;
 }
 
 .cta-flourish-r {
-  right: -60px;
-  top: -70px;
-  transform: rotate(200deg);
+  right: -78px;
+  top: -78px;
 }
 
 /* ---------- legal anchors --------------------------------------------- */
@@ -494,6 +523,11 @@
     padding-bottom: var(--s6);
   }
 
+  .skyline {
+    /* On narrow screens the full-height band would eat the fold. */
+    line-height: 0.42;
+  }
+
   .hero-copy h1 {
     max-width: none;
   }
@@ -550,7 +584,7 @@
   }
 
   /* Connectors only exist on the single horizontal row. */
-  .step-connector {
+  .steps::before {
     display: none;
   }
 

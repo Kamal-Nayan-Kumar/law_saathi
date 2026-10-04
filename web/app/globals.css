@@ -477,20 +477,10 @@ p {
   gap: var(--s4);
 }
 
-.footer-brand img {
-  width: 46px;
-  height: 46px;
-  object-fit: contain;
-}
-
-.footer-brand b {
-  font-family: var(--font-display);
-  font-size: 1.28rem;
-  color: var(--maroon);
-}
-
-.footer-brand b span {
-  color: var(--gold);
+.footer-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .footer-brand p {

@@ -175,7 +175,7 @@ export default function Landing() {
             src="/images/skyline.png"
             alt=""
             width={1400}
-            height={600}
+            height={318}
             sizes="100vw"
           />
         </div>
@@ -271,10 +271,8 @@ export default function Landing() {
             {STEPS.map((s, i) => (
               <li className="step" key={s.n}>
                 <div className="step-disc-row">
+                  {/* The connector is one line drawn on .steps, not per item. */}
                   <IconDisc name={s.icon} tint={s.tint} size={76} />
-                  {i < STEPS.length - 1 && (
-                    <span className="step-connector" aria-hidden="true" />
-                  )}
                 </div>
                 <h4>
                   <span>{s.n}</span> {s.title}

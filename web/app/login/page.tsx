@@ -1,23 +1,26 @@
 "use client";
+
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { authClient } from "@/lib/auth/client";
+import { api } from "@/lib/api";
+import Icon from "@/components/Icon";
+import Logo from "@/components/Logo";
+import "./auth.css";
 
-function EyeIcon({ off }: { off?: boolean }) {
-  return off ? (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-      <line x1="2" y1="2" x2="22" y2="22" />
-      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-    </svg>
-  ) : (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
+const LANGS = [
+  { code: "en", label: "English", native: "English" },
+  { code: "hi", label: "Hindi", native: "हिन्दी" },
+  { code: "kn", label: "Kannada", native: "ಕನ್ನಡ" },
+];
+
+const PERKS = [
+  "Ask in your own language, by voice or text",
+  "Every answer cites the exact section of law",
+  "Practice courtroom scenarios with a case coach",
+];
 
 function LoginForm() {
   const router = useRouter();
@@ -26,14 +29,15 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [lang, setLang] = useState("en");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState("");
-  // A tap on a slow phone gave zero feedback while the request was in
-  // flight, so it looked like the button was broken.
+  // A tap on a slow phone gave zero feedback while the request was in flight,
+  // so it looked like the button was broken.
   const [busy, setBusy] = useState(false);
 
-  // Nav links switch forms via ?mode=: /login = login, /login?mode=register = signup.
-  // Runs on every query change (same-page navigation doesn't remount).
+  // Nav links switch forms via ?mode=. Runs on every query change because a
+  // same-page navigation does not remount the component.
   useEffect(() => {
     const q = searchParams.get("mode");
     if (q === "register" || q === "login") setMode(q);
@@ -53,7 +57,13 @@ function LoginForm() {
         setError(error.message || "Failed");
         return;
       }
-      router.push("/chat");
+      // The saved language is what the agent answers in, so set it now rather
+      // than making the user find it later.
+      if (mode === "register") {
+        await api("/me", { method: "PUT", body: JSON.stringify({ preferred_lang: lang }) })
+          .catch(() => {});
+      }
+      router.push("/dashboard");
     } catch {
       setError("Could not sign you in. Check your connection and try again.");
     } finally {
@@ -61,42 +71,146 @@ function LoginForm() {
     }
   }
 
+  const isRegister = mode === "register";
+
   return (
     <div className="auth-card">
-      <div className="auth-media">
-        <img
-          src="/images/auth-side.png"
-          alt="Indian family with courthouse and scales of justice in maroon and marigold"
+      <div className="auth-art">
+        <Image
+          src="/images/auth-scene.png"
+          alt="A woman asking a family law question from her phone"
+          fill
+          sizes="(max-width: 900px) 0px, 44vw"
+          priority
         />
+        <ul className="auth-perks">
+          {PERKS.map((p) => (
+            <li key={p}>
+              <Icon name="checkCircle" size={18} />
+              {p}
+            </li>
+          ))}
+        </ul>
       </div>
-      <div className="auth-form">
-        <h2>{mode === "login" ? "Welcome back." : "Create your account."}</h2>
+
+      <div className="auth-panel">
+        <Link href="/" className="auth-back">
+          <Icon name="arrowRight" size={16} className="auth-back-icon" />
+          Back to home
+        </Link>
+
+        <h1>{isRegister ? "Create your account." : "Welcome back."}</h1>
         <p className="auth-sub">
-          Ask in English, Hindi or Kannada — by voice or text.
+          {isRegister
+            ? "One minute to set up. Then ask anything about family law."
+            : "Pick up where you left off."}
         </p>
-        <form onSubmit={submit}>
-          {mode === "register" && (
-            <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required aria-label="Name" />
+
+        <form onSubmit={submit} noValidate>
+          {isRegister && (
+            <label className="field">
+              <span>Full name</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                autoComplete="name"
+                required
+              />
+            </label>
           )}
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required aria-label="Email" />
-          <div className="pw-wrap">
-            <input type={showPw ? "text" : "password"} placeholder="Password (8+ chars)" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} aria-label="Password" />
-            <button type="button" className="pw-eye" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? "Hide password" : "Show password"} title={showPw ? "Hide password" : "Show password"}>
-              <EyeIcon off={showPw} />
-            </button>
-          </div>
-          <button className="primary auth-submit" type="submit" disabled={busy}
-            aria-busy={busy}>
+
+          <label className="field">
+            <span>Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              required
+            />
+          </label>
+
+          <label className="field">
+            <span>Password</span>
+            <span className="input-wrap">
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                autoComplete={isRegister ? "new-password" : "current-password"}
+                minLength={8}
+                required
+              />
+              <button
+                type="button"
+                className="input-icon-btn"
+                onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? "Hide password" : "Show password"}
+                title={showPw ? "Hide password" : "Show password"}
+              >
+                <Icon name={showPw ? "eyeOff" : "eye"} size={19} />
+              </button>
+            </span>
+          </label>
+
+          {isRegister && (
+            <fieldset className="lang-pick">
+              <legend>Preferred language</legend>
+              <p className="field-hint">Answers come back in the language you ask in. This is your default.</p>
+              <div className="chips-row">
+                {LANGS.map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    className="chip-btn"
+                    aria-pressed={lang === l.code}
+                    onClick={() => setLang(l.code)}
+                  >
+                    <Icon name="globe" size={15} />
+                    {l.native}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
+          {error && (
+            <p className="alert alert-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <button className="btn btn-primary auth-submit" type="submit" disabled={busy} aria-busy={busy}>
             {busy
-              ? (mode === "login" ? "Signing in…" : "Creating account…")
-              : (mode === "login" ? "Login →" : "Create account →")}
+              ? isRegister
+                ? "Creating your account…"
+                : "Signing you in…"
+              : isRegister
+                ? "Create account"
+                : "Log in"}
+            {!busy && <Icon name="arrowRight" size={17} />}
           </button>
         </form>
-        {error && <p className="error">{error}</p>}
+
         <p className="auth-toggle">
-          <button type="button" onClick={() => setMode(mode === "login" ? "register" : "login")}>
-            {mode === "login" ? "New here? Create an account" : "Have an account? Login"}
+          {isRegister ? "Already have an account?" : "New to Law Saathi?"}{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(isRegister ? "login" : "register");
+              setError("");
+            }}
+          >
+            {isRegister ? "Log in" : "Create an account"}
           </button>
+        </p>
+
+        <p className="auth-note">
+          Legal information, not legal advice. Verify with a professional before
+          you act.
         </p>
       </div>
     </div>
@@ -105,11 +219,13 @@ function LoginForm() {
 
 export default function Login() {
   return (
-    <main className="auth-wrap">
-      <Suspense fallback={<div className="auth-card" />}>
+    <div className="auth-wrap">
+      <div className="auth-wrap-head">
+        <Logo size={34} />
+      </div>
+      <Suspense fallback={<div className="auth-card auth-card-skeleton" />}>
         <LoginForm />
       </Suspense>
-      <p className="auth-note">Legal information, not legal advice.</p>
-    </main>
+    </div>
   );
 }
