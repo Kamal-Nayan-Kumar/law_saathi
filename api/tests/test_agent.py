@@ -57,14 +57,31 @@ class HitRetriever:
         return [dict(HIT)]
 
 
-def test_planner_asks_followup_on_vague_divorce():
+def test_planner_records_the_missing_slot_for_a_vague_divorce():
+    """"I want divorce" names a topic but not the route. The planner records
+    what is missing and holds the question back; `should_answer_anyway` then
+    decides whether to answer or to ask. That decision is tested separately —
+    the point here is only that the gap is noticed."""
     state = new_state("I want divorce", lang="en")
     state["query_en"] = "I want divorce"
     state["slots"] = agent_module.extract_slots("I want divorce")
     state["intent"] = "divorce"
     out = node_planner(state)
     assert out["missing_slots"], "vague divorce must miss slots"
-    assert out["clarification"], "planner must ask instead of guessing"
+    # It answers and asks, rather than stalling on the question alone.
+    assert not out["clarification"]
+    assert out["follow_up_question"]
+
+
+def test_the_planner_still_asks_when_it_must():
+    """Asking is right when the answer would change: which act applies is not
+    something to guess at."""
+    state = new_state("I want help with something", lang="en")
+    state["query_en"] = "I want help with something"
+    state["slots"] = agent_module.extract_slots("I want help with something")
+    out = node_planner(state)
+    assert out["clarification"]
+    assert not out.get("follow_up_question")
 
 
 def test_planner_no_clarification_for_exact_section():
@@ -77,13 +94,37 @@ def test_planner_no_clarification_for_exact_section():
 
 
 def test_full_run_clarification_path_has_all_six_nodes():
-    out = run_agent("I want divorce", lang="en", llm=None,
+    """A query with no topic at all must clarify rather than guess."""
+    out = run_agent("I want help with something", lang="en", llm=None,
                     retriever=StubRetriever())
-    assert out["clarification"], "vague query must clarify, not guess"
+    assert out["clarification"], "a topicless query must clarify, not guess"
     assert out["trace"] == ["intent", "planner", "response"]
     assert set(NODES) == {"intent", "planner", "tools", "reason",
                           "verifier", "response"}
     assert out["answer"], "clarification question must be non-empty"
+
+
+def test_a_bare_divorce_question_is_answered_and_asks_too():
+    """"How do I get a divorce" names the topic but not the route. Asking only
+    cost the user a whole turn, and a Kannada speaker who asked the simplest
+    possible question got nothing but the follow-up. So: a real answer, with
+    the disambiguating question at the end."""
+    from app.agent import run_agent as _run
+
+    class Hit:
+        def search_text(self, text, top_k=5, filter_payload=None):
+            return [{"id": "p1", "score": 0.9, "payload": {
+                "act": "Hindu Marriage Act, 1955",
+                "section": "Section 13B: Divorce by mutual consent",
+                "text": "Where both parties have lived separately for one year "
+                        "or more after a petition, they may present a joint "
+                        "petition."}}]
+
+    out = _run("How do I get a divorce", lang="en", llm=None,
+               retriever=Hit())
+    assert not out["clarification"], "should not stall on the route"
+    assert out["follow_up_question"], "must offer the route question"
+    assert out["citations"], "must still cite the law it did use"
 
 
 def test_verifier_retries_on_empty_evidence_then_answers():
@@ -219,11 +260,13 @@ def test_llm_skips_a_provider_already_in_cooldown():
 
 
 def test_ask_endpoint_clarification_path(client):
+    """A question with no topic must clarify rather than guess at the law."""
     from tests.conftest import bff_headers
     h = bff_headers("asker")
     sid = client.post("/sessions", json={"title": "t"}, headers=h).json()["id"]
     resp = client.post("/sessions/%d/ask" % sid,
-                       json={"query": "I want divorce", "lang": "en"},
+                       json={"query": "I want help with something",
+                             "lang": "en"},
                        headers=h)
     assert resp.status_code == 200
     body = resp.json()

@@ -62,6 +62,17 @@ def test_a_bare_land_question_stays_out_of_scope():
         assert is_oos(q) is True, q
 
 
+def test_a_family_question_is_not_refused_by_a_substring_match():
+    """Substring matching made "cannot live with the *pa*rents*" trip the rent
+    rule, and an adoption question was refused as tenancy law. Refusing a real
+    family-law question is worse than missing an out-of-scope one."""
+    assert is_oos("can my aunt adopt a child who cannot live with the parents") is False
+
+
+def test_a_genuine_tenancy_question_is_still_refused():
+    assert is_oos("how do I remove a tenant from my flat") is True
+
+
 # --------------------------------------------------------------------------
 # Naming an Act is a question we can answer
 # --------------------------------------------------------------------------

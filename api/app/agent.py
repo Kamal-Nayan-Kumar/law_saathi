@@ -63,8 +63,19 @@ TOPIC_KEYWORDS = {
                 "तलाक", "ವಿಚ್ಛೇದನ"),
     "maintenance": ("maintenance", "maintainence", "bharan", "poshan",
                     "kharcha", "guzara", "भरण", "पोषण", "ಪೋಷಣೆ",
-                    "alimony"),
-    "custody": ("custody", "guardian", "अभिरक्षा", "ಹೆತ್ತವರ", "ವಶ"),
+                    "alimony",
+                    # People misspell: "मेहनाना" is how maintenance is usually
+                    # written, while the Act says "maintenance". Both spellings,
+                    # and the question that names no topic at all ("how much can
+                    # I ask for?") had to be routed by what it is asking.
+                    "मेहनाना", "महनाना", "मेनेनाना", "वेतन", "भरणपोषण",
+                    "करचा", "खर्चा", "गुजारा", "पोसण", "पोषण",
+                    "ಎಷ್ಟು ಕೊಡಿ", "ಎಷ್ಟು ಬೇಕು", "ಭರವಸೂ", "ಹಿಂಗಿರಿ", "ಭರಿಸುವ",
+                    "ಜೀವನಾಂಶ"),
+    "custody": ("custody", "guardian", "अभिरक्षा", "ಹೆತ್ತವರ", "ವಶ",
+                 "removal order", "removed from the house", "residence order",
+                 "right to reside", "who stays in the house",
+                 "उसे रहने", "घर से बाहर", "ಮನೆಯಿಂದ ಹೊರಗೆ"),
     "adoption": ("adoption", "adopt", "adopted", "गोद", "ದತ್ತು"),
     "succession": ("succession", "inheritance", "inherit", "heir",
                    "virasat", "viraasat",
@@ -103,7 +114,8 @@ TOPIC_KEYWORDS = {
 
 PARTY_WORDS = ("husband", "wife", "spouse", "pati", "patni", "biwi", "shohar",
                "bachcha", "bacha", "baccha", "beta", "beti", "maa", "baap",
-               "aurat", "aadmi", "पति", "पत्नी", "ಗಂಡ", "ಹೆಂಡತಿ",
+               "aurat", "aadmi", "पति", "पत्नी", "पति", "पत्नी", "पोषण",
+               "ಗಂಡ", "ಹೆಂಡತಿ", "ಪತಿ", "ಪತ್ನಿ",
                "mother", "father", "minor", "child", "widow", "widower",
                "माता", "पिता")
 
@@ -252,6 +264,39 @@ def _self_side(bare: str) -> str:
     return ""
 
 
+# Follow-ups that name no topic, mapped to what they are really asking. These
+# are the second question of a real conversation: "how much can I ask for?"
+# after a maintenance question, "can I get him removed" after a violence one.
+# Without this the planner asks "what is this about?" to someone who already
+# said, and it is the single most common shape of a real chat.
+FOLLOW_UP_TOPIC = (
+    (("how much can i ask", "how much should i ask", "how much can i get",
+      "how much i can claim", "how much can be claimed", "what amount can i",
+      "how much is reasonable", "what is a reasonable amount",
+      "kitni maang", "कितनी मांग", "कितना", "ಎಷ್ಟು ಕೊಡಿ",
+      "ಎಷ್ಟು ಹಿಂಗಿರಿ"), "maintenance"),
+    (("how long does it take", "how much time", "how many months",
+      "will it take", "timeline", "कितना समय", "ಎಷ್ಟು ಸಮಯ"), "divorce"),
+    (("do i need a lawyer", "can i do it myself", "without a lawyer",
+      "do i need a advocate", "क्या वकील", "ವಕೀಲ"), "divorce"),
+    (("can i get him removed", "removed from the house", "make him leave",
+      "residence order", "stay in the house", "उसे रहने दें",
+      "ಮನೆಯಿಂದ ಹೊರಗೆ"), "domestic_violence"),
+    (("what documents", "what papers", "which documents", "proof needed",
+      "evidence", "कागज़", "ದಾಖಲೆ"), "custody"),
+    (("who gets", "who will get", "who inherits", "who is entitled",
+      "किसे मिलेगा", "ಯಾರಿಗೆ"), "succession"),
+)
+
+
+def _follow_up_topic(query_en: str) -> str:
+    low = (query_en or "").lower()
+    for phrases, topic in FOLLOW_UP_TOPIC:
+        if any(p in low for p in phrases):
+            return topic
+    return ""
+
+
 def extract_slots(query_en: str) -> Dict[str, str]:
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
@@ -279,6 +324,13 @@ def extract_slots(query_en: str) -> Dict[str, str]:
         # mentions no succession keyword at all, so it was being refused and
         # then asked to clarify. A death plus property is succession.
         slots["topic"] = "succession"
+    else:
+        follow = _follow_up_topic(query_en or "")
+        if follow:
+            # Routed from the shape of the question. history_aware=True stops
+            # this overriding a topic the chat has already established.
+            slots["topic"] = follow
+            slots["topic_from_followup"] = "true"
     # A named section is the most specific signal available — let it win.
     sec_topic = _section_topic(section)
     if sec_topic:
@@ -375,6 +427,24 @@ def missing_for(slots: Dict[str, str], query_en: str,
             and not slots.get("parties") and len(words) < 6:
         return ["parties"]
     return []
+
+
+# Asking "is this mutual or contested?" for a bare "how do I get a divorce" is
+# legitimate — the two routes are genuinely different. But it costs the user a
+# whole turn, and a Kannada or Hindi speaker who asked the simplest possible
+# question got nothing but the follow-up. So the topic is answered *and* the
+# disambiguation is offered, rather than one replacing the other.
+_CLARIFY_WITH_ANSWER_NODES = ("planner", "tools", "reason", "verifier")
+
+
+def should_answer_anyway(missing: List[str]) -> bool:
+    """Answer with what we have rather than only asking.
+
+    Only for the questions where the answer does not actually change: how much
+    maintenance, how a protection order works. Never for "which act applies",
+    which is the one case where asking is better than guessing.
+    """
+    return bool(missing) and set(missing) <= {"divorce_type", "parties"}
 
 
 CLARIFY_TEMPLATES = {
@@ -765,16 +835,29 @@ def carry_slots_from_history(slots: Dict[str, str],
     """
     if not history:
         return slots
-    if slots.get("topic") and (slots.get("topic") != "divorce"
-                               or slots.get("divorce_type")):
+    if slots.get("topic") and not slots.get("topic_from_followup"):
         return slots  # current message already stands alone
+    # A topic guessed from the question's shape is weaker than one the
+    # conversation has already established, so a real topic in history wins.
     merged = dict(slots)
+    if slots.get("topic_from_followup"):
+        merged.pop("topic_from_followup", None)
     for msg in history:
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         for key, val in extract_slots(msg.get("content", "")).items():
+            if key == "topic":
+                # History's topic is a fact about the conversation; the guess
+                # from question shape is not. Do not let a later message's guess
+                # overwrite an established topic.
+                if merged.get("topic_from_followup") and not merged.get("topic"):
+                    merged["topic"] = val
+                continue
             if key not in merged:
                 merged[key] = val
+    # A divorce question still needs its type even when the topic came from
+    # history, so this check stays after the merge.
+    merged.pop("topic_from_followup", None)
     return merged
 
 
@@ -981,7 +1064,7 @@ def node_planner(state: Dict[str, Any],
                    "Outside family-law scope — saying so instead of "
                    "answering or asking.")
         return state
-    if missing:
+    if missing and not should_answer_anyway(missing):
         state["clarification"] = clarification_question(
             missing, state.get("lang", "en"))
         # No retrieval worth planning when we are about to ask the user anyway.
@@ -990,6 +1073,16 @@ def node_planner(state: Dict[str, Any],
                    "Still need: %s — asking you instead of guessing."
                    % ", ".join(missing))
         return state
+    if missing:
+        # Answer now, and end with the question. Making the user wait a whole
+        # turn for a bare "how do I get a divorce" was the wrong trade.
+        state["clarification"] = ""
+        _add_trace(state, "planner",
+                   "Missing %s, but answering anyway and asking at the end "
+                   "rather than making you wait."
+                   % ", ".join(missing))
+        state["follow_up_question"] = clarification_question(
+            missing, state.get("lang", "en"))
     state["clarification"] = ""
     plan = plan_search(state, llm=llm)
     state["plan"] = plan
@@ -1663,7 +1756,8 @@ def evidence_sufficient(evidence: List[Dict[str, Any]],
     return False
 
 
-OOS_KEYWORDS = ("land", "property", "real estate", "criminal", "tax", "income tax",
+OOS_KEYWORDS = ("land", "farmland", "agriculture", "soil", "crop", "farming",
+                "property", "real estate", "criminal", "tax", "income tax",
                 "property law", "criminal law", "theft", "murder", "rape",
                 "cheque", "stamp duty", "tenant", "eviction", "motor vehicle",
                 # Government-process and civil-remedy words. Someone with an RTI
@@ -1695,9 +1789,28 @@ _SUCCESSION_HINTS = (
 )
 
 
+# Short, ordinary words that collide with family-law wording. "rent" is inside
+# "pa*rent*" and "current"; "bank" inside "bank*". Matching them as substrings
+# refused an adoption question as tenancy law, which is a much worse failure
+# than missing a stray mention of a bank.
+_OOS_WHOLE_WORDS = {"rent", "rents", "loan", "loans", "bank", "tax", "land",
+                    "property", "police", "tenant", "employer", "passport",
+                    "visa", "company", "contract", "bail", "debt", "notice"}
+
+
+def _oos_match(keyword: str, low: str) -> bool:
+    if keyword in _OOS_WHOLE_WORDS:
+        return re.search(r"\b%s\w*" % re.escape(keyword), low) is not None
+    return keyword in low
+
+
 def is_oos(query_en: str) -> bool:
     low = (query_en or "").lower()
-    has_oos = any(k in low for k in OOS_KEYWORDS)
+    # Whole words only for the short, common ones. Substring matching made
+    # "my aunt cannot live with the pa*rents*" trip the rent rule and refuse an
+    # adoption question, which is a far worse failure than missing an out-of-
+    # scope topic that happens to include one of these words.
+    has_oos = any(_oos_match(k, low) for k in OOS_KEYWORDS)
     if not has_oos:
         return False
     # A dispute over land *between a living father and his son* is tenancy or
@@ -1709,7 +1822,8 @@ def is_oos(query_en: str) -> bool:
         "marriage", "married", "divorce", "divorced", "custody",
         "maintenance", "adoption", "adopted", "guardians",
         "domestic violence", "succession", "inheritance", "inherit",
-        "heir"))
+        "heir", "adoption", "adopt", "residence order", "protection order",
+            "maintenance", "custody", "guardian", "domestic violence"))
     return has_oos and not has_family
 
 
@@ -2370,6 +2484,11 @@ def node_response(state: Dict[str, Any],
                    "quoted a duration, so the answer now carries the amending "
                    "Act rather than the pre-amendment figure.")
         final = guarded
+    # Append the disambiguating question the planner held back, so the user got
+    # an answer *and* the chance to narrow it down.
+    follow_up = str(state.get("follow_up_question") or "")
+    if follow_up:
+        final = "%s\n\n> %s" % (final, follow_up)
     state["answer"] = final
     state["citations"] = citations
     state["citation_sources"] = citation_sources

@@ -350,7 +350,12 @@ def test_the_happy_path_visits_every_node_in_order():
 
 
 def test_clarifying_short_circuits_before_any_tool_runs():
-    out = run_agent("I want divorce", lang="en", llm=None,
+    """With no topic, retrieval cannot be planned, so no tool runs at all.
+
+    Note the query has no topic on purpose. "I want divorce" does name one, and
+    is answered now rather than stalling on the mutual-vs-contested question.
+    """
+    out = run_agent("I want help with something", lang="en", llm=None,
                     retriever=EchoRetriever([]))
     assert out["clarification"]
     assert out["trace"] == ["intent", "planner", "response"]

@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
 import { askStream, type AskResult, type StreamStep } from "@/lib/stream";
+import { useSpeechToText, useSpeechSynthesis } from "@/lib/voice";
 import Icon from "@/components/Icon";
 import Logo from "@/components/Logo";
 import "./chat.css";
@@ -125,8 +126,10 @@ function linkCitationMarkers(text: string, citations: string[], msgId: number): 
 
 function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
   const [showThink, setShowThink] = useState(false);
+  const tts = useSpeechSynthesis(msg.lang || "en");
   const text =
     m && m.citations.length ? linkCitationMarkers(msg.content, m.citations, msg.id) : msg.content;
+  const speaking = tts.speakingId === msg.id;
 
   // Sources are always on screen, so an inline marker only needs to scroll.
   function onCite(e: React.MouseEvent) {
@@ -168,6 +171,26 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
       <div className="md" onClick={onCite}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       </div>
+
+      <div className="ans-foot">
+        {tts.supported && (
+          <button
+            type="button"
+            className={`ans-play${speaking ? " on" : ""}`}
+            onClick={() => (speaking ? tts.stop() : tts.speak(msg.content, msg.id))}
+            aria-label={speaking ? "Stop reading this answer" : "Read this answer aloud"}
+          >
+            <Icon name={speaking ? "close" : "volume"} size={16} />
+            {speaking ? "Stop" : "Read aloud"}
+          </button>
+        )}
+        {m && m.citations.length > 0 && (
+          <span className="ans-foot-note">
+            {m.citations.length} source{m.citations.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+
       {m && m.citations.length > 0 && (
         <div className="src">
           <p className="src-head">
@@ -211,6 +234,11 @@ export default function Chat() {
   const [collapsed, setCollapsed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
+
+  // Voice. Both degrade quietly: no mic support hides the button, no TTS
+  // support hides the speaker. A control that does nothing is worse than none.
+  const stt = useSpeechToText(lang);
+  const tts = useSpeechSynthesis(lang);
 
   // Clicking anywhere else closes the account menu.
   useEffect(() => {
@@ -387,6 +415,21 @@ function toggleSide() {
     await sendText(draft);
   }
 
+  async function savePref(key: string, value: string) {
+    try {
+      await api("/me", { method: "PUT", body: JSON.stringify({ [key]: value }) });
+      await api("/me/memories", {
+        method: "PUT",
+        body: JSON.stringify([{ key, value }]),
+      });
+      if (key === "preferred_lang") setLang(value);
+      if (key === "tone") setTone(value);
+    } catch {
+      // A preference that fails to save is still applied for this session; the
+      // user should not be interrupted for it.
+    }
+  }
+
   async function signOut() {
     try {
       await authClient.signOut();
@@ -541,10 +584,30 @@ function toggleSide() {
               <Icon name="list" size={20} />
             </button>
             <Logo size={30} />
-            <Link href="/cases" className="chat-practice">
-              <Icon name="gavel" size={16} />
-              Practice a case
-            </Link>
+            {/* Voice sits in the header, not buried in the composer: for
+                someone who cannot easily type, the mic is the way in. */}
+            {stt.supported && (
+              <button
+                type="button"
+                className={`chat-mic${stt.state === "listening" ? " on" : ""}`}
+                onClick={() =>
+                  stt.state === "listening" ? stt.stop() : stt.start(sendText)
+                }
+                disabled={loading}
+                aria-label={
+                  stt.state === "listening" ? "Stop listening" : "Ask by voice"
+                }
+              >
+                <Icon
+                  name={stt.state === "listening" ? "close" : "mic"}
+                  size={17}
+                />
+                <span>
+                  {stt.state === "listening" ? "Stop" : "Ask by voice"}
+                </span>
+              </button>
+            )}
+            <span className="chat-top-tag">Family law · EN / HI / KN</span>
           </div>
         </header>
 
@@ -625,10 +688,15 @@ function toggleSide() {
 
         <div className="composer">
           <form onSubmit={send} className="composer-row">
+            {/* Mic lives in the header now; the composer stays a single pill. */}
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Ask a question about family law…"
+              placeholder={
+                stt.state === "listening"
+                  ? "Listening… speak now"
+                  : "Ask a question about family law…"
+              }
               aria-label="Question"
             />
             <button
@@ -641,6 +709,18 @@ function toggleSide() {
               <Icon name="send" size={19} />
             </button>
           </form>
+
+          {/* Live transcript, so the user can see the mic is hearing them. */}
+          {stt.state === "listening" && stt.interim && (
+            <p className="composer-transcript" aria-live="polite">
+              {stt.interim}
+            </p>
+          )}
+          {stt.error && (
+            <p className="composer-note" role="status">
+              {stt.error}
+            </p>
+          )}
         </div>
       </div>
     </div>

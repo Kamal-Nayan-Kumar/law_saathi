@@ -224,22 +224,55 @@
   flex: none;
 }
 
-.chat-practice {
+.chat-top-tag {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: var(--maroon);
-  border: 1.5px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 9px 14px;
+  font-size: 0.78rem;
+  color: var(--muted-2);
+  white-space: nowrap;
 }
 
-.chat-practice:hover {
-  border-color: var(--gold);
-  background: var(--gold-soft);
+/* Voice is a first-class way in, so it gets a labelled button in the header. */
+.chat-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1.5px solid var(--maroon);
+  border-radius: var(--r-pill);
+  background: var(--maroon);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-mic:hover {
+  background: var(--maroon-deep);
+}
+
+.chat-mic.on {
+  background: var(--bad);
+  border-color: var(--bad);
+  animation: micPulse 1.4s ease-out infinite;
+}
+
+@keyframes micPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(163, 59, 46, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(163, 59, 46, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(163, 59, 46, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-mic.on {
+    animation: none;
+  }
 }
 
 /* ---------- thread ---------- */
@@ -800,6 +833,70 @@
   cursor: default;
 }
 
+/* ---------- answer footer: read aloud ---------- */
+
+.ans-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line-2);
+}
+
+.ans-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--maroon);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 7px 14px;
+  min-height: 34px;
+}
+
+.ans-play:hover {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.ans-play.on {
+  background: var(--maroon);
+  border-color: var(--maroon);
+  color: #fff;
+}
+
+.ans-foot-note {
+  color: var(--muted-2);
+  font-size: 0.78rem;
+  margin-left: auto;
+}
+
+/* ---------- composer voice ---------- */
+
+.composer-transcript {
+  max-width: 820px;
+  margin: 10px auto 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-style: italic;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 9px 14px;
+}
+
+.composer-note {
+  max-width: 820px;
+  margin: 10px auto 0;
+  font-size: 0.82rem;
+  color: var(--bad);
+}
+
 /* ---------- account control ---------- */
 
 /* Replaces the old dead "Home" link: identity, language, tone, sign out. */
@@ -1034,13 +1131,21 @@
 }
 
 @media (max-width: 640px) {
-  .chat-practice span,
-  .chat-practice {
-    font-size: 0.8rem;
+  /* On a phone the label is noise; the icon alone is a 44px target. */
+  .chat-mic span {
+    display: none;
   }
 
-  .chat-practice {
-    padding: 9px 11px;
+  .chat-mic {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    margin-left: auto;
+  }
+
+  .chat-top-tag {
+    display: none;
   }
 
   .bubble-user {

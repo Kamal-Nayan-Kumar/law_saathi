@@ -51,6 +51,7 @@ export type IconName =
   | "plus"
   | "chevronDown"
   | "logout"
+  | "sliders"
   | "search"
   | "list"
   | "volume"
@@ -255,6 +256,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M14.4 7.6V5.8a1.8 1.8 0 0 0-1.8-1.8H6.4a1.8 1.8 0 0 0-1.8 1.8v12.4a1.8 1.8 0 0 0 1.8 1.8h6.2a1.8 1.8 0 0 0 1.8-1.8v-1.8" />
       <path d="M9.8 12h9.4" />
       <path d="m16.4 8.8 3.2 3.2-3.2 3.2" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M4 7.4h9M17.4 7.4H20" />
+      <path d="M4 16.6h3.6M12 16.6h8" />
+      <circle cx="15.2" cy="7.4" r="2.2" />
+      <circle cx="9.8" cy="16.6" r="2.2" />
     </>
   ),
   search: (

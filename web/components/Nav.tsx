@@ -13,13 +13,12 @@ const LINKS = [
   { href: "/#faqs", label: "FAQs" },
 ];
 
-const LANGUAGES: { code: string; label: string }[] = [
+// Language codes the agent answers in, and the label to show.
+const LANGS: { code: string; label: string }[] = [
   { code: "en", label: "English" },
   { code: "hi", label: "Hindi" },
   { code: "kn", label: "Kannada" },
 ];
-
-const ICONS = ["chat", "globe", "shield", "document", "user", "flame"] as IconName[];
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
@@ -95,7 +94,7 @@ export default function Nav() {
                 aria-label="Settings and account"
                 title="Settings"
               >
-                <Icon name={ICONS[3]} size={19} />
+                <Icon name="sliders" size={19} />
               </button>
 
               {account && (
@@ -105,7 +104,7 @@ export default function Nav() {
                   <div className="menu-group">
                     <span className="menu-label">Answer language</span>
                     <div className="menu-langs">
-                      {LANGUAGES.map((l) => (
+                      {LANGS.map((l) => (
                         <Link
                           key={l.code}
                           href={`/login?lang=${l.code}`}
