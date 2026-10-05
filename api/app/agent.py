@@ -2128,6 +2128,21 @@ NEXT_STEPS = {
     "kn": "ಸಂಬಂಧಿತ ದಾಖಲೆಗಳನ್ನು (ಮದುವೆ ಪ್ರಮಾಣಪತ್ರ, ನ್ಯಾಯಾಲಯದ ಆದೇಶಗಳು) ಸಂಗ್ರಹಿಸಿ ಮತ್ತು ನಿಮ್ಮ ನಿರ್ದಿಷ್ಟ ಪರಿಸ್ಥಿತಿಯ ಬಗ್ಗೆ ಕುಟೂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
 
+# Section headings. These were English in every answer, so a Hindi or Kannada
+# reply opened with two Hindi paragraphs, then "What the law says", then two
+# more Hindi paragraphs — reading as one document badly stitched together.
+# The quoted passages below stay in English on purpose: they are the bare act,
+# and the citation beside them is what makes them usable.
+SECTION_HEADINGS = {
+    "en": ("What the law says", "What to do next"),
+    "hi": ("कानून क्या कहता है", "आगे क्या करें"),
+    "kn": ("ಕಾನೂನು ಏನು ಹೇಳುತ್ತದೆ", "ಮುಂದೆ ಏನು ಮಾಡಬೇಕು"),
+}
+
+
+def headings_for(lang: str) -> Tuple[str, str]:
+    return SECTION_HEADINGS.get(lang, SECTION_HEADINGS["en"])
+
 
 def strip_next_steps(answer: str) -> str:
     """Remove the appended next-steps block so it can be regenerated.
@@ -2401,6 +2416,7 @@ def compose_answer(state: Dict[str, Any],
             lang, LOW_CONFIDENCE_DISCLAIMER["en"])
 
     body = written.strip()
+    heading_law, heading_next = headings_for(lang)
     if body and truncated_mid_sentence(body):
         # The generation ran out of tokens mid-clause. Ship the cited passages
         # instead: they are whole sentences, and an answer that stops on
@@ -2415,8 +2431,9 @@ def compose_answer(state: Dict[str, Any],
         # The model is asked to write its own "What to do next" section, because
         # the fixed boilerplate appeared under every answer and made the product
         # read like a form. Only append the boilerplate when the model did not.
-        if not re.search(r"what to do next", body, re.IGNORECASE):
-            body = "%s\n\n### What to do next\n\n%s" % (body, next_steps)
+        if not re.search(r"what to do next", body, re.IGNORECASE) and \
+                not re.search("###+\\s*%s" % re.escape(heading_next), body):
+            body = "%s\n\n### %s\n\n%s" % (body, heading_next, next_steps)
         answer = "%s%s\n\n*%s*" % (body, low_warn, disclaimer)
     else:
         # No model available. Still answer as prose addressed to the person, then
@@ -2436,11 +2453,11 @@ def compose_answer(state: Dict[str, Any],
             for i, h in enumerate(evidence[:5], start=1)]
         answer = (
             "%s\n\n"
-            "### What the law says\n\n%s\n\n"
-            "### What to do next\n\n%s%s\n\n"
+            "### %s\n\n%s\n\n"
+            "### %s\n\n%s%s\n\n"
             "*%s*"
-            % (topic_opening(topic, lang), "\n".join(lines), next_steps,
-               low_warn, disclaimer))
+            % (topic_opening(topic, lang), heading_law, "\n".join(lines),
+               heading_next, next_steps, low_warn, disclaimer))
     return answer, citations, citation_sources
 
 

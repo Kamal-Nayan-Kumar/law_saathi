@@ -106,6 +106,33 @@ def test_the_fallback_does_not_cut_the_reasoning_off_the_operative_words():
     assert "welfare of the minor" in answer, answer
 
 
+def test_the_headings_are_in_the_users_language():
+    """A Hindi reply that opened with two Hindi paragraphs, then the English
+    words "What the law says", then two more Hindi paragraphs, read as one
+    document badly stitched together."""
+    english = ("What the law says", "What to do next")
+    for lang in ("hi", "kn"):
+        answer, _, _ = compose_answer(build("maintenance", lang))
+        for heading in english:
+            assert heading not in answer, (lang, heading, answer[:200])
+        assert answer.count("###") == 2, (lang, answer[:200])
+
+    # English keeps them — that is the point of the mapping, not a leftover.
+    answer, _, _ = compose_answer(build("maintenance", "en"))
+    for heading in english:
+        assert heading in answer, heading
+
+
+def test_the_quoted_law_stays_in_english():
+    """The passages are the bare act. Translating them would put words in the
+    reader's mouth that no court said, and the citation beside them is what
+    makes them checkable."""
+    for lang in ("hi", "kn"):
+        answer, cites, _ = compose_answer(build("custody", lang))
+        assert cites
+        assert "Section" in answer, (lang, answer[:300])
+
+
 def test_a_model_written_answer_is_untouched():
     """The fallback must not leak into the normal path."""
     state = build("maintenance")
