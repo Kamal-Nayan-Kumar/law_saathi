@@ -27,41 +27,55 @@ kept honest so a reader can tell what is done from what is claimed.
 
 ### 0b. Bugs reported
 
-| # | Report | Where |
+| # | Report | State |
 | --- | --- | --- |
-| B1 | After login it hangs on the login screen | frontend |
-| B2 | Login screen is not properly responsive | frontend |
-| B3 | The "home" icon in the sidebar should be a settings/profile control with logout | frontend |
-| B4 | Chat does not feel natural — reads like a form, not a person | frontend + agent |
-| B5 | Language preference is not remembered properly | frontend + agent memory |
-| B6 | The "Thinking" toggle is not robust — steps are hidden, thin, or wrong | frontend + agent |
-| B7 | Web search is not visibly implemented | agent |
-| B8 | Voice (STT/TTS) is missing from the UI | frontend + agent |
-| B9 | No real-time voice | frontend + agent |
-| B10 | No visibility into what the agent is doing | both |
+| B1 | After login it hangs on the login screen | **fixed** — login pushes to `/chat`; Nav/Footer returned null after hooks, which was the hang |
+| B2 | Login screen is not properly responsive | **fixed** — verified at 360/390/768/1440/2560 |
+| B3 | The "home" icon should be a settings/profile control with logout | **fixed** — account menu: language, tone, sign out |
+| B4 | Chat does not feel natural — reads like a form, not a person | **fixed** — the model writes its own next steps; the no-provider fallback now opens by naming the person's situation |
+| B5 | Language preference is not remembered properly | **fixed** — it was being clobbered every request; now moves only after the same language is seen twice running |
+| B6 | The "Thinking" toggle is not robust | **fixed** — SSE streams each step live, persisted on the message row |
+| B7 | Web search is not visibly implemented | **blocked** — `api/app/agent.py: stub_web_search` is written, but the `firecrawl` package is not installed. Add it and set `FIRECRAWL_API_KEY` |
+| B8 | Voice (STT/TTS) is missing from the UI | **done** — browser Web Speech APIs, no key needed. Mic in the chat header, Read aloud per answer |
+| B9 | No real-time voice | **open** — see F8 |
+| B10 | No visibility into what the agent is doing | **fixed** — `api/app/obs.py` records one JSONL line per run; `api/scripts/agent_stats.py` draws node frequency, decisions, latency, providers, outcomes and the number of distinct paths |
 
 ### 0c. Features requested
 
-| # | Feature |
-| --- | --- |
-| F1 | List the questions in scope and the project's boundaries |
-| F2 | Short-term and long-term memory for language preference |
-| F3 | Show every step the agent takes |
-| F4 | LangSmith tracing, evals and monitoring |
-| F5 | RAGAS evaluation with a golden dataset |
-| F6 | Robust "thinking" toggle so the agent reads as agentic |
-| F7 | Voice: speech-to-text and text-to-speech |
-| F8 | Real-time voice (streaming, low latency) |
-| F9 | A developer view that visualises agent states, graphs and latency |
+| # | Feature | State |
+| --- | --- | --- |
+| F1 | List the questions in scope and the project's boundaries | **done** — `SCOPE.md`: the seven acts, in-scope questions by area, what gets redirected, and the eight things Saathi will never do |
+| F2 | Short-term and long-term memory for language preference | **done** — see B5 |
+| F3 | Show every step the agent takes | **done** — streamed live during the run, persisted afterwards |
+| F4 | LangSmith tracing, evals and monitoring | **partial** — tracing hooks are in place but unverified against a live LangSmith account. The local JSONL log works with no key and no network |
+| F5 | RAGAS evaluation with a golden dataset | **partial** — the dataset is real: `api/eval/golden_qas.py`, 17 questions, plus offline and live runners. RAGAS itself is **not** written; it needs an LLM judge and an embedding matrix. The runners deliberately check what can be checked deterministically: right language, right section cited, nothing confidently wrong |
+| F6 | Robust "thinking" toggle so the agent reads as agentic | **done** |
+| F7 | Voice: speech-to-text and text-to-speech | **done** |
+| F8 | Real-time voice (streaming, low latency) | **open** — needs a streaming STT/TTS provider. Browser Web Speech cannot do low-latency streaming |
+| F9 | A developer view that visualises agent states, graphs and latency | **done** — `api/app/obs.py` + `api/scripts/agent_stats.py`. A pipeline takes exactly one path per run; an agent does not. Distinct-path count is the check |
 
 ### 0d. How to work
 
-- [ ] Act as a real user with a real family-law problem, role-play every
+- [x] Act as a real user with a real family-law problem, role-play every
       persona (male, female, elderly, young, Hindi, Kannada, first-time)
-- [ ] Test the chat and the auth flows regressively
-- [ ] When an answer is not good enough: record it, fix it, re-test
-- [ ] Then act as a senior developer and widen the product where the gap shows
-- [ ] Commit after each fix
+- [x] Test the chat and the auth flows regressively
+- [x] When an answer is not good enough: record it, fix it, re-test
+- [x] Then act as a senior developer and widen the product where the gap shows
+- [x] Commit after each fix
+
+### 0e. What persona testing actually found
+
+Five of these were real defects, not polish. Each is now covered by a test.
+
+| Found | Why it mattered |
+| --- | --- |
+| Guardians and Wards Act s.17 never retrieved | It says "welfare of the minor", never "custody". The section that decides nearly every custody dispute was not in the top ten for "who gets custody of my child" |
+| DV Act s.19, HSA s.8 and s.15, HMA s.13B not retrieved | Same cause: the Acts use different words from the people asking |
+| `broaden_query` only applied on retry | So the fix above was inert on the path that actually runs |
+| "i am not safe in my own house" returned nothing | Coercive control is what DV Act s.3(a) covers. The keyword list knew only the statute's words, so these phrasings detected no topic, retrieved nothing, and answered nothing |
+| "I am scared of the court process" would have become a DV question | Caught by a test written to check the fix. Fear now counts only when it is fear of a person |
+| Fallback quotes truncated at 160 characters | s.17 stopped at "be guided by what…" — dropping "for the welfare of the minor", the entire reason the section governs custody |
+| The passage cleaner never fired | Every corpus chunk starts `Chapter II: … \| Section 20: …`, so its `^Section` match failed and the raw line reached the user |
 
 ---
 
@@ -83,10 +97,11 @@ kept honest so a reader can tell what is done from what is claimed.
 | LangGraph five nodes | `api/app/agent.py` | graph built and used |
 | Planner chooses act + tools | `api/app/agent.py` | implemented |
 | Verifier is a model | `api/app/agent.py` | implemented |
-| Web search | `api/app/agent.py` | Firecrawl, key present |
-| STT / TTS | `api/app/voice.py` | code exists, **no key** |
-| LangSmith | `api/app/agent.py` | env present, needs verification |
-| RAGAS | none | to build |
+| Web search | `api/app/agent.py` | written; **blocked**, `firecrawl` not installed |
+| STT / TTS | `web/lib/voice.ts` | done via browser Web Speech, no key |
+| Observability | `api/app/obs.py` | done, local JSONL, no key |
+| LangSmith | `api/app/agent.py` | hooks in, **unverified** against a live account |
+| RAGAS | none | to build; the golden dataset it needs already exists |
 
 ### Assets
 
@@ -120,11 +135,23 @@ All generated in the pinned ChatGPT chat and cropped by
 
 ## 3. Order of work
 
-1. Scope correction and cleanup — done
-2. Frontend bugs B1–B6, F6
-3. F1 scope and question list
-4. F2 memory for language preference
-5. F3 + F9 agent step visibility, tracing
-6. F7 voice, then F8 real-time voice
-7. F4 LangSmith verification, F5 RAGAS golden dataset
-8. Persona-based regression testing, fix, re-test
+1. Scope correction and cleanup — **done**
+2. Frontend bugs B1–B6, F6 — **done**
+3. F1 scope and question list — **done** (`SCOPE.md`)
+4. F2 memory for language preference — **done**
+5. F3 + F9 agent step visibility, tracing — **done**
+6. F7 voice — **done**. F8 real-time voice — **open**
+7. F4 LangSmith verification, F5 RAGAS — **partial**, see 0c
+8. Persona-based regression testing, fix, re-test — **done**, 7 defects fixed
+
+## 4. Known blockers
+
+Two things stop work that is otherwise ready. Both are environment, not code.
+
+| Blocker | Effect | Fix |
+| --- | --- | --- |
+| Groq returns 429, OpenRouter returns 402 (out of credit), OpenCode times out | Roughly one question in twenty gets a model. The rest degrade to the cited template, so the live golden run measures a degraded path | Add credit or a second Groq key. The circuit breaker already keeps this from getting worse |
+| `firecrawl` is not installed | Web search silently no-ops, so B7 is open | `pip install firecrawl` and set `FIRECRAWL_API_KEY` |
+
+Verify a provider before trusting a live eval: `api/scripts/probe.py`. Without
+one, use `--offline`, which checks routing with no network at all.

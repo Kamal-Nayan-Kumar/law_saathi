@@ -18,12 +18,13 @@ RUNNER = os.path.join(HERE, "shots.mjs")
 ROUTES = {
     "landing": "/",
     "login": "/login",
-    "cases": "/cases",
-    "prep": "/cases/mutual-consent-divorce",
+    "signup": "/login?mode=register",
     "chat": "/chat",
-    "dashboard": "/dashboard",
-    "simulator": "/simulator?case=mutual-consent-divorce",
 }
+
+# The ego-browser task space to shoot in. Passed rather than hardcoded in the
+# runner, so closing a space does not break this script.
+SPACE = os.environ.get("EGO_SPACE", "1")
 
 SIZES = {
     "xl": "2560x1440",
@@ -52,7 +53,8 @@ def main() -> int:
 
     resolved = [SIZES.get(s, s) for s in sizes]
     with open(JOB, "w") as fh:
-        json.dump({"route": route, "name": label, "sizes": resolved}, fh)
+        json.dump({"route": route, "name": label, "sizes": resolved,
+                   "space": int(SPACE)}, fh)
 
     with open(RUNNER) as fh:
         proc = subprocess.run(

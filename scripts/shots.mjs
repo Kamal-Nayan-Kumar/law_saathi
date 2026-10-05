@@ -16,7 +16,9 @@ const { route = "/", name = "page", sizes = ["1440x900"] } = job;
 const BASE = "http://localhost:3000";
 const OUT = "/Users/nayan/Documents/projects/law_saathi/tmp/shots";
 
-const task = await taskSpace(6);
+// Task space id comes from the job file. Hardcoding one meant the script broke
+// as soon as that space was closed — which it was, by a power cut.
+const task = await taskSpace(job.space ?? 1);
 const page = task.page("p1");
 
 await mkdir(OUT, { recursive: true });
