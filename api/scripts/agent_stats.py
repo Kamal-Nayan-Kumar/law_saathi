@@ -143,10 +143,25 @@ def pipeline(rows: List[Dict[str, Any]]) -> None:
 
     # The real signal of agentic behaviour: how often the run took a different
     # path. Identical paths across every run is a pipeline, not an agent.
-    shapes = Counter(tuple(r.get("nodes") or []) for r in rows)
-    print(f"\nPATHS     {len(shapes)} distinct")
+    #
+    # This number is only meaningful over runs that reached the branching nodes.
+    # When most runs degraded to the template they never got past the planner, so
+    # a low path count then reflects provider outages, not agent design. Saying
+    # "2 distinct paths" without that caveat would be reading a billing problem
+    # as an architecture one.
+    live = [r for r in rows if (r.get("provider") or "none") != "none"]
+    pool = live or rows
+    shapes = Counter(tuple(r.get("nodes") or []) for r in pool)
+    label = "PATHS" if pool is rows else "PATHS  (of runs that reached a provider)"
+    print(f"\n{label}     {len(shapes)} distinct over {len(pool)} runs")
     for shape, n in shapes.most_common(6):
         print(f"  {n:5} x  {' -> '.join(shape)}")
+    if pool is not rows:
+        print("    Only runs with a live provider can show branching. Excluded")
+        print("    %d degraded runs — see the PROVIDERS warning above." %
+              (len(rows) - len(live)))
+    elif len(shapes) <= 1 and len(pool) > 3:
+        print("    One path every run: that is a pipeline, not an agent.")
 
 
 def sample(rows: List[Dict[str, Any]], n: int = 3) -> None:

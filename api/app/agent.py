@@ -2141,6 +2141,45 @@ def strip_next_steps(answer: str) -> str:
     return (text or "").strip()
 
 
+# Words a sentence cannot end on. A generation that runs out of tokens partway
+# through stops on one of these, and the reader gets a dangling clause with no
+# way to tell it is broken — "…entitled to maintenance [1]. Therefore," followed
+# by an unrelated heading is what a person sees and cannot interpret.
+_DANGLING = (
+    "therefore", "because", "however", "which means", "and also", "so that",
+    "since", "although", "unless", "while", "whereas", "that is", "in other "
+    "words", "for example", "such as", "namely", "i.e", "e.g", "also",
+    "but", "yet", "and", "or", "as", "if", "when", "than", "then",
+)
+
+
+def truncated_mid_sentence(text: str) -> bool:
+    """True when a generation stops on a dangling connective.
+
+    Only the part before any trailing "What to do next" is judged: that section
+    is allowed to end in a bullet, and the disclaimer after it ends in a full
+    stop.
+    """
+    body = strip_next_steps(text or "")
+    # The disclaimer is a fixed string that always ends properly.
+    body = re.split(r"\n\s*\*[^*]{20,}\*\s*$", body)[0]
+    body = body.strip().rstrip("*_ ").strip()
+    if not body:
+        return False
+    # A complete answer ends in a full stop, question mark, colon, or a list item.
+    if re.search(r"[.?!:•*-]\s*$", body):
+        return False
+    # Cut on the last clause boundary so "…maintenance [1]. Therefore," is read
+    # as ending on "Therefore," rather than on the earlier full stop.
+    tail = re.split(r"(?<=[.!?])\s", body)[-1].strip().lower()
+    tail = tail.strip("*_ —-·:;,")
+    if not tail:
+        return False
+    last = tail.split()[-1].rstrip(".,;:!?")
+    return any(last == d or tail.startswith(d + " ") or
+               last in d.split() for d in _DANGLING)
+
+
 def strip_reasoning_leak(text: str) -> str:
     """Remove chain-of-thought leakage from small translation models.
 
@@ -2361,15 +2400,21 @@ def compose_answer(state: Dict[str, Any],
         low_warn = "\n\n> " + LOW_CONFIDENCE_DISCLAIMER.get(
             lang, LOW_CONFIDENCE_DISCLAIMER["en"])
 
-    if written.strip():
-        # The model wrote a plain-language explanation grounded in the
-        # passages above. Show it as the answer; the passages themselves
-        # belong in the Sources list, not in the body.
+    body = written.strip()
+    if body and truncated_mid_sentence(body):
+        # The generation ran out of tokens mid-clause. Ship the cited passages
+        # instead: they are whole sentences, and an answer that stops on
+        # "Therefore," reads as broken rather than as truncated.
+        body = ""
+
+    if body:
+        # The model wrote a plain-language explanation grounded in the passages
+        # above. Show it as the answer; the passages themselves belong in the
+        # Sources list, not in the body.
         #
         # The model is asked to write its own "What to do next" section, because
         # the fixed boilerplate appeared under every answer and made the product
         # read like a form. Only append the boilerplate when the model did not.
-        body = written.strip()
         if not re.search(r"what to do next", body, re.IGNORECASE):
             body = "%s\n\n### What to do next\n\n%s" % (body, next_steps)
         answer = "%s%s\n\n*%s*" % (body, low_warn, disclaimer)
