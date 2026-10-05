@@ -1496,6 +1496,32 @@ def replan_after_empty(state: Dict[str, Any],
 # by act and label rather than by relevance. It is a real corpus point, so it
 # is citable like any other passage.
 _AMENDMENT_LABEL = "Amendment notice"
+
+# Material that is not law. A Bill is a proposal; a Bill *passed* is still not
+# in force until notified. Quoting one as "BARE ACT" tells a person seeking
+# custody that a rule exists when no court will apply it.
+#
+# Found live: the production answer to "who gets custody of my child" cited
+# "Prohibition of Child Marriage (Amendment) Bill, 2021" as source 5, and
+# stated a "children under five go to the mother" rule attributed to it. That
+# rule is not in the Bill or in the Guardians and Wards Act — the model supplied
+# it, and the citation made it look sourced. 22 chunks of that Bill are in the
+# corpus, from a non-official dataset.
+_NOT_LAW = (
+    "bill", "draft", "ordinance", "circulated", "proposed", "referred",
+    "private member", "motion", "resolution of the", "lok sabha",
+    "rajya sabha", "bill no",
+)
+
+
+def is_enacted(payload: Dict[str, Any]) -> bool:
+    """False for material a court would not apply today."""
+    act = str((payload or {}).get("act") or "")
+    if not act:
+        # An amendment notice is a corpus point we created; it stays citable.
+        return True
+    low = act.lower()
+    return not any(w in low for w in _NOT_LAW)
 _TIMING_WORDS = (
     "mutual consent", "mutual", "living separately", "live apart",
     "lived apart", "separation period", "how long", "waiting period",
@@ -1795,6 +1821,9 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
             hits, (state.get("slots") or {}).get("section", "")
             if tool == SECTION_READ else "")
         hits = _rank_toward_act(hits, act)
+        enacted = [h for h in hits if is_enacted(h.get("payload") or {})]
+        dropped = len(hits) - len(enacted)
+        hits = enacted
         added = 0
         for h in hits:
             k = _hit_key(h)
@@ -1802,13 +1831,19 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 seen.add(k)
                 evidence.append(h)
                 added += 1
+        if dropped and not added:
+            # Worth saying out loud: the person is watching a "nothing found"
+            # and should know material was set aside, not lost.
+            notes.append("Skipped %d passage%s that is not enacted law (a Bill "
+                         "or a draft). It cannot be applied by a court."
+                         % (dropped, "" if dropped == 1 else "s"))
         if added and act:
             notes.append('%s "%s" → %d section%s from %s.'
                          % (tool, shown, added, "" if added == 1 else "s", act))
         elif added:
             notes.append('%s "%s" → %d section%s.'
                          % (tool, shown, added, "" if added == 1 else "s"))
-        else:
+        elif not dropped:
             notes.append('%s "%s" → nothing new.' % (tool, shown))
 
     state["evidence"] = evidence[:8]
