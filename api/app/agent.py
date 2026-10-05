@@ -1127,6 +1127,36 @@ _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
              "and Maintenance Act 1956 Hindu Succession Act 1956 Guardians and "
              "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869")
 
+# The legal words the Acts actually use, per topic.
+#
+# The embedding index is keyed on statute language, and a person rarely uses it.
+# Guardians and Wards Act s.17 — the provision that decides almost every custody
+# dispute — says "welfare of the minor shall be the first consideration". It
+# never says "custody". So "who gets custody of my child" retrieved s.12 (produce
+# the minor at a place and time) and never reached s.17 at all: not in the top
+# ten. The same gap hid "residence order", "Class I heirs" and "living
+# separately for one year".
+#
+# Adding the statute's own vocabulary to a plain question is what makes the
+# right section findable. It is not keyword routing — the topic still comes from
+# the model, and everything is still scored by vector similarity.
+TOPIC_CONCEPTS = {
+    "custody": "welfare of the minor first consideration guardian custody",
+    "adoption": "adoption child welfare conditions adoption ceremony consent",
+    "succession": "class I heirs intestate succession legal heirs share property",
+    "divorce": "living separately one year mutual consent decree divorce",
+    "maintenance": "maintenance amount reasonable income needs means arrears",
+    "domestic_violence": "residence order shared household protection officer "
+                         "monetary relief aggrieved person",
+    "marriage": "solemnization registration valid marriage conditions",
+    "dowry": "dowry prohibition amount punishment demand",
+}
+
+
+def concepts_for_topic(topic: str) -> str:
+    """Statute vocabulary for a topic, to add to a plain-language query."""
+    return TOPIC_CONCEPTS.get(topic or "", "")
+
 
 def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
     """Shape the retrieval query.
@@ -1135,17 +1165,23 @@ def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
     word in the question cannot drag the results into the wrong act. On a
     retry, add the full act list; on the second retry, drop section numbers
     that may be over-narrowing.
+
+    Also add the statute's own vocabulary for the topic. The index is keyed on
+    legal language, and "custody" does not retrieve a section that says
+    "welfare of the minor" — see TOPIC_CONCEPTS.
     """
     anchor = TOPIC_ACT.get(topic or "", "")
+    concepts = concepts_for_topic(topic)
     if retries <= 0:
-        return ("%s %s" % (query_en, anchor)).strip() if anchor else query_en
+        parts = [query_en, anchor, concepts]
+        return re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
     if retries == 1:
-        return "%s %s %s" % (query_en, anchor, _ALL_ACTS)
+        return "%s %s %s %s" % (query_en, anchor, concepts, _ALL_ACTS)
     # Retry 2: drop section numbers that may over-narrow the query.
     stripped = re.sub(r"section\s+\d+[A-Z\-]*", " ", query_en,
                       flags=re.IGNORECASE)
     stripped = re.sub(r"\s+", " ", stripped).strip()
-    return "%s %s %s" % (stripped or query_en, anchor, _ALL_ACTS)
+    return "%s %s %s %s" % (stripped or query_en, anchor, concepts, _ALL_ACTS)
 
 
 # ---------------------------------------------------------------------------
@@ -1626,12 +1662,13 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 # Verifier only needs as many queries as it supplied; the
                 # remaining plan steps would just repeat what already failed.
                 break
-        elif state.get("retries") and tool != WEB_SEARCH:
-            # No judge guidance (or no judge at all). Re-running the identical
-            # query against the same corpus returns the identical passages, so
-            # fall back to the broadening ladder: drop over-narrow section
-            # numbers and widen to every act in the corpus.
-            query = broaden_query(query, int(state["retries"]),
+        elif tool != WEB_SEARCH:
+            # The planner writes the query in the user's words, which is right for
+            # a person and wrong for a statute: "custody" does not retrieve the
+            # section that says "welfare of the minor". Always add the act anchor
+            # and the statute's own vocabulary for the topic — including on the
+            # first pass, where this previously did nothing.
+            query = broaden_query(query, int(state.get("retries") or 0),
                                   (state.get("slots") or {}).get("topic", ""))
         shown = query[:80]
         if tool == WEB_SEARCH:
