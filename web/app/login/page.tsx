@@ -7,7 +7,6 @@ import Image from "next/image";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
 import Icon from "@/components/Icon";
-import Logo from "@/components/Logo";
 import "./auth.css";
 
 const LANGS = [
@@ -86,7 +85,8 @@ function LoginForm() {
           src="/images/auth-scene.png"
           alt="A woman asking a family law question from her phone"
           fill
-          sizes="(max-width: 900px) 0px, 44vw"
+          // Below 900px this is a short banner, above it the full art panel.
+          sizes="(max-width: 900px) 100vw, 46vw"
           priority
         />
         <ul className="auth-perks">
@@ -231,9 +231,6 @@ function LoginForm() {
 export default function Login() {
   return (
     <div className="auth-wrap">
-      <div className="auth-wrap-head">
-        <Logo size={34} />
-      </div>
       <Suspense fallback={<div className="auth-card auth-card-skeleton" />}>
         <LoginForm />
       </Suspense>

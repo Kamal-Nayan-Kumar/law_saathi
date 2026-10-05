@@ -6,13 +6,14 @@
   width: 100%;
   max-width: 1080px;
   margin: 0 auto;
-  padding: var(--s6) var(--s5) var(--s8);
+  padding: var(--s7) var(--s5) var(--s8);
 }
 
+/* The marketing nav already shows the logo. Repeating it above the card was a
+   duplicate on every screen, most obviously on a phone where it pushed the
+   form below the fold. */
 .auth-wrap-head {
-  display: flex;
-  justify-content: center;
-  margin-bottom: var(--s6);
+  display: none;
 }
 
 .auth-card {
@@ -23,11 +24,11 @@
   border-radius: var(--r-lg);
   overflow: hidden;
   box-shadow: var(--sh-2);
-  min-height: 620px;
+  min-height: 640px;
 }
 
 .auth-card-skeleton {
-  min-height: 620px;
+  min-height: 640px;
 }
 
 /* Art column. `position: relative` is the anchor for the fill image, and the
@@ -42,17 +43,24 @@
   object-fit: cover;
 }
 
+/* Perks sit over the art with a scrim, not a solid band. A solid block hid the
+   bottom third of the illustration and pushed the third perk off the card. */
 .auth-perks {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   margin: 0;
-  padding: var(--s5) var(--s5) var(--s6);
+  padding: var(--s6) var(--s5) var(--s5);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: linear-gradient(180deg, rgba(253, 249, 241, 0) 0%, rgba(253, 249, 241, 0.94) 42%);
+  background: linear-gradient(
+    180deg,
+    rgba(253, 249, 241, 0) 0%,
+    rgba(253, 249, 241, 0.86) 46%,
+    rgba(253, 249, 241, 0.97) 100%
+  );
   list-style: none;
 }
 
@@ -179,8 +187,17 @@
     min-height: 0;
   }
 
+  /* On a phone the full-height art pushed the whole form below the fold. A
+     narrow crop of the same illustration keeps the warmth without costing the
+     user a scroll to find the login button. */
   .auth-art {
-    aspect-ratio: 16 / 7;
+    aspect-ratio: 21 / 9;
+    /* Focus the crop on her face and the phone rather than the empty top. */
+    object-position: 62% 28%;
+  }
+
+  .auth-art img {
+    object-position: 62% 28%;
   }
 
   .auth-perks {
@@ -197,10 +214,6 @@
 }
 
 @media (max-width: 640px) {
-  .auth-art {
-    aspect-ratio: 16 / 8;
-  }
-
   .auth-panel h1 {
     font-size: 1.6rem;
   }

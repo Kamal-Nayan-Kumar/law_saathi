@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import Logo from "./Logo";
-import Icon, { type IconName } from "./Icon";
+import Icon from "./Icon";
 
 const LINKS = [
   { href: "/", label: "Home" },
@@ -21,9 +22,15 @@ const LANGS: { code: string; label: string }[] = [
 ];
 
 export default function Nav() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [account, setAccount] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
+
+  // /chat and /admin draw their own full-height header. Rendering this one as
+  // well gave a phone two bars before any content and pushed the composer off
+  // the bottom of the screen.
+  const hidden = ["/chat", "/admin"].some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     setOpen(false);
@@ -55,6 +62,8 @@ export default function Nav() {
       document.removeEventListener("keydown", onKey);
     };
   }, [account]);
+
+  if (hidden) return null;
 
   return (
     <header>

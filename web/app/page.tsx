@@ -151,9 +151,9 @@ export default function Landing() {
                 Start a Conversation
                 <Icon name="arrowRight" size={17} />
               </Link>
-              <Link href="/cases" className="btn btn-outline">
+              <Link href="/login" className="btn btn-outline">
                 <Icon name="play" size={16} />
-                Practice a Case
+                Watch Demo
               </Link>
             </div>
           </div>
