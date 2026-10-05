@@ -1,1 +1,1 @@
-{"route": "/login?mode=register", "name": "signup", "sizes": ["360x740", "1440x900"], "space": 1}
+{"route": "/chat", "name": "chat", "sizes": ["360x740"], "space": 1}
