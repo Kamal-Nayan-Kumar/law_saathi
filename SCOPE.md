@@ -14,7 +14,7 @@ text.**
 
 ---
 
-## 2. The seven acts we actually retrieve from
+## 2. The acts we actually retrieve from
 
 Every answer is grounded in one of these, read from India Code and the Open
 India Law corpus. Nothing else is quoted as law.
@@ -28,9 +28,25 @@ India Law corpus. Nothing else is quoted as law.
 | **Guardians and Wards Act, 1890** | custody and guardianship | 7, 17, 21 |
 | **Protection of Women from Domestic Violence Act, 2005** | protection, residence, monetary relief | 17–22 |
 | **Indian Divorce Act, 1869** | divorce for Christians | 10, 13 |
+| **Indian Christian Marriage Act, 1872** | marriage and divorce for Christians | 7, 10, 16, 22 |
 
 424 in-force sections. Repealed provisions are dropped at ingestion, so a
 section in an answer is a section in force.
+
+**One entry needs a decision.** The Indian Christian Marriage Act, 1872 was
+always in the corpus — 223 chunks, the second-largest source after the Special
+Marriage Act — but it was missing from this table, so the scope has been
+understated rather than the corpus overreaching. Christian marriages in India
+are governed by that Act and by the Indian Divorce Act, and this project will
+answer questions about both whether or not it says so here. It is listed now so
+the document matches what the agent does. If the intent was to exclude Christian
+family law, the fix belongs in the corpus and in `TOPIC_ACT`, not in this
+table.
+
+The corpus also holds 22 chunks of the Prohibition of Child Marriage
+(Amendment) **Bill**, 2021. A Bill is a proposal, not law, so
+`is_enacted()` excludes it from retrieval — but it is still in the vector store
+and should be dropped at ingestion. See `docs/adr/0006-corpus-eval.md`.
 
 ---
 

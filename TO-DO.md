@@ -155,3 +155,36 @@ Two things stop work that is otherwise ready. Both are environment, not code.
 
 Verify a provider before trusting a live eval: `api/scripts/probe.py`. Without
 one, use `--offline`, which checks routing with no network at all.
+
+## 5. Open decisions (Nayan)
+
+### 5a. Does Law Saathi cover Christian family law?
+
+The corpus has always held the Indian Christian Marriage Act, 1872 — 223 chunks,
+the second-largest source. But it appears in no plan document, `SCOPE.md` omits
+it, and nothing in the agent selects personal law by religion.
+
+The consequence today: *"I am a Christian man, how do I get a divorce?"*
+answers with **Hindu Marriage Act s.13B**. The Indian Divorce Act is retrieved
+too, ranked sixth, but the wrong Act wins on similarity. India applies different
+personal law by religion, so this is the same class of error as citing a Bill —
+a confident statement of the wrong law — and it reaches a real person deciding
+how to end a marriage.
+
+Two ways forward, and I have not chosen because both are defensible:
+
+| Option | What it means |
+| --- | --- |
+| **Cover every religion** | Add religion as a slot. Ask when it is unclear, route to the right Act, keep both statutes in `TOPIC_ACT`. More correct, more work, and "which religion" is an awkward question to ask someone in distress |
+| **Hindu law only** | Redirect Christian questions explicitly, as out of scope. Cheaper and honest, but less useful for a population the corpus already serves |
+
+Whichever is chosen, it needs a golden question each way so the answer cannot
+drift back silently. Nothing in the eval set currently covers religion.
+
+### 5b. Drop the pending Bill from the corpus
+
+`is_enacted()` keeps it out of answers, but 22 chunks of the Prohibition of Child
+Marriage (Amendment) Bill, 2021 are still in Qdrant, from the non-official
+`enerscript` dataset. Filtering at retrieval is the right immediate fix — it
+deployed without re-indexing — but the record itself should not exist. Removing
+it needs a re-ingest.

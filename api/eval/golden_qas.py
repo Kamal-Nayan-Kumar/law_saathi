@@ -208,6 +208,31 @@ GOLDEN_QAS: List[Dict[str, Any]] = [
         "min_confidence": 0.0,
         "note": "Must redirect.",
     },
+    # --- Personal law by religion -------------------------------------------
+    # India applies different personal law by religion. A Christian's divorce
+    # is governed by the Indian Divorce Act, 1869 and the Indian Christian
+    # Marriage Act, 1872 — never by the Hindu Marriage Act.
+    #
+    # This entry documents a KNOWN, UNFIXED defect and is expected to fail. It
+    # is here so the defect is visible in a test run rather than discovered by a
+    # Christian user. Fixing it is a product decision, not a patch: see
+    # TO-DO.md §5a. When either outcome is chosen, replace these assertions with
+    # the behaviour that decision implies.
+    {
+        "id": "divorce-christian-en",
+        "lang": "en",
+        "persona": "Christian man, 40, Kochi. Married under the Indian "
+                   "Christian Marriage Act, wants to know his grounds.",
+        "query": "I am a Christian man, how do I get a divorce?",
+        "must_include_any": [],
+        "must_include_terms": [],
+        # The wrong-Act assertion is the whole point of this entry.
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.0,
+        "note": "KNOWN FAILURE — personal law is not selected by religion, so "
+                "this currently answers with Hindu Marriage Act s.13B. Tracked "
+                "in TO-DO.md §5a.",
+    },
 ]
 
 
