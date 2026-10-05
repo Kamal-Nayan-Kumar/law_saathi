@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
+import { askStream, type AskResult, type StreamStep } from "@/lib/stream";
 import Icon from "@/components/Icon";
 import Logo from "@/components/Logo";
 import "./chat.css";
@@ -18,11 +19,16 @@ type Msg = {
   lang: string;
 };
 
-// A message as returned by GET /sessions/{id}/messages. The source fields were
-// added after the first release, so older rows simply do not carry them.
+// A message as returned by GET /sessions/{id}/messages. The source and trace
+// fields were added after the first release, so older rows do not carry them.
 type StoredMsg = Msg & {
   citations?: string[];
   citation_sources?: string[];
+  trace?: string[];
+  trace_detail?: TraceStep[];
+  verified?: boolean | null;
+  confidence?: number | null;
+  created_at?: string | null;
 };
 
 type ChatSession = {
@@ -30,18 +36,7 @@ type ChatSession = {
   title: string;
 };
 
-type TraceStep = { node: string; detail: string };
-
-type Answer = {
-  answer: string;
-  clarification: boolean;
-  citations: string[];
-  citation_sources: string[];
-  provider: string;
-  retries: number;
-  trace: string[];
-  trace_detail: TraceStep[];
-};
+type TraceStep = StreamStep;
 
 const SUGGESTIONS = [
   "How do I get a mutual-consent divorce?",
@@ -49,21 +44,32 @@ const SUGGESTIONS = [
   "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ?",
 ];
 
-const STAGES = [
-  "Understanding intent…",
-  "Planning…",
-  "Retrieving bare acts…",
-  "Verifying citations…",
-  "Writing answer…",
+// Shown before the first step arrives. The real steps replace this list as the
+// agent reports them, so the user always sees what Saathi is actually doing
+// rather than a fixed animation that could disagree with it.
+const WARMUP = [
+  "Understanding your question…",
+  "Choosing which law applies…",
+  "Reading the bare acts…",
+  "Checking every claim…",
+  "Writing the answer…",
 ];
 
-const STEP_TITLES: Record<string, string> = {
-  contextualize: "Follow-up",
-  intent: "Intent",
-  planner: "Planner",
-  tools: "Tools",
-  verifier: "Verifier",
-  response: "Response",
+/** Friendlier name for a node, matching what the step detail says. */
+const NODE_LABEL: Record<string, string> = {
+  contextualize: "Reading the conversation",
+  intent: "Understanding the question",
+  planner: "Choosing the law",
+  tools: "Searching the bare acts",
+  reason: "Writing an explanation",
+  verifier: "Checking the citations",
+  response: "Preparing your answer",
+};
+
+const LANG_NAMES: Record<string, string> = {
+  en: "English",
+  hi: "Hindi",
+  kn: "Kannada",
 };
 
 function detectLang(text: string): "en" | "hi" | "kn" {
@@ -75,16 +81,17 @@ function detectLang(text: string): "en" | "hi" | "kn" {
 type Meta = { trace: string[]; steps: TraceStep[]; citations: string[]; sources: string[] };
 
 // Rebuild the per-message Meta map from a fetched message list so a reopened
-// chat shows the same Sources block and inline markers as a live answer. The
-// trace is not persisted, so `trace`/`steps` stay empty and Thinking stays hidden.
-// Messages without stored citations simply get no entry.
+// chat shows the same Sources block, inline markers and Thinking log as a live
+// answer. The trace is stored on the row, so unlike the old version the panel
+// is still there after a reload. Rows written before it existed simply get no
+// steps, and the toggle is hidden rather than shown empty.
 function metaFromList(list: StoredMsg[]): Record<number, Meta> {
   const next: Record<number, Meta> = {};
   list.forEach((m) => {
     if (m.role !== "assistant") return;
     next[m.id] = {
-      trace: [],
-      steps: [],
+      trace: m.trace || [],
+      steps: m.trace_detail || [],
       citations: m.citations || [],
       sources: m.citation_sources || [],
     };
@@ -132,20 +139,25 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
 
   return (
     <div className="ans-card">
-      {/* Gate on steps, not trace: a reopened session restores citations but has
-          no stored trace, which would render an empty Thinking toggle. */}
+      {/* Gate on steps, not trace: an older row has no stored trace, and an
+          empty Thinking toggle is worse than none. */}
       {m && m.steps.length > 0 && (
-        <div className="think think-top">
-          <button type="button" className="think-toggle" onClick={() => setShowThink((v) => !v)}>
-            <Icon name={showThink ? "chevronDown" : "chevronDown"} size={15} className="think-caret" />
-            Thinking
-            <span className="think-count">{m.steps.length}</span>
+        <div className="think" data-open={showThink}>
+          <button
+            type="button"
+            className="think-toggle"
+            onClick={() => setShowThink((v) => !v)}
+            aria-expanded={showThink}
+          >
+            <Icon name="chevronDown" size={15} className="think-caret" />
+            How Saathi worked this out
+            <span className="think-count">{m.steps.length} steps</span>
           </button>
           {showThink && (
             <ol className="think-steps">
               {m.steps.map((s, i) => (
                 <li key={`${s.node}-${i}`}>
-                  <strong>{STEP_TITLES[s.node] || s.node}</strong>
+                  <strong>{NODE_LABEL[s.node] || s.node}</strong>
                   <span className="step-detail">{s.detail}</span>
                 </li>
               ))}
@@ -190,11 +202,25 @@ export default function Chat() {
   const [lang, setLang] = useState("en");
   const [tone, setTone] = useState("simple");
   const [meta, setMeta] = useState<Record<number, Meta>>({});
-  const [stage, setStage] = useState(0);
+  // The agent's real steps as they stream in, not a fixed animation. Empty
+  // until the first one lands, and the warm-up list shows meanwhile.
+  const [liveSteps, setLiveSteps] = useState<StreamStep[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+
+  // Clicking anywhere else closes the account menu.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!accountRef.current?.contains(e.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [accountOpen]);
 
   const isNarrow = useCallback(() => {
     if (typeof window === "undefined") return false;
@@ -245,15 +271,14 @@ export default function Chat() {
     }
   }, [draft, lang]);
 
-  // Rotate the "working…" stage label while an answer is being generated.
-  useEffect(() => {
-    if (!loading) return;
-    setStage(0);
-    const t = setInterval(() => setStage((s) => (s + 1) % STAGES.length), 1800);
-    return () => clearInterval(t);
-  }, [loading]);
+  // Warm-up hint only. It never rotates on its own: the real step list replaces
+// it as soon as the first one arrives, so what the user reads always matches
+// what the agent actually did.
+useEffect(() => {
+  if (!loading) setLiveSteps([]);
+}, [loading]);
 
-  function toggleSide() {
+function toggleSide() {
     if (isNarrow()) setSideOpen((v) => !v);
     else setCollapsed((v) => !v);
   }
@@ -311,11 +336,14 @@ export default function Chat() {
       const userMsg: Msg = { id: Date.now(), role: "user", content: query, lang: sendLang };
       setMsgs((prev) => [...prev, userMsg]);
       setDraft("");
-      const resp = await api(`/sessions/${sid}/ask`, {
-        method: "POST",
-        body: JSON.stringify({ query, lang: sendLang, tone }),
-      });
-      const answerObj = resp as Answer;
+      // Streamed: each agent step lands as it happens, so the page can show
+      // real progress instead of a fixed animation for the whole 15 seconds.
+      // askStream falls back to the plain JSON endpoint by itself.
+      const answerObj = await askStream(
+        `/sessions/${sid}/ask/stream`,
+        { query, lang: sendLang, tone },
+        { onStep: (s) => setLiveSteps((prev) => [...prev, s]) },
+      );
       const tmeta: Meta = {
         trace: answerObj.trace || [],
         steps: answerObj.trace_detail || [],
@@ -378,6 +406,13 @@ export default function Chat() {
 
   const isEmpty = msgs.length === 0 && !loading;
 
+  // The account menu shows a name; Neon Auth gives an email, so take the part
+  // before the @ and capitalise it.
+  const displayName =
+    (authSession?.user?.name as string | undefined) ||
+    ((authSession?.user?.email as string | undefined)?.split("@")[0] || "You");
+  const initial = displayName.slice(0, 1).toUpperCase();
+
   return (
     <div className={`chat-layout${collapsed ? " side-hidden" : ""}`}>
       {sideOpen && <div className="side-backdrop" onClick={() => setSideOpen(false)} />}
@@ -426,24 +461,71 @@ export default function Chat() {
           )}
         </div>
 
-        <nav className="side-nav">
-          <Link href="/dashboard">
-            <Icon name="chart" size={17} />
-            <span className="side-label">Dashboard</span>
-          </Link>
-          <Link href="/cases">
-            <Icon name="folder" size={17} />
-            <span className="side-label">Practice cases</span>
-          </Link>
-          <Link href="/">
-            <Icon name="arrowRight" size={17} className="flip-180" />
-            <span className="side-label">Home</span>
-          </Link>
-          <button type="button" className="side-signout" onClick={signOut}>
-            <Icon name="logout" size={17} />
-            <span className="side-label">Sign out</span>
+        {/* Account control. This replaces the old "Home" link, which pointed at
+            a page that no longer existed and duplicated the nav anyway. */}
+        <div className="side-account" ref={accountRef}>
+          <button
+            type="button"
+            className="side-account-btn"
+            onClick={() => setAccountOpen((v) => !v)}
+            aria-expanded={accountOpen}
+            aria-haspopup="menu"
+          >
+            <span className="side-avatar">{initial}</span>
+            <span className="side-label side-account-text">
+              <b>{displayName}</b>
+              <small>{LANG_NAMES[lang] ?? "English"}</small>
+            </span>
+            <Icon name="chevronDown" size={15} className="side-account-caret" />
           </button>
-        </nav>
+
+          {accountOpen && (
+            <div className="side-menu" role="menu">
+              <p className="side-menu-head">Answer language</p>
+              <div className="side-menu-langs">
+                {(["en", "hi", "kn"] as const).map((code) => (
+                  <button
+                    key={code}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={lang === code}
+                    className="side-menu-lang"
+                    onClick={() => {
+                      setLang(code);
+                      savePref("preferred_lang", code);
+                    }}
+                  >
+                    <Icon name="globe" size={15} />
+                    {LANG_NAMES[code]}
+                    {lang === code && <Icon name="check" size={15} className="side-menu-tick" />}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                role="menuitem"
+                className="side-menu-lang"
+                onClick={() => setTone(tone === "simple" ? "detailed" : "simple")}
+              >
+                <Icon name="document" size={15} />
+                {tone === "simple" ? "Simple answers" : "Detailed answers"}
+              </button>
+              <Link href="/" role="menuitem" className="side-menu-lang">
+                <Icon name="arrowRight" size={15} className="flip-180" />
+                Back to the site
+              </Link>
+              <button
+                type="button"
+                role="menuitem"
+                className="side-menu-lang side-menu-danger"
+                onClick={signOut}
+              >
+                <Icon name="logout" size={15} />
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </aside>
 
       <div className="chat-shell">
@@ -507,15 +589,33 @@ export default function Chat() {
                 <div className="thinking-live" aria-live="polite">
                   <div className="live-head">
                     <span className="pulse" />
-                    Working on it…
+                    {liveSteps.length
+                      ? "Working on it…"
+                      : "Getting to your question…"}
                   </div>
-                  <ol className="live-steps">
-                    {STAGES.map((s, i) => (
-                      <li key={s} className={i === stage % STAGES.length ? "live-on" : ""}>
-                        {s}
-                      </li>
-                    ))}
-                  </ol>
+                  {/* Real steps once they arrive; the warm-up list only covers
+                      the first moment, before the agent has reported anything. */}
+                  {liveSteps.length ? (
+                    <ol className="live-steps">
+                      {liveSteps.map((s, i) => (
+                        <li
+                          key={`${s.node}-${i}`}
+                          className={i === liveSteps.length - 1 ? "live-on" : ""}
+                        >
+                          <strong>{NODE_LABEL[s.node] || s.node}</strong>
+                          <span className="step-detail">{s.detail}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <ol className="live-steps">
+                      {WARMUP.map((s, i) => (
+                        <li key={s} className={i === 0 ? "live-on" : ""}>
+                          {s}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </div>
               )}
             </div>

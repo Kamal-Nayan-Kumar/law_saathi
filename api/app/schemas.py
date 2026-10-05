@@ -23,6 +23,11 @@ class SessionPatch(BaseModel):
     title: str = Field(min_length=1, max_length=255)
 
 
+class TraceStep(BaseModel):
+    node: str
+    detail: str
+
+
 class MessageIn(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
     content: str = Field(min_length=1, max_length=20000)
@@ -40,6 +45,12 @@ class MessageOut(BaseModel):
     # timestamp. Rows written before this existed still carry one, because
     # created_at has a column default.
     created_at: Optional[str] = None
+    # The agent's step log. Stored so the Thinking panel still works after a
+    # reload; absent on rows written before it existed.
+    trace: List[str] = []
+    trace_detail: List[TraceStep] = []
+    verified: Optional[bool] = None
+    confidence: Optional[float] = None
 
 
 class MemoryIn(BaseModel):
@@ -76,11 +87,6 @@ class AskIn(BaseModel):
     tone: str = Field(default="simple", pattern="^(simple|detailed)$")
     doc_id: Optional[str] = Field(default="", max_length=64)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
-
-
-class TraceStep(BaseModel):
-    node: str
-    detail: str
 
 
 class AskOut(BaseModel):

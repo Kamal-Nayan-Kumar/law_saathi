@@ -44,6 +44,12 @@ class Message(Base):
     # Sources list. NULL for rows written before these columns existed.
     citations: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     citation_sources: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    # The agent's step log, so the "Thinking" panel survives a reload instead of
+    # silently disappearing the next time the chat is opened.
+    trace: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    trace_detail: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    verified: Mapped[Optional[bool]] = mapped_column(nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

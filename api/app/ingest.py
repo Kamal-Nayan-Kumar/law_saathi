@@ -16,6 +16,8 @@ go over HTTPS via httpx.
 import hashlib
 import os
 import re
+import time
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import NAMESPACE_URL, uuid5
@@ -328,6 +330,16 @@ class InMemoryVectorStore:
         return len(self._vectors)
 
 
+# Query cache. Qdrant's server-side embedding round-trip is ~1.7s, and the
+# agent asks the same question more than once per run (the verifier's retry
+# re-runs a plan step, and a user repeating a follow-up re-searches). Bare acts
+# do not change between requests, so a short TTL is safe and takes several
+# seconds off a turn.
+SEARCH_CACHE_TTL = float(os.environ.get("LAWSAATHI_SEARCH_CACHE_TTL", "300"))
+_SEARCH_CACHE: "OrderedDict[str, Tuple[float, List[Dict]]]" = OrderedDict()
+_SEARCH_CACHE_MAX = 256
+
+
 class QdrantStore:
     """Qdrant Cloud with server-side inference (no local embeddings).
 
@@ -475,6 +487,14 @@ class QdrantStore:
 
         if not self._url:
             raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        cache_key = self._cache_key(text, top_k, filter_payload)
+        if cache_key is not None:
+            hit = _SEARCH_CACHE.get(cache_key)
+            if hit is not None and time.monotonic() - hit[0] < SEARCH_CACHE_TTL:
+                return [dict(h) for h in hit[1]]
+            if hit is not None:
+                _SEARCH_CACHE.pop(cache_key, None)
+
         json_body = {"query": {"text": text, "model": self.model},
                      "limit": top_k, "with_payload": True}
         if filter_payload:
@@ -491,8 +511,22 @@ class QdrantStore:
         )
         resp.raise_for_status()
         pts = resp.json().get("result", {}).get("points", [])
-        return [{"id": str(p["id"]), "score": float(p["score"]),
-                 "payload": dict(p.get("payload") or {})} for p in pts]
+        out = [{"id": str(p["id"]), "score": float(p["score"]),
+                "payload": dict(p.get("payload") or {})} for p in pts]
+        if cache_key is not None:
+            _SEARCH_CACHE[cache_key] = (time.monotonic(), out)
+            # Bounded so a long-running server cannot grow it without limit.
+            while len(_SEARCH_CACHE) > _SEARCH_CACHE_MAX:
+                _SEARCH_CACHE.popitem(last=False)
+        return out
+
+    def _cache_key(self, text: str, top_k: int,
+                   filter_payload: Optional[Dict]) -> Optional[str]:
+        if filter_payload:
+            # A filtered search is document-specific; caching it would leak one
+            # user's uploaded doc's passages to another query that matched.
+            return None
+        return "%s|%s|%d" % (self.collection, text.strip().lower(), top_k)
 
     def search(self, query_vector, top_k: int = 5) -> List[Dict]:
         # qdrant-client >=1.10 uses query_points; older uses search.

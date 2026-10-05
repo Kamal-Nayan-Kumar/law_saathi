@@ -200,6 +200,30 @@ def new_state(query: str, lang: str = "en",
     }
 
 
+# Which spouse is speaking. Checked on the word before the spouse term, because
+# "my husband" and "his wife" are opposites and the bare keyword cannot tell
+# them apart.
+_SELF_SIDE_PATTERNS = (
+    # claimant side: the person is the wife/daughter complaining
+    (("my husband", "my pati", "my shohar", "my बीवी", "my biwi",
+      "my पति", "ನನ್ನ ಗಂಡ", "my husband has", "husband stopped",
+      "husband has not", "husband refuses", "my husband left"), "claimant"),
+    (("my wife", "my patni", "my hodti", "my wife has", "wife stopped",
+      "wife left", "my wife refused", "ನನ್ನ ಹೆಂಡತಿ", "मेरी पत्नी"), "respondent"),
+    (("my father", "my baap", "my father died", "my father has",
+      "ನನ್ನ ತಂದೆ", "मेरे पिता"), "claimant"),
+    (("my mother", "my maa", "my mother died", "ನನ್ನ ತಾಯಿ", "मेरी माँ"), "respondent"),
+)
+
+
+def _self_side(bare: str) -> str:
+    """'claimant' or 'respondent' based on who the speaker is describing."""
+    for phrases, side in _SELF_SIDE_PATTERNS:
+        if any(p in bare for p in phrases):
+            return side
+    return ""
+
+
 def extract_slots(query_en: str) -> Dict[str, str]:
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
@@ -244,6 +268,13 @@ def extract_slots(query_en: str) -> Dict[str, str]:
         if p in bare:
             slots["parties"] = p
             break
+    # Which side the person is on. "my husband stopped paying" means they are the
+    # wife claiming; "my wife left" means the opposite. Getting this wrong makes a
+    # follow-up ("what do I do now?") answer for the other spouse, so it is
+    # captured as its own slot rather than left inside `parties`.
+    self_side = _self_side(bare)
+    if self_side:
+        slots["self_side"] = self_side
     if section:
         slots["section"] = section
     return slots
@@ -779,8 +810,23 @@ def node_intent(state: Dict[str, Any],
         _add_trace(state, "intent",
                    "Remembered from an earlier session that you were asking "
                    "about %s." % slots["topic"])
+    if not slots.get("self_side") and memory.get("last_party_role"):
+        # Someone who asked about maintenance as a wife should not be answered
+        # as though they were the husband on their next question.
+        slots["self_side"] = str(memory["last_party_role"])
+        _add_trace(state, "intent",
+                   "Remembered which side of the dispute you are on from an "
+                   "earlier session.")
     if slots.get("topic"):
         updates["last_topic"] = str(slots["topic"])
+    # The language a person actually writes in is the strongest signal of the
+    # language they want read back. It is remembered so the account menu and the
+    # next visit agree, not just this one answer.
+    updates["preferred_lang"] = str(lang)
+    # Which side they are on matters for the next question: "what about my
+    # daughter?" after a custody answer needs the party, not the topic again.
+    if slots.get("self_side"):
+        updates["last_party_role"] = str(slots["self_side"])
     state["memory_updates"] = updates
     state["slots"] = slots
     state["intent"] = classify_intent(state["query_en"], slots)
@@ -1739,11 +1785,27 @@ NOT_FULLY_VERIFIED = {
     "kn": "ಗಮನಿಸಿ: ನಾನು ಈ ಉತ್ತರವನ್ನು ಪಡೆದ ವಿಭಾಗಗಳ ವಿರುದ್ಧ ಸಂಪೂರ್ಣವಾಗಿ ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಇದನ್ನು ಆರಂಭಿಕ ಬಿಂದು ಎಂದು ಪರಿಗಣಿಸಿ, ಖಚಿತ ಸ್ಥಿತಿ ಎಂದು ಅಲ್ಲ — ಕ್ರಮವಿರುವ ಮೊದಲು ವಕೀಲರಿಂದ ಪರಿಶೀಲಿಸಿಕೊಳ್ಳಿ.",
 }
 
+# Fallback only. In persona testing this same sentence appeared under every
+# answer, which made Saathi read like a form letter rather than a person. The
+# model now writes next steps from the passages; this is what remains when there
+# is no model to ask.
 NEXT_STEPS = {
     "en": "Next steps: gather relevant documents (marriage certificate, court orders) and speak with a family-law lawyer for personalized guidance.",
     "hi": "अगले कदम: प्रासंगिक दस्तावेज़ (विवाह प्रमाणपत्र, न्यायालय आदेश) इकट्ठा करें और व्यक्तिगत मार्गदर्शन के लिए पारिवारिक कानून के वकील से बात करें।",
     "kn": "ಮುಂದಿನ ಹೆಜ್ಜೆಗಳು: ಸಂಬಂಧಿತ ದಾಖಲೆಗಳನ್ನು (ಮದುವೆ ಪ್ರಮಾಣಪತ್ರ, ನ್ಯಾಯಾಲಯದ ಆದೇಶಗಳು) ಸಂಗ್ರಹಿಸಿ ಮತ್ತು ವೈಯಕ್ತಿಕ ಮಾರ್ಗದರ್ಶನಕ್ಕಾಗಿ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
+
+
+def strip_next_steps(answer: str) -> str:
+    """Remove the appended next-steps block so it can be regenerated.
+
+    Used when the model is asked to write next steps itself: it must not be
+    shown the old boilerplate or it will echo it.
+    """
+    text = re.sub(
+        r"\n*###+\s*What to do next\s*\n+.*?(?=\n*\*[A-Z]|\Z)",
+        "", answer or "", flags=re.DOTALL | re.IGNORECASE)
+    return (text or "").strip()
 
 
 def strip_reasoning_leak(text: str) -> str:
@@ -1885,8 +1947,14 @@ def compose_answer(state: Dict[str, Any],
         # The model wrote a plain-language explanation grounded in the
         # passages above. Show it as the answer; the passages themselves
         # belong in the Sources list, not in the body.
-        answer = "%s\n\n### What to do next\n\n%s%s\n\n*%s*" % (
-            written.strip(), next_steps, low_warn, disclaimer)
+        #
+        # The model is asked to write its own "What to do next" section, because
+        # the fixed boilerplate appeared under every answer and made the product
+        # read like a form. Only append the boilerplate when the model did not.
+        body = written.strip()
+        if not re.search(r"what to do next", body, re.IGNORECASE):
+            body = "%s\n\n### What to do next\n\n%s" % (body, next_steps)
+        answer = "%s%s\n\n*%s*" % (body, low_warn, disclaimer)
     else:
         # No model available: fall back to the template plus cleaned passages.
         lines = ["- **[%d] %s** — %s" % (
@@ -1973,6 +2041,12 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "template every time.\n"
         "- Never repeat a sentence or phrase. Every sentence must be new.\n"
         "- 2 to 4 short paragraphs. Output ONLY the explanation.\n"
+        "- End with a '### What to do next' heading and 2 or 3 short bullets of "
+        "concrete steps that fit THIS person's situation. These must be specific "
+        "to the question just asked — for a maintenance arrears question, the "
+        "documents to gather and where to file; for a custody question, what the "
+        "court weighs. Never write generic advice like 'consult a lawyer' on its "
+        "own, and never repeat the same list twice in a row.\n"
         "%s" % TONE_GUIDE.get(tone, TONE_GUIDE["simple"])
     )
     user = ("Question: %s\n\nPassages:\n%s"
@@ -2197,9 +2271,22 @@ node_verifier = _maybe_trace("verifier")(node_verifier)
 node_response = _maybe_trace("response")(node_response)
 
 
+def _publish(state: Dict[str, Any],
+             on_step: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+    """Report the run so far. Never let a listener break the agent."""
+    if on_step is None:
+        return
+    try:
+        on_step(state)
+    except Exception as e:  # noqa: BLE001 — a broken listener is not the user's problem
+        logger.warning("agent step listener failed (%r)", e)
+
+
 def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
                       llm_fn, web_search, min_score, doc_id,
-                      history) -> Dict[str, Any]:
+                      history,
+                      on_step: Optional[Callable[[Dict[str, Any]], None]] = None
+                      ) -> Dict[str, Any]:
     """The graph's node order, hand-rolled. Used when langgraph is absent.
 
     Must stay identical to build_graph()'s trace; test_agent.py asserts the
@@ -2209,24 +2296,32 @@ def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
     state["tone"] = tone
     state["doc_id"] = doc_id
     state = node_intent(state, llm=llm_fn)
+    _publish(state, on_step)
     state = node_planner(state, llm=llm_fn)
+    _publish(state, on_step)
     if state.get("clarification") or state.get("oos_redirect"):
         state = node_response(state, llm=llm_fn,
                               translate_in=translate_complete)
+        _publish(state, on_step)
         state.pop("needs_retry", None)
         return state
     store = retriever if retriever is not None else default_retriever()
     state = node_tools(state, retriever=store, web_search=web_search,
                        llm=llm_fn)
+    _publish(state, on_step)
     while True:
         state = node_reason(state, llm=llm_fn)
+        _publish(state, on_step)
         state = node_verifier(state, min_score=min_score, llm=llm_fn)
+        _publish(state, on_step)
         if not state.pop("needs_retry", False):
             break
         state = node_tools(state, retriever=store, web_search=web_search,
                            llm=llm_fn)
+        _publish(state, on_step)
     state = node_response(state, llm=llm_fn,
                           translate_in=translate_complete)
+    _publish(state, on_step)
     state.pop("needs_retry", None)
     return state
 
@@ -2247,7 +2342,9 @@ def run_agent(query: str, lang: str = "en",
               web_search: Optional[Callable] = None,
               min_score: float = 0.0,
               doc_id: str = "",
-              history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+              history: Optional[List[Dict[str, str]]] = None,
+              on_step: Optional[Callable[[Dict[str, Any]], None]] = None
+              ) -> Dict[str, Any]:
     """Run intent -> planner -> [clarify | tools -> reason -> verifier] -> response.
 
     Returns the shared state dict (includes trace, answer, citations,
@@ -2260,6 +2357,9 @@ def run_agent(query: str, lang: str = "en",
 
     ``llm``: omit it to use the configured provider, pass None for no model, or
     pass a callable taking (messages) and returning (text, provider).
+
+    ``on_step``: called with the state after every node, so a streaming
+    endpoint can show each step as it happens instead of after the whole run.
     """
     state = new_state(query, lang=lang, memory=memory, history=history)
     state["tone"] = tone
@@ -2272,14 +2372,15 @@ def run_agent(query: str, lang: str = "en",
     else:
         llm_fn = llm
     runner = build_graph(retriever=retriever, llm=llm_fn,
-                         web_search=web_search, min_score=min_score)
+                         web_search=web_search, min_score=min_score,
+                         on_step=on_step)
     try:
         if getattr(runner, "is_graph", False):
             state.update(runner.invoke(state))
         else:
             state = _run_agent_inline(query, lang, memory, tone, retriever,
                                       llm_fn, web_search, min_score, doc_id,
-                                      history)
+                                      history, on_step=on_step)
     except Exception:
         # A crashed run is exactly what you want to see in LangSmith, so
         # mark it before letting the error reach the router.
@@ -2301,6 +2402,7 @@ def run_agent_for_t10(query: str, lang: str = "en") -> str:
 
 def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
                 web_search: Optional[Callable] = None,
+                on_step: Optional[Callable[[Dict[str, Any]], None]] = None,
                 min_score: float = 0.0) -> Any:
     """Build the LangGraph StateGraph when langgraph is installed.
 
@@ -2320,6 +2422,20 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
         from langgraph.graph import END, StateGraph  # type: ignore
     except Exception:
         return _NO_GRAPH
+
+    def _wrap(fn: Callable[[Dict[str, Any]], Dict[str, Any]]
+              ) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+        """Publish the run's progress after each node.
+
+        LangGraph owns the state dict, so the node works on a copy and reports
+        that copy. Reporting the incoming dict instead would miss the trace the
+        node just added.
+        """
+        def node(s: Dict[str, Any]) -> Dict[str, Any]:
+            out = fn(s)
+            _publish(out, on_step)
+            return out
+        return node
 
     def _intent(s: Dict[str, Any]) -> Dict[str, Any]:
         return node_intent(dict(s), llm=llm)
@@ -2343,12 +2459,12 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
                              translate_in=translate_complete)
 
     graph = StateGraph(dict)
-    graph.add_node("intent", _intent)
-    graph.add_node("planner", _planner)
-    graph.add_node("tools", _tools)
-    graph.add_node("reason", _reason)
-    graph.add_node("verifier", _verifier)
-    graph.add_node("response", _response)
+    graph.add_node("intent", _wrap(_intent))
+    graph.add_node("planner", _wrap(_planner))
+    graph.add_node("tools", _wrap(_tools))
+    graph.add_node("reason", _wrap(_reason))
+    graph.add_node("verifier", _wrap(_verifier))
+    graph.add_node("response", _wrap(_response))
     graph.set_entry_point("intent")
     graph.add_edge("intent", "planner")
 

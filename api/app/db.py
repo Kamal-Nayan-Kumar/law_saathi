@@ -95,6 +95,17 @@ def engine_for_test() -> Engine:
     return _engine
 
 
+def new_session() -> Session:
+    """A session the caller owns and must close.
+
+    For work that outlives the request — the SSE stream runs the agent in a
+    worker thread and persists afterwards, by which time FastAPI has already
+    closed the request's session.
+    """
+    assert _Session is not None, "init_db was not called"
+    return _Session()
+
+
 def get_session() -> Iterator[Session]:
     assert _Session is not None, "init_db was not called"
     session = _Session()
