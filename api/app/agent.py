@@ -2028,9 +2028,12 @@ NOT_FULLY_VERIFIED = {
 # model now writes next steps from the passages; this is what remains when there
 # is no model to ask.
 NEXT_STEPS = {
-    "en": "Next steps: gather relevant documents (marriage certificate, court orders) and speak with a family-law lawyer for personalized guidance.",
-    "hi": "अगले कदम: प्रासंगिक दस्तावेज़ (विवाह प्रमाणपत्र, न्यायालय आदेश) इकट्ठा करें और व्यक्तिगत मार्गदर्शन के लिए पारिवारिक कानून के वकील से बात करें।",
-    "kn": "ಮುಂದಿನ ಹೆಜ್ಜೆಗಳು: ಸಂಬಂಧಿತ ದಾಖಲೆಗಳನ್ನು (ಮದುವೆ ಪ್ರಮಾಣಪತ್ರ, ನ್ಯಾಯಾಲಯದ ಆದೇಶಗಳು) ಸಂಗ್ರಹಿಸಿ ಮತ್ತು ವೈಯಕ್ತಿಕ ಮಾರ್ಗದರ್ಶನಕ್ಕಾಗಿ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
+    # No leading "Next steps:" label: this text always renders under a
+    # "What to do next" heading, so the label read "What to do next — Next
+    # steps: gather…".
+    "en": "Gather the relevant documents — your marriage certificate, any court orders — and speak with a family-law lawyer about your specific situation.",
+    "hi": "प्रासंगिक दस्तावेज़ (विवाह प्रमाणपत्र, न्यायालय आदेश) इकट्ठा करें और अपनी विशेष स्थिति के लिए पारिवारिक कानून के वकील से बात करें।",
+    "kn": "ಸಂಬಂಧಿತ ದಾಖಲೆಗಳನ್ನು (ಮದುವೆ ಪ್ರಮಾಣಪತ್ರ, ನ್ಯಾಯಾಲಯದ ಆದೇಶಗಳು) ಸಂಗ್ರಹಿಸಿ ಮತ್ತು ನಿಮ್ಮ ನಿರ್ದಿಷ್ಟ ಪರಿಸ್ಥಿತಿಯ ಬಗ್ಗೆ ಕುಟೂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
 
 
@@ -2071,24 +2074,83 @@ def strip_reasoning_leak(text: str) -> str:
     return cleaned or no_fence.strip() or text.strip()
 
 
+# The opening line of an answer written without a model.
+#
+# This is what a user sees when no provider is reachable, which is exactly when
+# they most need the reply to read like help. The old text was a third-person
+# summary of a topic — "For custody, the Guardians & Wards Act decides..." — which
+# described the law without addressing the person who asked. These name their
+# situation instead.
+#
+# Kept as separate single-line entries on purpose: a wrapped multi-line string
+# literal is easy to break here and hard to spot.
 TOPIC_SUMMARY = {
-    "divorce": "For divorce, Indian family law provides mutual-consent (joint petition after living apart) and contested (fault grounds) routes under the Hindu Marriage Act, Special Marriage Act, or Indian Divorce Act depending on religion and marriage type.",
-    "maintenance": "For maintenance, the Hindu Adoption & Maintenance Act and related provisions let eligible spouses/children claim support based on need and the other party's means.",
-    "custody": "For custody, the Guardians & Wards Act and related provisions decide on the child's welfare as paramount — custody, visitation, and guardianship.",
-    "adoption": "For adoption, the Hindu Adoption & Maintenance Act lays down who may adopt, who may be adopted, and the required ceremonies and consents.",
-    "succession": "For succession, the Hindu Succession Act governs how property devolves on heirs, including Class I/II heirs and testamentary succession.",
-    "domestic_violence": "For domestic violence, the DV Act 2005 provides protection orders, residence orders, monetary relief, and custody orders for aggrieved persons.",
-    "marriage": "For marriage, the Hindu Marriage Act and Special Marriage Act lay down conditions, ceremonies/registration, and validity requirements.",
-    "general": "The relevant family-law acts set the conditions, procedure, and reliefs for this question.",
+    "divorce": {
+        "en": "Divorce in India follows two routes, and which one applies to you changes what you need to file. Here is the provision that governs it.",
+        "hi": "भारत में तलाक के दो रास्ते हैं, और आपके लिए कौन सा लागू होता है यह बदल देता है कि आपको क्या दाखिल करना है। यहाँ वह धारा दी गई है।",
+        "kn": "ಭಾರತದಲ್ಲಿ ವಿಚ್ಛೇದನೆಗೆ ಎರಡು ಮಾರ್ಗಗಳಿವೆ, ನಿಮಗೆ ಯಾವುದು ಅನ್ವಯವಾಗುತ್ತದೆ ಎಂಬುದೇ ನೀವು ಏನು ಸಲ್ಲಿಸಬೇಕೆಂದು ನಿರ್ಧರಿಸುತ್ತದೆ. ಅದರ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "maintenance": {
+        "en": "If maintenance has stopped, the law lets you ask the family court to order it. Here is the provision that applies to you.",
+        "hi": "यदि भरण-पोषण बंद हो गया है, तो कानून आपको परिवार न्यायालय से इसका आदेश माँगने देता है। यहाँ आप पर लागू धारा दी गई है।",
+        "kn": "ಭರವಸೂ ನಿಲ್ಲಿದರೆ, ಕಾನೂನು ನೀವು ಕುಟುಂಬ ನ್ಯಾಯಾಲಯದಲ್ಲಿ ಆದೇಶ ಕೋರಲು ಅನುಮತಿ ನೀಡುತ್ತದೆ. ನಿಮಗೆ ಅನ್ವಯವಾಗುವ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "custody": {
+        "en": "Custody is decided by what is best for your child, not by who wants it more or who earns more. Here is the provision that decides it.",
+        "hi": "अभिरक्षा यह तय होती है कि बच्चे के हित में क्या है, न कि यह कि कौन ज़्यादा चाहता है या कमाता है। यहाँ वह धारा दी गई है।",
+        "kn": "ಪಾಲನೆಯ ನಿರ್ಧಾರವು ಮಗುವಿನ ಕಲ್ಯಾಣದ ಆಧಾರದ ಮೇಲೆ, ಯಾರು ಹೆಚ್ಚು ಬೇಕು ಎಂಬುದರ ಮೇಲೆ ಅಲ್ಲ. ಅದನ್ನು ನಿರ್ಧರಿಸುವ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "adoption": {
+        "en": "Adoption has strict conditions and they are not optional. Here is the provision that governs who may adopt, and who may be adopted.",
+        "hi": "गोद लेने की कठोर शर्तें हैं और वह वैकल्पिक नहीं हैं। यहाँ वह धारा दी गई है जो बताती है कि कौन गोद ले सकता है।",
+        "kn": "ದತ್ತು ಪಡೆಯುವುದು ಕಠಿಣ ನಿಯಮಗಳಿಗೆ ಒಳಗಾಗಿದೆ ಮತ್ತು ಅವು ಐಚ್ಛಿಕವಲ್ಲ. ಯಾರು ದತ್ತು ಪಡೆಯಬಹುದು ಎಂಬುದನ್ನು ನಿರ್ಧರಿಸುವ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "succession": {
+        "en": "Who inherits is fixed by statute, not by what the family agrees. Here is the provision that decides your share.",
+        "hi": "उत्तराधिकार कानून से तय होता है, परिवार की सहमति से नहीं। यहाँ वह धारा दी गई है जो आपका हिस्सा तय करती है।",
+        "kn": "ಉತ್ತರಾಧಿಕಾರ ಕಾನೂನಿನಿಂದ ನಿರ್ಧರಿಸಲ್ಪಡುತ್ತದೆ, ಕುಟುಂಬದ ಒಮ್ಮತಿಯಿಂದಲ್ಲ. ನಿಮ್ಮ ಪಾಲು ನಿರ್ಧರಿಸುವ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "domestic_violence": {
+        "en": "You do not have to tolerate this. The law gives you specific remedies, and you do not need a lawyer to ask for them.",
+        "hi": "आपको यह सहन नहीं करना पड़ेगा। कानून आपको विशेष उपचार देता है, और उनके लिए माँगने के लिए वकील ज़रूरी नहीं है।",
+        "kn": "ನೀವು ಇದನ್ನು ಸಹಿಕೊಳ್ಳಬೇಕಿಲ್ಲ. ಕಾನೂನು ನಿಮಗೆ ನಿರ್ದಿಷ್ಟ ಪರಿಹಾರ ನೀಡುತ್ತದೆ, ಮತ್ತು ಅವುಗಳನ್ನು ಕೋರಲು ವಕೀಲ ಅಗತ್ಯವಿಲ್ಲ.",
+    },
+    "marriage": {
+        "en": "What makes a marriage valid is fixed by statute. Here is the provision that applies to your question.",
+        "hi": "विवाह को वैध बनाने की शर्तें कानून से तय हैं। यहाँ आपके प्रश्न पर लागू धारा दी गई है।",
+        "kn": "ವಿವಾಹ ಮಾನ್ಯವಾಗುವುದು ಎಂಬುದು ಕಾನೂನಿನಿಂದ ನಿರ್ಧರಿಸಲ್ಪಡುತ್ತದೆ. ನಿಮ್ನ ಪ್ರಶ್ನೆಗೆ ಅನ್ವಯವಾಗುವ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
+    "general": {
+        "en": "Here is the provision of law that applies to your question.",
+        "hi": "आपके प्रश्न पर लागू कानून की धारा यहाँ दी गई है।",
+        "kn": "ನಿಮ್ನ ಪ್ರಶ್ನೆಗೆ ಅನ್ವಯವಾಗುವ ಕಾನೂನಿನ ಕಲಂಕ ಇಲ್ಲಿ ಇದೆ.",
+    },
 }
+
+
+def topic_opening(topic: str, lang: str) -> str:
+    """The opening line for the no-model path, in the user's language."""
+    bank = TOPIC_SUMMARY.get(topic, TOPIC_SUMMARY["general"])
+    return bank.get(lang, bank["en"])
 
 
 # Ingestion stamps every chunk with a provenance header and leaves markdown
 # noise in the text. Both were reaching the user verbatim, which is what made
 # an answer read like a database dump instead of advice.
 _META_HEADER_RE = re.compile(r"^Act:.*?\n", re.DOTALL)
+# The corpus prefixes each chunk with the chapter and the section on one line:
+#   Chapter II: ADOPTION | Section 20: Maintenance of children and aged parents
+# Both halves are metadata already shown in the citation, and they stopped the
+# section-heading match below from ever firing, so the raw line reached the user.
+_CHAPTER_PREFIX_RE = re.compile(r"^Chapter\s+[IVXLC0-9]+\s*:[^|\n]*\|", re.IGNORECASE)
 _SECTION_LINE_RE = re.compile(
     r"^Section\s+\d+[A-Za-z\-]*\s*:\s*", re.IGNORECASE)
+# "Title .―(1)Body" — the separator between a heading and its body. Deliberately
+# excludes the ASCII hyphen: "widowed daughter in-law" is body text, not a joiner.
+_HEADING_JOIN_RE = re.compile(r"[ \t.]*[―—][ \t]*")
+# Bare markdown heading markers and the CHAPTERN banner the corpus leaves inline.
+_MARKDOWN_NOISE_RE = re.compile(r"#{1,6}[ \t]*|[ \t]*#{1,6}")
+_CHAPTER_BANNER_RE = re.compile(r"CHAPTER\s+[IVXLC0-9]+\b", re.IGNORECASE)
 
 
 def plain_passage(text: str, limit: int = 160) -> str:
@@ -2100,25 +2162,52 @@ def plain_passage(text: str, limit: int = 160) -> str:
     """
     body = (text or "").strip()
     body = _META_HEADER_RE.sub("", body, count=1)
+    body = _CHAPTER_PREFIX_RE.sub("", body, count=1).lstrip()
     body = re.sub(r"\*\*([^*]+)\*\*", r"\1", body)       # **13B. ...**
-    body = re.sub(r"\(\s*_([^_]+)_\s*\)", r"(\1)", body)  # ( _1_ )
+    body = re.sub(r"\*\*+", "", body)                    # unbalanced residue
+    # A subsection marker lost its trailing space in the scrape: "(1)Subject".
+    # Put it back, or the first clause runs into the sub-section number.
+    body = re.sub(r"\(\s*_?(\d+[A-Za-z]*)_?\s*\)", r" (\1) ", body)
     body = re.sub(r"(?<![\w])_+([^_]+?)_+(?![\w])", r"\1", body)  # _i_
 
-    # The chunk states its title twice: a "Section 13B: Divorce by mutual
-    # consent" line, then "13B. Divorce by mutual consent.—" in the body.
-    # Keep the first and cut the echo.
-    if _SECTION_LINE_RE.match(body):
-        head, _, rest = body.partition("\n")
-        title = head.split(":", 1)[-1].strip() if ":" in head else ""
-        probe = " ".join(title.lower().split()[-3:])
-        if probe and probe in rest.lower()[:80]:
-            at = rest.lower().index(probe) + len(probe)
-            rest = rest[at:].lstrip(" .—-")
-        body = rest
-    else:
-        body = _SECTION_LINE_RE.sub("", body, count=1)
+    body = _MARKDOWN_NOISE_RE.sub(" ", body)
+    body = _CHAPTER_BANNER_RE.sub(" ", body)
 
-    one_line = re.sub(r"\s+", " ", body).strip(" -–—")
+    # A chunk that begins mid-word is a bad split, not a passage. "rty (1) The
+    # Court may direct..." reads as corrupted text, which is worse to a person
+    # asking about their child than one citation fewer.
+    if re.match(r"^[a-z]{1,4}[ \t]+\(", body):
+        return ""
+
+    # Collapse to one line before touching the heading. The corpus wraps a long
+    # section title across two lines, so matching on line boundaries left the
+    # second half of the word ("...and prope" / "rty") stranded at the front of
+    # the passage.
+    body = re.sub(r"\s+", " ", body).strip()
+
+    # Drop the heading itself: the citation above already names the section, and
+    # the text before the em dash is title, not law. If nothing follows the dash
+    # the chunk was only a heading, and there is nothing worth quoting.
+    m = _SECTION_LINE_RE.match(body)
+    if m:
+        body = body[m.end():]
+        parts = _HEADING_JOIN_RE.split(body, maxsplit=1)
+        title = parts[0].strip(" .")
+        rest = parts[1] if len(parts) > 1 else ""
+        if not rest.strip():
+            # The chunk was only a heading. There is nothing here worth quoting,
+            # and printing the heading alone would repeat the citation.
+            return ""
+        # The metadata line often previews the paragraph after it. Print one, not
+        # both, or the answer stutters.
+        echo = re.compile(r"(?:\d+[A-Za-z\-]*\.[ \t]*)?" + re.escape(title))
+        at = echo.search(rest)
+        body = rest[at.start():] if at and rest[at.start():].strip() else rest
+        if at:
+            body = echo.sub("", body, count=1)
+        body = _HEADING_JOIN_RE.sub(" ", body, count=1).strip(" .")
+
+    one_line = body.strip(" -–—")
     if not one_line:
         return ""
     if len(one_line) <= limit:
@@ -2163,7 +2252,6 @@ def compose_answer(state: Dict[str, Any],
     ]
     slots = state.get("slots", {})
     topic = slots.get("topic", "general")
-    summary = TOPIC_SUMMARY.get(topic, TOPIC_SUMMARY["general"])
     disclaimer = DISCLAIMER.get(lang, DISCLAIMER["en"])
     next_steps = NEXT_STEPS.get(lang, NEXT_STEPS["en"])
     confidence = float(state.get("confidence", 1.0))
@@ -2194,18 +2282,22 @@ def compose_answer(state: Dict[str, Any],
             body = "%s\n\n### What to do next\n\n%s" % (body, next_steps)
         answer = "%s%s\n\n*%s*" % (body, low_warn, disclaimer)
     else:
-        # No model available: fall back to the template plus cleaned passages.
+        # No model available. Still answer as prose addressed to the person, then
+        # list the passages. This is precisely when a user most needs the reply
+        # to read like help, and it used to open with the heading "Quick answer"
+        # and a third-person summary that never mentioned their situation.
         lines = ["- **[%d] %s** — %s" % (
             i, format_citation(h.get("payload", {}) if isinstance(h, dict) else {}),
             _short_meaning((h.get("payload", {}) or {}).get("text", "")
                            if isinstance(h, dict) else ""))
             for i, h in enumerate(evidence[:5], start=1)]
         answer = (
-            "## Quick answer\n\n%s\n\n"
+            "%s\n\n"
             "### What the law says\n\n%s\n\n"
             "### What to do next\n\n%s%s\n\n"
             "*%s*"
-            % (summary, "\n".join(lines), next_steps, low_warn, disclaimer))
+            % (topic_opening(topic, lang), "\n".join(lines), next_steps,
+               low_warn, disclaimer))
     return answer, citations, citation_sources
 
 

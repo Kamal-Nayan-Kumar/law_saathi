@@ -1,0 +1,81 @@
+"""The no-model path must still read like help, not like a database export.
+
+When every provider is rate-limited — which is most of the time on free tiers —
+`compose_answer` falls back to a template. That is when a user most needs the
+reply to read like a person answering them, and it used to open with the heading
+"Quick answer" and a third-person summary of a topic that never mentioned their
+situation.
+"""
+from app.agent import compose_answer, new_state
+
+HIT = {
+    "act": "Hindu Adoption and Maintenance Act, 1956",
+    "section": "Section 18: Maintenance of wife",
+    "text": "A Hindu wife is entitled to maintenance from her husband during "
+            "her lifetime.",
+}
+
+
+def build(topic, lang="en"):
+    state = new_state("q", lang=lang)
+    state["slots"] = {"topic": topic}
+    state["evidence"] = [{"id": "p1", "score": 0.9, "payload": dict(HIT)}]
+    state["verified"] = True
+    state["confidence"] = 0.9
+    return state
+
+
+def test_the_fallback_does_not_open_with_a_heading():
+    answer, _, _ = compose_answer(build("maintenance"))
+    assert not answer.startswith("#")
+    assert not answer.startswith("**")
+
+
+def test_the_fallback_addresses_the_person():
+    """It has to be in the second person. A topic description reads as the law
+    talking about itself rather than answering the person who asked."""
+    answer, _, _ = compose_answer(build("maintenance"))
+    opening = answer.split("\n\n")[0].lower()
+    assert " you " in f" {opening} " or "your" in opening, opening
+
+
+def test_the_fallback_names_the_specific_provision():
+    answer, cites, _ = compose_answer(build("maintenance"))
+    assert cites, "a fallback with no citation is not verified"
+    assert "What the law says" in answer
+
+
+def test_each_area_gets_its_own_opening():
+    """One generic sentence for everything is what made this read as a form."""
+    openings = {}
+    for topic in ("maintenance", "custody", "divorce", "domestic_violence",
+                  "succession", "adoption", "marriage", "general"):
+        answer, _, _ = compose_answer(build(topic))
+        openings[topic] = answer.split("\n\n")[0]
+    assert len(set(openings.values())) == len(openings), openings
+
+
+def test_the_fallback_is_written_in_the_users_language():
+    for lang, script in (("hi", "ऀ-ॿ"), ("kn", "ಀ-೿")):
+        answer, _, _ = compose_answer(build("custody", lang))
+        assert answer.split("\n\n")[0][:20]
+        # The whole reply must be in that language, not just the opening.
+        assert any(ch in script for ch in answer), lang
+
+
+def test_the_disclaimer_survives_the_fallback():
+    for lang in ("en", "hi", "kn"):
+        answer, _, _ = compose_answer(build("custody", lang))
+        assert "consult a lawyer" in answer.lower() or "वकील" in answer \
+            or "ವಕೀಲ" in answer, lang
+
+
+def test_a_model_written_answer_is_untouched():
+    """The fallback must not leak into the normal path."""
+    state = build("maintenance")
+    written = ("You can file a maintenance petition in the family court under "
+               "Section 18 of the HAMA [1].\n\n### What to do next\n\n"
+               "- Gather your marriage certificate.")
+    answer, _, _ = compose_answer(state, written)
+    assert answer.startswith("You can file")
+    assert "What the law says" not in answer
