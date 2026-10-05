@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from tests.conftest import bff_headers
 
 
-def test_stream_emits_steps_then_done(client: TestClient):
+def test_stream_emits_steps_then_done(client: TestClient, offline_agent):
     """The user must see progress, not a spinner. Steps arrive before done."""
     with client:
         sid = client.post("/sessions", json={"title": "s"},
@@ -27,7 +27,7 @@ def test_stream_emits_steps_then_done(client: TestClient):
     assert events.index("done") == len(events) - 1, events
 
 
-def test_stream_persists_the_same_rows_as_the_json_endpoint(client: TestClient):
+def test_stream_persists_the_same_rows_as_the_json_endpoint(client: TestClient, offline_agent):
     """Streaming must not be a second, different code path for storage."""
     with client:
         h = bff_headers("streamer")

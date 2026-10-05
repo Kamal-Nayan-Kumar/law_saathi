@@ -17,7 +17,7 @@ def memories(client: TestClient, h, user):
     return out
 
 
-def test_one_english_question_does_not_overwrite_a_saved_hindi_preference(client):
+def test_one_english_question_does_not_overwrite_a_saved_hindi_preference(client, offline_agent):
     """The bug: every request wrote the detected language over the saved
     preference, so a single English question silently reset a Hindi user."""
     with client:
@@ -35,7 +35,7 @@ def test_one_english_question_does_not_overwrite_a_saved_hindi_preference(client
         assert client.get("/me", headers=h).json()["preferred_lang"] == "hi"
 
 
-def test_repeated_language_does_move_the_preference(client):
+def test_repeated_language_does_move_the_preference(client, offline_agent):
     with client:
         h = bff_headers("switcher")
         client.put("/me", json={"preferred_lang": "en"}, headers=h)
@@ -45,7 +45,7 @@ def test_repeated_language_does_move_the_preference(client):
         assert client.get("/me", headers=h).json()["preferred_lang"] == "kn"
 
 
-def test_topic_is_remembered_across_sessions(client):
+def test_topic_is_remembered_across_sessions(client, offline_agent):
     """Asking 'what about maintenance?' in a new chat must not restart from
     nothing — the topic came from an earlier session."""
     with client:
@@ -59,7 +59,7 @@ def test_topic_is_remembered_across_sessions(client):
         assert "maintenance" in res["answer"].lower() or res["citations"], res["answer"]
 
 
-def test_party_side_is_remembered(client):
+def test_party_side_is_remembered(client, offline_agent):
     """A follow-up must not answer from the other spouse's point of view."""
     with client:
         h = bff_headers("wife")
@@ -68,7 +68,7 @@ def test_party_side_is_remembered(client):
         assert memories(client, h, "wife")["last_party_role"] == "claimant"
 
 
-def test_tone_preference_survives_a_default_request(client):
+def test_tone_preference_survives_a_default_request(client, offline_agent):
     """`tone` defaults to 'simple' on every request. Writing it unconditionally
     erased the stored preference, so 'remembers your tone' never worked."""
     with client:
@@ -80,7 +80,7 @@ def test_tone_preference_survives_a_default_request(client):
         assert memories(client, h, "toned")["tone"] == "detailed"
 
 
-def test_explicit_tone_choice_is_stored(client):
+def test_explicit_tone_choice_is_stored(client, offline_agent):
     with client:
         h = bff_headers("toned2")
         sid = client.post("/sessions", json={"title": "s"}, headers=h).json()["id"]
@@ -88,7 +88,7 @@ def test_explicit_tone_choice_is_stored(client):
         assert memories(client, h, "toned2")["tone"] == "detailed"
 
 
-def test_reopened_chat_keeps_the_thinking_log(client):
+def test_reopened_chat_keeps_the_thinking_log(client, offline_agent):
     """The trace is stored on the message row, so the Thinking panel is still
     there after a reload instead of vanishing."""
     with client:

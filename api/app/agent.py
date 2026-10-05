@@ -36,7 +36,21 @@ OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions"
 OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "space-bunny-free")
 # Cloudflare in front of Zen answers 403 to urllib's default user agent.
 OPENCODE_UA = os.environ.get("OPENCODE_USER_AGENT", "LawSaathi/1.0")
-MAX_RETRIES = 2
+# A run makes five to seven model calls. With two retries the verifier loop can
+# reach eleven, and on a rate-limited key each fallback costs seconds: persona
+# testing saw a single Kannada question take 228s. One retry is enough to widen
+# a search; past that the user waits longer than any extra passage is worth.
+MAX_RETRIES = int(os.environ.get("LAWSAATHI_MAX_RETRIES", "1"))
+
+# Hard ceiling on model calls per run. Hitting it degrades to the template
+# answer rather than looping, so a bad key cannot make the chat unusable.
+MAX_LLM_CALLS = int(os.environ.get("LAWSAATHI_MAX_LLM_CALLS", "6"))
+
+# Short answers get a short budget. The verifier returns a one-line JSON object
+# and the planner a small plan; giving them the full reasoning budget is what
+# made a 0.8s call take 4s.
+MAX_TOKENS_LONG = int(os.environ.get("LAWSAATHI_MAX_TOKENS", "6000"))
+MAX_TOKENS_SHORT = int(os.environ.get("LAWSAATHI_MAX_TOKENS_SHORT", "1600"))
 # A plan longer than this is a model rambling, not a plan. Cap it so one bad
 # reply cannot turn into a dozen retrieval calls.
 MAX_PLAN_STEPS = 4
@@ -55,9 +69,22 @@ TOPIC_KEYWORDS = {
                    "virasat", "viraasat",
                    "jaydad", "jaaydaad", "उत्तराधिकार", "ಉತ್ತರಾಧಿಕಾರ",
                    "वारिस"),
+    # People describe domestic violence in the words of the act, not its name:
+    # "my husband hits me", "he beats me", "she tortures me". None of those
+    # contain "domestic violence", so every one of them fell through to "what is
+    # this about?" — the worst possible reply to someone who is frightened.
     "domestic_violence": ("domestic violence", "domestic-violence", "dowry",
                           "dahej", "marpeet", "maarpeet", "घरेलू हिंसा",
-                          "ಕೌಟುಂಬಿಕ ಹಿಂಸೆ", "protection order"),
+                          "ಕೌಟುಂಬಿಕ ಹಿಂಸೆ", "protection order",
+                          "hits me", "hit me", "hits her", "beats me",
+                          "beat me", "beating me", "beats her", "tortures me",
+                          "torture", "abuses me", "abuse", "abused",
+                          "abusing", "struck me", "slaps me", "slapped me",
+                          "beats up", "threatens me", "threaten me",
+                          "scared to tell", "afraid of my husband",
+                          "afraid of my wife", "not safe at home",
+                          "मारता", "मारपीट", "अत्याचार", "डरा", "धक्का",
+                          "ಹೊಡೆ", "ಹಿಂಸೆ", "ಬೀದು", "ದೌರ್ಜನೆ"),
     "marriage": ("marriage", "marry", "married", "marital", "wedding",
                  "shadi", "shaadi", "vivah",
                  "nikah", "nikaha", "sagai", "engagement", "विवाह", "शादी",
@@ -290,6 +317,28 @@ def classify_intent(query_en: str, slots: Dict[str, str]) -> str:
     return "general"
 
 
+def _is_divorce_process_question(query: str) -> bool:
+    """True when the person is trying to end the marriage, not living with it.
+
+    Grounds and procedure matter only here. When someone describes harm,
+    non-payment or a child's welfare, the answer is about that, and steering
+    them into a mutual-vs-contested question wastes their one turn.
+    """
+    low = (query or "").lower()
+    if any(w in low for w in ("hits me", "hit me", "beats me", "beat me",
+                              "abuse", "abuses", "abused", "abusing",
+                              "tortures", "slaps", "struck me", "threatens",
+                              "scared to tell", "afraid of", "not safe",
+                              "maintenance", "alimony", "not paying", "stops paying",
+                              "has not paid", "hasn't paid", "custody",
+                              "guardian", "child", "children", "daughter", "son")):
+        return False
+    return any(w in low for w in (
+        "how do i get", "how can i get", "how to get", "process",
+        "divorce", "talaq", "talak", "विवाह विच्छेद", "विच्छेद", "ವಿಚ್ಛೇದನ",
+        "separate", "khula", "mutaraat", "legal separation"))
+
+
 def missing_for(slots: Dict[str, str], query_en: str,
                 is_followup: bool = False) -> List[str]:
     """Key slots the planner needs before guessing (T3 accept rule).
@@ -313,7 +362,13 @@ def missing_for(slots: Dict[str, str], query_en: str,
             return []
         return ["topic"]
     if topic == "divorce" and not slots.get("divorce_type"):
-        return ["divorce_type"]
+        # Only worth asking when the question is actually about getting a divorce.
+        # "My husband hits me" is a domestic-violence matter that merely sounds
+        # like a marriage dispute, and asking a frightened person whether her
+        # divorce is mutual or contested was both useless and badly timed.
+        if _is_divorce_process_question(query_en or ""):
+            return ["divorce_type"]
+        return []
     words = (query_en or "").split()
     if topic in ("divorce", "maintenance", "custody") \
             and not slots.get("parties") and len(words) < 6:
@@ -386,7 +441,8 @@ def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any],
 
 def opencode_complete(messages: List[Dict[str, str]],
                       http_post: Optional[Callable] = None,
-                      timeout: float = 45.0) -> Tuple[str, str]:
+                      timeout: float = 45.0,
+                      max_tokens: Optional[int] = None) -> Tuple[str, str]:
     """Call OpenCode Zen's free tier. Returns (text, provider).
 
     Used as the last-resort fallback so a user still gets an answer when
@@ -403,7 +459,8 @@ def opencode_complete(messages: List[Dict[str, str]],
          "Content-Type": "application/json",
          "User-Agent": OPENCODE_UA},
         {"model": OPENCODE_MODEL, "messages": messages,
-         "temperature": 0.2, "max_tokens": 1500},
+         "temperature": 0.2,
+         "max_tokens": MAX_TOKENS_LONG if max_tokens is None else max_tokens},
     )
     message = data["choices"][0]["message"] or {}
     text = (message.get("content") or "").strip()
@@ -444,7 +501,8 @@ def _message_text(data: Dict[str, Any]) -> str:
 
 def chat_complete(messages: List[Dict[str, str]],
                   http_post: Optional[Callable] = None,
-                  timeout: float = 45.0) -> Tuple[str, str]:
+                  timeout: float = 45.0,
+                  max_tokens: Optional[int] = None) -> Tuple[str, str]:
     """Chat with fallbacks: Groq -> OpenRouter -> OpenCode Zen.
 
     Groq is primary per ADR-0002. The order used to be reversed, which meant the
@@ -458,6 +516,7 @@ def chat_complete(messages: List[Dict[str, str]],
     post = http_post or _post_json
     groq_key = os.environ.get("GROQ_API_KEY", "")
     or_key = os.environ.get("OPENROUTER_API_KEY", "")
+    budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
     last_error: Optional[Exception] = None
     if groq_key or http_post is not None:
         try:
@@ -466,7 +525,7 @@ def chat_complete(messages: List[Dict[str, str]],
                 {"Authorization": "Bearer " + groq_key,
                  "Content-Type": "application/json"},
                 {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
+                 "temperature": 0.2, "max_tokens": budget},
             )
             text = _message_text(data)
             if not text:
@@ -487,7 +546,7 @@ def chat_complete(messages: List[Dict[str, str]],
                  "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
                  "X-Title": "LawSaathi"},
                 {"model": OPENROUTER_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
+                 "temperature": 0.2, "max_tokens": budget},
             )
             text = _message_text(data)
             if not text:
@@ -542,7 +601,8 @@ def should_trace(state: Dict[str, Any]) -> bool:
 
 def translate_complete(messages: List[Dict[str, str]],
                        http_post: Optional[Callable] = None,
-                       timeout: float = 45.0) -> Tuple[str, str]:
+                       timeout: float = 45.0,
+                       max_tokens: Optional[int] = None) -> Tuple[str, str]:
     """Translate using Groq only, falling back to the shared chat path.
 
     Groq's model handles Hindi and Kannada cleanly; the OpenRouter default was
@@ -551,13 +611,14 @@ def translate_complete(messages: List[Dict[str, str]],
     """
     if os.environ.get("GROQ_API_KEY", "") or http_post is not None:
         post = http_post or _post_json
+        budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
         try:
             data = post(
                 GROQ_URL,
                 {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
                  "Content-Type": "application/json"},
                 {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": MAX_TOKENS},
+                 "temperature": 0.2, "max_tokens": budget},
             )
             text = _message_text(data)
             if not text:
@@ -566,7 +627,8 @@ def translate_complete(messages: List[Dict[str, str]],
             return text, "groq:" + GROQ_MODEL
         except Exception as e:  # noqa: BLE001 — caller falls back
             logger.warning("agent groq translate failed (%r)", e)
-    return chat_complete(messages, http_post=http_post, timeout=timeout)
+    return chat_complete(messages, http_post=http_post, timeout=timeout,
+                         max_tokens=max_tokens)
 
 
 def _maybe_trace(name: str) -> Callable:
@@ -1554,7 +1616,20 @@ def evidence_sufficient(evidence: List[Dict[str, Any]],
 
 OOS_KEYWORDS = ("land", "property", "real estate", "criminal", "tax", "income tax",
                 "property law", "criminal law", "theft", "murder", "rape",
-                "cheque", "stamp duty", "tenant", "eviction", "motor vehicle")
+                "cheque", "stamp duty", "tenant", "eviction", "motor vehicle",
+                # Government-process and civil-remedy words. Someone with an RTI
+                # notice or a police complaint was getting a confident answer
+                # about the wrong law, which is worse than a redirect.
+                "landlord", "rent", "police", "fir", "court case", "civil case",
+                "consumer forum", "rti", "right to information", "notice",
+                "notice under", "company", "employer", "employment",
+                "labour", "labor", "bank", "loan", "debt", "recovery",
+                "bail", "police station", "complaint", "case against me",
+                "contract", "agreement", "nda", "patent", "trademark",
+                "copyright", "passport", "visa", "electoral", "vote",
+                "government job", "municipal", "gram panchayat",
+                "कार्ड", "एफ़सीआरई", "किराया", "मकान", "पुलिस", "वसूली",
+                "ಕೌಳೂರು", "ಪೊಲೀಸ್", "ಅರ್ಜಿ", "ಸರ್ಕಾರಿ")
 
 # Signals that a question about land or property is really about *inheriting*
 # it, which is family law. "My father died and my brother is taking the
@@ -2301,7 +2376,7 @@ def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
     _publish(state, on_step)
     if state.get("clarification") or state.get("oos_redirect"):
         state = node_response(state, llm=llm_fn,
-                              translate_in=translate_complete)
+                              translate_in=budgeted_llm(translate_complete))
         _publish(state, on_step)
         state.pop("needs_retry", None)
         return state
@@ -2320,7 +2395,7 @@ def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
                            llm=llm_fn)
         _publish(state, on_step)
     state = node_response(state, llm=llm_fn,
-                          translate_in=translate_complete)
+                          translate_in=budgeted_llm(translate_complete))
     _publish(state, on_step)
     state.pop("needs_retry", None)
     return state
@@ -2371,6 +2446,9 @@ def run_agent(query: str, lang: str = "en",
             llm_fn = chat_complete
     else:
         llm_fn = llm
+    # Bound the work: a rate-limited key must not turn one question into an
+    # unbounded wait.
+    llm_fn = budgeted_llm(llm_fn)
     runner = build_graph(retriever=retriever, llm=llm_fn,
                          web_search=web_search, min_score=min_score,
                          on_step=on_step)
@@ -2456,7 +2534,7 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
 
     def _response(s: Dict[str, Any]) -> Dict[str, Any]:
         return node_response(dict(s), llm=llm,
-                             translate_in=translate_complete)
+                             translate_in=budgeted_llm(translate_complete))
 
     graph = StateGraph(dict)
     graph.add_node("intent", _wrap(_intent))
@@ -2493,6 +2571,41 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
     compiled = graph.compile()
     compiled.is_graph = True  # type: ignore[attr-defined]
     return compiled
+
+
+def budgeted_llm(llm: Optional[Callable],
+                 max_calls: int = MAX_LLM_CALLS) -> Optional[Callable]:
+    """Cap how many times one run may call the model.
+
+    Persona testing found a single question taking 228s: the key was
+    rate-limited, every call fell through the provider chain, and the verifier
+    retried on top. This wrapper counts calls and then behaves as if there were
+    no model at all, which lands on the template answer — a correct, cited,
+    immediate reply instead of an indefinite wait.
+    """
+    if llm is None:
+        return None
+    remaining = {"n": max_calls}
+    # A test double may be a plain `def f(messages)`, so only pass max_tokens
+    # when the callable actually accepts it. Silently dropping it is right:
+    # failing every call on a signature mismatch would look like a broken model.
+    import inspect
+
+    try:
+        takes_max_tokens = "max_tokens" in inspect.signature(llm).parameters
+    except (TypeError, ValueError):
+        takes_max_tokens = False
+
+    def wrapper(messages: List[Dict[str, str]], **kw: Any) -> Tuple[str, str]:
+        if remaining["n"] <= 0:
+            raise RuntimeError("model call budget exhausted for this run")
+        remaining["n"] -= 1
+        if takes_max_tokens:
+            # Short answers do not need the full reasoning budget.
+            kw.setdefault("max_tokens", MAX_TOKENS_SHORT)
+        return llm(messages, **kw)
+
+    return wrapper
 
 
 class _NoGraph:
