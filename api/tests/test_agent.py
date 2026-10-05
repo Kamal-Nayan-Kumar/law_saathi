@@ -5,6 +5,9 @@ import re
 import pytest
 
 from app import agent as agent_module
+"""Tests for the agent."""
+import pytest
+
 from app.agent import (
     NODES,
     GROQ_URL,
@@ -183,6 +186,10 @@ def test_llm_max_tokens_leaves_room_for_reasoning():
 
 
 def test_llm_primary_groq_no_fallback():
+    from app import agent as agent_module
+
+    agent_module._PROVIDER_FAILURES.clear()
+
     def fake_post(url, headers, payload):
         assert "groq" in url
         return {"choices": [{"message": {"content": "groq answer"}}]}
@@ -190,6 +197,25 @@ def test_llm_primary_groq_no_fallback():
     text, provider = chat_complete([{"role": "user", "content": "hi"}],
                                    http_post=fake_post)
     assert provider.startswith("groq:")
+
+
+def test_llm_skips_a_provider_already_in_cooldown():
+    """After a failure the provider is skipped, so `http_post=None` style tests
+    and live calls both avoid paying for the same dead key twice."""
+    from app import agent as agent_module
+
+    agent_module._PROVIDER_FAILURES.clear()
+    agent_module._mark_failed("groq", RuntimeError("429"))
+    try:
+        def fake_post(url, headers, payload):
+            assert "groq" not in url, "a failed provider was retried"
+            return {"choices": [{"message": {"content": "fell through"}}]}
+
+        _text, provider = chat_complete([{"role": "user", "content": "hi"}],
+                                        http_post=fake_post)
+        assert provider.startswith("openrouter:")
+    finally:
+        agent_module._PROVIDER_FAILURES.clear()
 
 
 def test_ask_endpoint_clarification_path(client):
@@ -223,6 +249,9 @@ def test_opencode_is_the_free_last_resort():
     """Groq and OpenRouter can both be down or rate-limited. OpenCode Zen's
     space-bunny-free model costs nothing, so it is the final fallback that
     keeps chat working instead of returning a bare error."""
+    from app import agent as agent_module
+
+    agent_module._PROVIDER_FAILURES.clear()
     order = []
     msg = [{"role": "user", "content": "hi"}]
 
@@ -232,7 +261,8 @@ def test_opencode_is_the_free_last_resort():
 
     with pytest.raises(RuntimeError):
         chat_complete(msg, http_post=dead)
-    # Groq, then OpenRouter, then OpenCode
+    # Every provider is reachable once (the cooldown is per provider, and this
+    # is the first call for each).
     assert len(order) == 3, order
     assert "groq" in order[0]
     assert "openrouter" in order[1]
@@ -604,8 +634,23 @@ def test_user_facing_strings_are_pure_script(table_name):
 @pytest.mark.skipif(not os.environ.get("GROQ_API_KEY", ""),
                     reason="no GROQ_API_KEY — live trace needs keys")
 def test_live_trace_smoke():
-    out = run_agent("What is Section 13 Hindu Marriage Act divorce?",
-                    lang="en")
+    """Smoke test against the real providers and the real vector store.
+
+    Skipped when every provider is unavailable: this checks wiring, not
+    correctness, and a developer with a spent free tier should not get a
+    failure that looks like a code bug. The behaviour itself is covered by the
+    offline tests.
+    """
+    from app import agent as agent_module
+
+    agent_module._PROVIDER_FAILURES.clear()
+    try:
+        out = run_agent("What is Section 13 Hindu Marriage Act divorce?",
+                        lang="en")
+    except RuntimeError as e:
+        if "no LLM backend" in str(e):
+            pytest.skip("no LLM provider reachable right now")
+        raise
     assert out["trace"][0] == "intent"
     assert out["trace"][-1] == "response"
     # Which provider answered depends on which free tier is not rate-limited

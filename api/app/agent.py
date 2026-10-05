@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -478,6 +479,41 @@ def opencode_complete(messages: List[Dict[str, str]],
 MAX_TOKENS = int(os.environ.get("LAWSAATHI_MAX_TOKENS", "6000"))
 
 
+# Provider circuit breaker.
+#
+# When a key is exhausted or rate-limited, every call used to walk the whole
+# chain — Groq's 429, then OpenRouter's 402, then a 45s OpenCode timeout. Six
+# model calls per run turned into minutes of waiting for an error, and the user
+# saw nothing while it happened. A provider that has just failed is skipped for
+# a cooldown, so the next call goes straight to the one that still works.
+_PROVIDER_FAILURES: Dict[str, float] = {}
+_PROVIDER_COOLDOWN = float(os.environ.get("LAWSAATHI_PROVIDER_COOLDOWN", "60"))
+
+
+def _provider_available(name: str) -> bool:
+    until = _PROVIDER_FAILURES.get(name, 0.0)
+    if until <= time.monotonic():
+        _PROVIDER_FAILURES.pop(name, None)
+        return True
+    return False
+
+
+def _mark_failed(name: str, error: Exception) -> None:
+    _PROVIDER_FAILURES[name] = time.monotonic() + _PROVIDER_COOLDOWN
+    # 429 and 402 mean the key is spent; there is no point retrying for the
+    # length of a normal cooldown.
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    cooldown = _PROVIDER_COOLDOWN
+    if status in (401, 402, 403) or "402" in str(error) or "401" in str(error):
+        cooldown = _PROVIDER_COOLDOWN * 10
+    _PROVIDER_FAILURES[name] = time.monotonic() + cooldown
+    logger.warning("provider %s in cooldown for %.0fs (%r)", name, cooldown, error)
+
+
+def _mark_healthy(name: str) -> None:
+    _PROVIDER_FAILURES.pop(name, None)
+
+
 def _message_text(data: Dict[str, Any]) -> str:
     """Pull the answer out of an OpenAI-shaped response.
 
@@ -518,7 +554,7 @@ def chat_complete(messages: List[Dict[str, str]],
     or_key = os.environ.get("OPENROUTER_API_KEY", "")
     budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
     last_error: Optional[Exception] = None
-    if groq_key or http_post is not None:
+    if (groq_key or http_post is not None) and _provider_available("groq"):
         try:
             data = post(
                 GROQ_URL,
@@ -533,11 +569,13 @@ def chat_complete(messages: List[Dict[str, str]],
                 # beats showing the user a blank reply.
                 raise RuntimeError("groq returned no content")
             logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
+            _mark_healthy("groq")
             return text, "groq:" + GROQ_MODEL
         except Exception as e:  # noqa: BLE001 — fallback must catch all
             last_error = e
+            _mark_failed("groq", e)
             logger.warning("agent groq failed (%r); trying openrouter", e)
-    if or_key or http_post is not None:
+    if (or_key or http_post is not None) and _provider_available("openrouter"):
         try:
             data = post(
                 OPENROUTER_URL + "/chat/completions",
@@ -552,16 +590,24 @@ def chat_complete(messages: List[Dict[str, str]],
             if not text:
                 raise RuntimeError("openrouter returned no content")
             logger.info("agent llm provider=openrouter model=%s", OPENROUTER_MODEL)
+            _mark_healthy("openrouter")
             return text, "openrouter:" + OPENROUTER_MODEL
         except Exception as e:  # noqa: BLE001 — fallback must catch all
             last_error = e
+            _mark_failed("openrouter", e)
             logger.warning("agent openrouter failed (%r); trying opencode", e)
     # Free last resort: a rate-limited Groq/OpenRouter should not end the chat.
-    try:
-        return opencode_complete(messages, http_post=post, timeout=timeout)
-    except Exception as e:  # noqa: BLE001 — caller sees the last error
-        last_error = e
-        logger.warning("agent opencode failed (%r)", e)
+    if _provider_available("opencode"):
+        try:
+            text, provider = opencode_complete(messages, http_post=post,
+                                               timeout=timeout,
+                                               max_tokens=max_tokens)
+            _mark_healthy("opencode")
+            return text, provider
+        except Exception as e:  # noqa: BLE001 — caller sees the last error
+            last_error = e
+            _mark_failed("opencode", e)
+            logger.warning("agent opencode failed (%r)", e)
     raise RuntimeError("no LLM backend (OPENROUTER_API_KEY/GROQ_API_KEY/"
                        "OPENCODE_API_KEY empty; pass http_post in tests) :: %r"
                        % (last_error,))
@@ -609,7 +655,8 @@ def translate_complete(messages: List[Dict[str, str]],
     weak in both and produced garbled, repeated text. Translation therefore
     tries Groq first regardless of the order `chat_complete` uses.
     """
-    if os.environ.get("GROQ_API_KEY", "") or http_post is not None:
+    if (os.environ.get("GROQ_API_KEY", "") or http_post is not None) \
+            and _provider_available("groq"):
         post = http_post or _post_json
         budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
         try:
@@ -624,8 +671,10 @@ def translate_complete(messages: List[Dict[str, str]],
             if not text:
                 raise RuntimeError("groq returned no content")
             logger.info("agent translate provider=groq model=%s", GROQ_MODEL)
+            _mark_healthy("groq")
             return text, "groq:" + GROQ_MODEL
         except Exception as e:  # noqa: BLE001 — caller falls back
+            _mark_failed("groq", e)
             logger.warning("agent groq translate failed (%r)", e)
     return chat_complete(messages, http_post=http_post, timeout=timeout,
                          max_tokens=max_tokens)
