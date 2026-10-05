@@ -231,29 +231,9 @@
   white-space: nowrap;
 }
 
-/* Voice is a first-class way in, so it gets a labelled button in the header. */
-.chat-mic {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 15px;
-  border: 1.5px solid var(--maroon);
-  border-radius: var(--r-pill);
-  background: var(--maroon);
-  color: #fff;
-  font-size: 0.84rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.chat-mic:hover {
-  background: var(--maroon-deep);
-}
-
-.chat-mic.on {
-  background: var(--bad);
-  border-color: var(--bad);
+/* The listening pulse. Owned by the composer mic, which is the only mic button
+   left: it sits inside the input pill, immediately left of the send arrow. */
+.composer-mic.on {
   animation: micPulse 1.4s ease-out infinite;
 }
 
@@ -270,7 +250,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-mic.on {
+  .composer-mic.on {
     animation: none;
   }
 }
@@ -478,6 +458,15 @@
   margin: 0 0 12px;
 }
 
+/* The disclaimer at the foot of every answer. It used to render in the same
+   near-black as the advice above it, so it read as part of the answer rather
+   than as the legal notice it is. Muted, but still well above the contrast
+   floor — someone has to be able to read it. */
+.md em {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 /* Inline citation marker: small blue superscript link to the Sources list. */
 .md a[href^="#src-"] {
   color: var(--link);
@@ -546,6 +535,10 @@
   color: var(--muted);
 }
 
+/* Two columns: the dot, then everything the step says.
+   `strong` and `.step-detail` are siblings inside that second column, so the
+   detail text gets the full width. Laying them out as siblings in the grid put
+   the detail in the 20px dot column, which wrapped it one word per line. */
 .think-steps li {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -562,6 +555,11 @@
   border-radius: 50%;
   background: var(--sage-ink);
   flex: none;
+}
+
+.think-steps li > strong,
+.think-steps li > .step-detail {
+  grid-column: 2;
 }
 
 /* ---------- thinking (in progress) ---------- */
@@ -615,6 +613,13 @@
   color: var(--muted-2);
   font-size: 0.85rem;
   line-height: 1.5;
+}
+
+/* Same reason as .think-steps: the label and its detail are siblings inside one
+   grid column, not two separate grid items. */
+.live-steps li > strong,
+.live-steps li > .step-detail {
+  grid-column: 2;
 }
 
 /* Tick for finished steps, pulsing ring for the one in progress. */
@@ -815,6 +820,37 @@
   outline: none;
 }
 
+/* Mic inside the pill. Matches the send button's shape and size so the two
+   read as one control, and turns red while listening. */
+.composer-mic {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--maroon-soft);
+  color: var(--maroon);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.composer-mic:hover:not(:disabled) {
+  background: var(--gold-soft);
+  color: var(--maroon-deep);
+}
+
+.composer-mic:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer-mic.on {
+  background: var(--bad);
+  color: #fff;
+}
+
 .composer-send {
   flex: none;
   width: 40px;
@@ -903,6 +939,10 @@
 .side-account {
   position: relative;
   flex: none;
+  /* Pinned to the bottom of the rail. `margin-top: auto` rather than relying on
+     .side-list to fill the space, because the list is hidden when the rail is
+     collapsed — which is exactly when the avatar jumped up to the top. */
+  margin-top: auto;
   padding-top: var(--s3);
   border-top: 1px solid var(--line);
 }
@@ -977,24 +1017,6 @@
   z-index: 45;
 }
 
-.side-menu-head {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-  margin: 0 0 6px 8px;
-}
-
-.side-menu-langs {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-bottom: var(--s2);
-  padding-bottom: var(--s2);
-  border-bottom: 1px solid var(--line-2);
-}
-
 .side-menu-lang {
   display: flex;
   align-items: center;
@@ -1020,11 +1042,6 @@
   color: var(--muted-2);
 }
 
-.side-menu-tick {
-  margin-left: auto;
-  color: var(--sage-ink) !important;
-}
-
 .side-menu-danger {
   color: var(--bad);
 }
@@ -1038,7 +1055,11 @@
   color: currentColor;
 }
 
-/* Collapsed rail: the avatar alone, menu still opens to the right. */
+/* Collapsed rail: the avatar alone, menu still opens to the right.
+   The name and the language line have to go — the rail is 66px wide, so they
+   were squeezed into a 1-character column and read as a stray letter beside
+   the avatar. That was the "what is this K and I English" bug: the K was the
+   avatar and the I was the first letter of a clipped name. */
 .chat-layout.side-hidden .side-account {
   width: 100%;
 }
@@ -1048,8 +1069,14 @@
   padding: 8px 0;
 }
 
+.chat-layout.side-hidden .side-account-text,
 .chat-layout.side-hidden .side-account-caret {
   display: none;
+}
+
+.chat-layout.side-hidden .side-avatar {
+  width: 36px;
+  height: 36px;
 }
 
 .chat-layout.side-hidden .side-menu {
@@ -1093,8 +1120,13 @@
     display: flex;
   }
 
-  .chat-layout.side-hidden .side-label {
-    display: inline;
+  /* On a phone the rail does not exist, so the name comes back. */
+  .chat-layout.side-hidden .side-account-text {
+    display: flex;
+  }
+
+  .chat-layout.side-hidden .side-account-caret {
+    display: block;
   }
 
   .chat-layout.side-hidden .side-nav a,
@@ -1131,19 +1163,6 @@
 }
 
 @media (max-width: 640px) {
-  /* On a phone the label is noise; the icon alone is a 44px target. */
-  .chat-mic span {
-    display: none;
-  }
-
-  .chat-mic {
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    justify-content: center;
-    margin-left: auto;
-  }
-
   .chat-top-tag {
     display: none;
   }
@@ -1174,6 +1193,11 @@
   }
 
   .composer-send {
+    width: 42px;
+    height: 42px;
+  }
+
+  .composer-mic {
     width: 42px;
     height: 42px;
   }

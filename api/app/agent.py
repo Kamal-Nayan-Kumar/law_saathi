@@ -222,20 +222,28 @@ def hinglish_score(text: str) -> int:
 
 
 def detect_lang(text: str, hint: str = "en") -> str:
-    """Detect en/hi/kn. Explicit hint wins; else script, then Hinglish."""
-    if hint in ("en", "hi", "kn"):
-        # Trust the caller (UI sends lang), but upgrade to hi/kn when the
-        # script clearly says otherwise and hint is the default "en".
-        if hint != "en":
-            return hint
+    """The language the answer must be written in: en, hi or kn.
+
+    Driven by the question itself. A user who types Kannada gets Kannada back,
+    and a user who types English gets English back even if an earlier preference
+    said otherwise. The script of what they just wrote is a far stronger signal
+    about the person in front of us than a stored setting.
+
+    ``hint`` is the caller's guess. It is no longer trusted for choosing the
+    output language; the script decides. That is what removed the failure where
+    a stored "Hindi" preference made the product answer an English question in
+    Hindi, leaving the reader convinced their own words were in the wrong
+    language.
+    """
     blob = text or ""
     if re.search(r"[\u0C80-\u0CFF]", blob):
         return "kn"
     if re.search(r"[\u0900-\u097F]", blob):
         return "hi"
-    if hint == "en" and hinglish_score(blob) >= 2:
+    if hinglish_score(blob) >= 2:
         return "hi"  # Roman Hindi, e.g. "shadi ke liye umar"
-    return hint if hint in ("en", "hi", "kn") else "en"
+    # Roman script and not Hinglish: English.
+    return "en"
 
 
 def new_state(query: str, lang: str = "en",
@@ -2391,15 +2399,47 @@ def plain_passage(text: str, limit: int = 160) -> str:
     one_line = body.strip(" -–—")
     if not one_line:
         return ""
-    if len(one_line) <= limit:
-        return one_line
-    cut = one_line[:limit]
-    # Prefer the last clause boundary; fall back to the last space.
-    for sep in (". ", "; ", ", ", " and ", " "):
-        idx = cut.rfind(sep)
+    return clip(one_line, limit)
+
+
+# A quoted passage has to stop somewhere, and where it stops decides whether
+# the reader sees a rule or a broken word. Three shapes were all wrong:
+#
+#   "…or a male child…"        cut a word in half mid-clause
+#   "…from the shared…"        cut the last useful word of the passage
+#   "…Section 2 —" (nothing)  the passage was all heading, so nothing to show
+#
+# A person asking about domestic violence cannot tell those apart from a
+# broken app. So the clip prefers the last complete sentence, then the last
+# clause, and only ever breaks on a space.
+def clip(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+
+    # 1. A whole sentence inside the budget. Best case: nothing is cut at all.
+    #    A full stop only: a semicolon inside "(a) insults … or (b) commits …"
+    #    is a clause in the middle of a list, and stopping there loses the rest
+    #    of the rule the section is actually listing.
+    for end in reversed([m.end() for m in re.finditer(r"\.\s", text[:limit])]):
+        snippet = text[:end].strip()
+        if len(snippet) >= limit * 0.45:
+            return snippet
+
+    # 2. No sentence ends in range. Take the last clause boundary that keeps
+    #    most of the passage — a cut mid-clause reads as a missing half-rule.
+    window = text[:limit]
+    for sep in ("; ", ", ", " and ", " or ", " which ", " namely "):
+        idx = window.rfind(sep)
         if idx > limit * 0.5:
-            return cut[:idx].rstrip(" ,;:-") + "…"
-    return cut.rstrip() + "…"
+            return window[:idx].rstrip(" ,;:-") + "…"
+
+    # 3. Nothing but word boundaries. Break on the last space so the passage
+    #    never ends on half a word, and mark that it was shortened.
+    idx = window.rfind(" ")
+    if idx > 0:
+        return window[:idx].rstrip(" ,;:-") + "…"
+    return window.rstrip() + "…"
 
 
 def _short_meaning(text: str, limit: int = 160) -> str:
@@ -2481,11 +2521,20 @@ def compose_answer(state: Dict[str, Any],
         # is the answer — and at 160 it cut off exactly the operative words.
         # s.17 lost "welfare of the minor shall be the first consideration";
         # s.8 lost "class I of the Schedule".
-        lines = ["- **[%d] %s** — %s" % (
-            i, format_citation(h.get("payload", {}) if isinstance(h, dict) else {}),
-            _short_meaning((h.get("payload", {}) or {}).get("text", "")
-                           if isinstance(h, dict) else "", limit=320))
-            for i, h in enumerate(evidence[:5], start=1)]
+        #
+        # A passage that cleans down to nothing (the chunk was only a section
+        # heading) used to render as "- **[3] … — Section 2 —**": a numbered
+        # point with no content, which reads as a bug rather than as a law. The
+        # reader gets the sections that actually say something; the Sources list
+        # below still carries every citation, so nothing is hidden.
+        lines = []
+        for i, h in enumerate(evidence[:5], start=1):
+            payload = h.get("payload", {}) if isinstance(h, dict) else {}
+            meaning = _short_meaning((payload or {}).get("text", ""), limit=320)
+            if not meaning:
+                continue
+            lines.append("- **[%d] %s** — %s"
+                         % (i, format_citation(payload), meaning))
         answer = (
             "%s\n\n"
             "### %s\n\n%s\n\n"
@@ -2504,6 +2553,35 @@ TONE_GUIDE = {
                 "Name the sections you rely on, but explain what each one means "
                 "in ordinary words. Bullets under a heading are welcome here.",
 }
+
+
+# What the writing model was getting wrong, as a short list it can be held to.
+# Screenshot evidence, each line: a real answer the user read and could not use.
+#
+#   "any act, omission or commission or conduct of the respondent shall
+#    constitute domestic violence"          — Latin, and "respondent" is nobody
+#   "the aggrieved person"                   — a term with no everyday meaning
+#   "pass a residence order"                 — what the reader should actually do
+#   "(a) restraining the respondent from dispossessing … the aggrieved person
+#    from the shared…"                        — cut off mid-word, mid-rule
+#
+# So: name the actor as a person, use the reader's own words for their problem,
+# and end on something the reader can act on. The section number stays so the
+# citation is still checkable.
+PLAIN_LANGUAGE_RULES = (
+    "Plain-language rules, all of them required:\n"
+    "- Name people as people. 'She', 'he', 'your husband', 'the court'. Never "
+    "'the respondent', 'the aggrieved person', 'the applicant', 'the minor'.\n"
+    "- Say what the reader can DO, not what the court 'may' do. 'You can ask the "
+    "court to order him to stay away from the home' — not 'a residence order may "
+    "be passed'.\n"
+    "- No Latin words, no 'notwithstanding', no 'provided that', no "
+    "'sub-section', no 's.17'. Write 'Section 17' if a number is needed.\n"
+    "- One idea per sentence, and keep sentences short.\n"
+    "- Never leave a sentence unfinished. Never end mid-word or mid-clause.\n"
+    "- Finish with the step the reader takes next, in the words they would use "
+    "for it.\n"
+)
 
 
 def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
@@ -2572,7 +2650,9 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "documents to gather and where to file; for a custody question, what the "
         "court weighs. Never write generic advice like 'consult a lawyer' on its "
         "own, and never repeat the same list twice in a row.\n"
-        "%s" % TONE_GUIDE.get(tone, TONE_GUIDE["simple"])
+        "%s"
+        "%s" % (PLAIN_LANGUAGE_RULES,
+                TONE_GUIDE.get(tone, TONE_GUIDE["simple"]))
     )
     user = ("Question: %s\n\nPassages:\n%s"
             % (state.get("query_en") or state.get("query", ""),

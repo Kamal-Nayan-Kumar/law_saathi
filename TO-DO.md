@@ -31,12 +31,12 @@ kept honest so a reader can tell what is done from what is claimed.
 | --- | --- | --- |
 | B1 | After login it hangs on the login screen | **fixed** — login pushes to `/chat`; Nav/Footer returned null after hooks, which was the hang |
 | B2 | Login screen is not properly responsive | **fixed** — verified at 360/390/768/1440/2560 |
-| B3 | The "home" icon should be a settings/profile control with logout | **fixed** — account menu: language, tone, sign out |
+| B3 | The "home" icon should be a settings/profile control with logout | **fixed** — account menu. Language, tone and "back to the site" were later removed; sign out is all it holds now |
 | B4 | Chat does not feel natural — reads like a form, not a person | **fixed** — the model writes its own next steps; the no-provider fallback now opens by naming the person's situation |
-| B5 | Language preference is not remembered properly | **fixed** — it was being clobbered every request; now moves only after the same language is seen twice running |
+| B5 | Language preference is not remembered properly | **superseded** — there is no language preference to remember. The answer follows the script of the question, so the picker was removed rather than fixed (see 0f) |
 | B6 | The "Thinking" toggle is not robust | **fixed** — SSE streams each step live, persisted on the message row |
 | B7 | Web search is not visibly implemented | **blocked** — `api/app/agent.py: stub_web_search` is written, but the `firecrawl` package is not installed. Add it and set `FIRECRAWL_API_KEY` |
-| B8 | Voice (STT/TTS) is missing from the UI | **done** — browser Web Speech APIs, no key needed. Mic in the chat header, Read aloud per answer |
+| B8 | Voice (STT/TTS) is missing from the UI | **done** — browser Web Speech APIs, no key needed. The mic is inside the input pill, left of the send arrow; Read aloud per answer |
 | B9 | No real-time voice | **open** — see F8 |
 | B10 | No visibility into what the agent is doing | **fixed** — `api/app/obs.py` records one JSONL line per run; `api/scripts/agent_stats.py` draws node frequency, decisions, latency, providers, outcomes and the number of distinct paths |
 
@@ -45,7 +45,7 @@ kept honest so a reader can tell what is done from what is claimed.
 | # | Feature | State |
 | --- | --- | --- |
 | F1 | List the questions in scope and the project's boundaries | **done** — `SCOPE.md`: the seven acts, in-scope questions by area, what gets redirected, and the eight things Saathi will never do |
-| F2 | Short-term and long-term memory for language preference | **done** — see B5 |
+| F2 | Short-term and long-term memory for language preference | **dropped** — a preference was the wrong shape for this product. The question's script decides the answer, so there is nothing to store and nothing to get wrong |
 | F3 | Show every step the agent takes | **done** — streamed live during the run, persisted afterwards |
 | F4 | LangSmith tracing, evals and monitoring | **partial** — tracing hooks are in place but unverified against a live LangSmith account. The local JSONL log works with no key and no network |
 | F5 | RAGAS evaluation with a golden dataset | **partial** — the dataset is real: `api/eval/golden_qas.py`, 17 questions, plus offline and live runners. RAGAS itself is **not** written; it needs an LLM judge and an embedding matrix. The runners deliberately check what can be checked deterministically: right language, right section cited, nothing confidently wrong |
@@ -76,6 +76,24 @@ Five of these were real defects, not polish. Each is now covered by a test.
 | "I am scared of the court process" would have become a DV question | Caught by a test written to check the fix. Fear now counts only when it is fear of a person |
 | Fallback quotes truncated at 160 characters | s.17 stopped at "be guided by what…" — dropping "for the welfare of the minor", the entire reason the section governs custody |
 | The passage cleaner never fired | Every corpus chunk starts `Chapter II: … \| Section 20: …`, so its `^Section` match failed and the raw line reached the user |
+
+### 0f. Defects found by reading the screen (2026-10-05)
+
+Found by asking real questions on the deployed site and reading what came back,
+not by running the suite. Every automated check passed while all of these were
+happening.
+
+| Found | Why it mattered | State |
+| --- | --- | --- |
+| One question produced two answers | The SSE stream was killed by the platform's function timeout. The client treated a stream that ended without `done` as "streaming is unavailable" and re-ran the whole agent over JSON, which persisted a second answer under the same question | **fixed** — a stream that dies is never retried; the saved answer is read back over GET, which cannot run the agent. `maxDuration = 300` on both proxies stops the cut in the first place |
+| A bare "500" under the answer | The BFF had the default function timeout, so the proxy was killed mid-run and returned a status with no body | **fixed** — `maxDuration = 300`, and an empty error body now becomes a sentence a person can read |
+| "How Saathi worked this out" wrapped one word per line | The step label and its detail were siblings in a 2-column grid, so the detail landed in the 20px dot column | **fixed** — both are placed in the content column |
+| The collapsed rail showed "K" and a stray "I" | The rail is 66px. The name and the language line were squeezed into it, so the avatar looked like a stray letter | **fixed** — collapsed shows the avatar alone, pinned to the bottom left |
+| Quoted passages cut mid-clause ("…or a male child…", "…from the shared…") | `plain_passage` cut at the last comma it could find, which is usually mid-rule | **fixed** — `clip()` prefers a whole sentence, then a clause, and never breaks a word |
+| A numbered point with no text ("**[3] … — Section 2 —**") | The chunk was only a section heading, so the cleaner correctly returned nothing — but the bullet was still printed | **fixed** — a passage with nothing to say is not listed |
+| The disclaimer read as part of the advice | It rendered in the same near-black as the answer | **fixed** — muted grey, still well above the contrast floor |
+| Answers used "the respondent", "the aggrieved person", Latin | Unusable for the people who need it | **fixed** — `PLAIN_LANGUAGE_RULES` in the writing prompt, each rule traceable to a line in a real answer |
+| The collapsed rail's avatar jumped to the top | The spacer that pushes it down was the chat list, which is hidden when collapsed | **fixed** — `margin-top: auto` on the account block |
 
 ---
 

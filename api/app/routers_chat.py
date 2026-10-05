@@ -140,27 +140,17 @@ def _prepare_ask(session_id: int, body: AskIn, user: User, db: Session):
     prior = (db.query(Message).filter_by(session_id=session_id)
              .order_by(Message.id.desc()).limit(10).all())
     history = [{"role": m.role, "content": m.content} for m in reversed(prior)]
-    # Auto-detect input language. The detected language wins for this turn, but it
-    # must NOT overwrite the stored preference every single request: a user who
-    # typed one English question had their saved Hindi preference replaced by
-    # "en", so the account menu and the next visit disagreed with them. The
-    # preference is only moved once the same language is seen twice running,
-    # which is what "this is the language I use" actually looks like.
-    detected = agent_module.detect_lang(body.query, body.lang)
-    if body.lang == "en" and detected != "en":
-        body_lang = detected  # prefer detected over default for this turn
-    else:
-        body_lang = body.lang
+    # The answer is written in the language the question was asked in. There is
+    # no stored language preference any more: a user who once picked "Hindi" and
+    # then typed an English question was answered in Hindi, and had to be told
+    # their own words were in the wrong language. The script of the question is
+    # the signal, and it is the only one.
+    body_lang = agent_module.detect_lang(body.query, body.lang)
 
-    last_seen = memories.get("last_seen_lang", "")
-    if detected == last_seen and detected != user.preferred_lang:
-        user.preferred_lang = detected  # two in a row: a real preference
-        logger.info("preference: language switched to %s", detected)
-    memories["last_seen_lang"] = detected
-    # Sync tone memory. A saved preference must survive the schema default:
-    # body.tone is always populated (it defaults to "simple"), so writing it
-    # unconditionally erased the stored preference on every single request and
-    # the "remembers your tone" feature could never work.
+    # Tone still persists (it changes how long the explanation is), but a saved
+    # preference must survive the schema default: body.tone is always populated
+    # (it defaults to "simple"), so writing it unconditionally erased the stored
+    # preference on every single request.
     tone_mem = memories.get("tone")
     if body.tone != "simple" or not tone_mem:
         memories["tone"] = body.tone
@@ -192,9 +182,8 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
     # the legal topic, so "what about maintenance?" tomorrow does not restart
     # from nothing.
     for k, v in (state.get("memory_updates") or {}).items():
-        # preferred_lang is deliberately not overwritten here. It is the user's
-        # saved choice, moved only by the two-in-a-row rule in _prepare_ask or
-        # by an explicit PUT from the account menu.
+        # preferred_lang is recorded for the profile only. Nothing reads it to
+        # decide how to answer: the answer follows the question's script.
         if k == "preferred_lang":
             continue
         if str(memories.get(k, "")) == str(v):
@@ -232,6 +221,11 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
         trace_detail=list(state.get("trace_detail", [])),
         verified=bool(state.get("verified", False)),
         confidence=float(state.get("confidence", 0.0)),
+        # Which language the answer was actually written in. The client needs
+        # this to pick a speaking voice for "Read aloud", and it is the honest
+        # answer to "why is this in the other language" when something goes
+        # wrong — without it the field can only be guessed from the request.
+        lang=body_lang,
     )
 
 

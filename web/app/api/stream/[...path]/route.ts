@@ -16,6 +16,13 @@ const FASTAPI = process.env.FASTAPI_URL || "http://localhost:8000";
  */
 export const dynamic = "force-dynamic";
 
+// An agent run takes 60-90s. Without this the function is killed at Vercel's
+// default limit, the SSE body is cut mid-answer, and the browser sees a stream
+// that ends cleanly with no `done` event — which the client then "recovers" by
+// running the whole agent a second time over plain JSON. That is what produced
+// two answers to one question.
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { data: session } = await auth.getSession();
   if (!session?.user) {

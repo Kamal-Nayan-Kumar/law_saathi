@@ -1,4 +1,6 @@
 """Memory behaviour: what Saathi must remember between turns and sessions."""
+import re
+
 from fastapi.testclient import TestClient
 
 from tests.conftest import bff_headers
@@ -35,14 +37,31 @@ def test_one_english_question_does_not_overwrite_a_saved_hindi_preference(client
         assert client.get("/me", headers=h).json()["preferred_lang"] == "hi"
 
 
-def test_repeated_language_does_move_the_preference(client, offline_agent):
+def test_the_stored_language_follows_the_question_not_a_setting(client, offline_agent):
+    """The answer follows the question, and the profile records what was asked.
+
+    There is no language picker any more. A stored preference must therefore
+    never change how an answer is written — this asserts the two halves of
+    that: the English question is answered in English even though the account
+    says Kannada, and the Kannada question is answered in Kannada.
+    """
     with client:
         h = bff_headers("switcher")
-        client.put("/me", json={"preferred_lang": "en"}, headers=h)
+        client.put("/me", json={"preferred_lang": "kn"}, headers=h)
         sid = client.post("/sessions", json={"title": "s"}, headers=h).json()["id"]
-        ask(client, h, sid, "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ", lang="kn")
-        ask(client, h, sid, "ವಿಚ್ಛೇದನ ಹೇಗೆ ಪಡೆಯುವುದು", lang="kn")
-        assert client.get("/me", headers=h).json()["preferred_lang"] == "kn"
+
+        english = ask(client, h, sid, "my husband has not paid maintenance",
+                      lang="kn")
+        assert english["lang"] == "en", english
+        assert not re.search(r"[ऀ-ॿ]", english["answer"]), english["answer"]
+
+        kannada = ask(client, h, sid, "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ",
+                      lang="en")
+        assert kannada["lang"] == "kn", kannada
+        # The stored message is tagged kn too, so a reopened chat still reads
+        # the answer aloud with a Kannada voice.
+        rows = client.get(f"/sessions/{sid}/messages", headers=h).json()
+        assert [r["lang"] for r in rows if r["role"] == "assistant"] == ["en", "kn"]
 
 
 def test_topic_is_remembered_across_sessions(client, offline_agent):

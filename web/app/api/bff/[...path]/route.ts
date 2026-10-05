@@ -3,6 +3,12 @@ import { auth } from "@/lib/auth/server";
 
 const FASTAPI = process.env.FASTAPI_URL || "http://localhost:8000";
 
+// A single agent run is 60-90s. This proxy fronts both the cheap reads and that
+// one long call, so it needs the same raised ceiling as the stream route —
+// otherwise the function is killed mid-run and the browser gets a bare 500 with
+// no body, which is exactly what a user sees as "500" under their answer.
+export const maxDuration = 300;
+
 async function proxy(req: NextRequest, path: string[]) {
   const { data: session } = await auth.getSession();
   if (!session?.user) {

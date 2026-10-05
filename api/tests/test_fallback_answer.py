@@ -17,7 +17,12 @@ HIT = {
 
 
 def build(topic, lang="en"):
+    # `lang` is set on the state directly rather than passed to new_state.
+    # new_state now derives the language from the question's script, and the
+    # question here is the placeholder "q" — which is English whatever language
+    # this test is exercising compose_answer in.
     state = new_state("q", lang=lang)
+    state["lang"] = lang
     state["slots"] = {"topic": topic}
     state["evidence"] = [{"id": "p1", "score": 0.9, "payload": dict(HIT)}]
     state["verified"] = True

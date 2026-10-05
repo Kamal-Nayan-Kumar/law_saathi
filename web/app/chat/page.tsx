@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -67,11 +66,9 @@ const NODE_LABEL: Record<string, string> = {
   response: "Preparing your answer",
 };
 
-const LANG_NAMES: Record<string, string> = {
-  en: "English",
-  hi: "Hindi",
-  kn: "Kannada",
-};
+// No "answer language" setting any more. The language of the answer is decided
+// by the language of the question, so there is nothing for the user to choose
+// and nothing to get wrong.
 
 function detectLang(text: string): "en" | "hi" | "kn" {
   if (/[ಀ-೿]/.test(text)) return "kn";
@@ -272,26 +269,24 @@ export default function Chat() {
   // Load profile + sidebar history (no auto-create; new chat stays draft)
   useEffect(() => {
     if (authPending || !authSession) return;
+    // Only tone is read. The saved language is deliberately ignored: the answer
+    // follows the question, so loading a stored language would only put a
+    // wrong value into the speech-synthesis voice until the user typed.
     api("/me")
-      .then((u: { preferred_lang?: string; tone?: string }) => {
-        setLang(u.preferred_lang || "en");
-        setTone(u.tone || "simple");
-      })
+      .then((u: { tone?: string }) => setTone(u.tone || "simple"))
       .catch(() => {});
-    // The API exposes memories under /me/memories; "/memories" 404s, which
-    // silently dropped the saved language and tone on every load.
     api("/me/memories")
       .then((m: { memories?: { key: string; value: string }[] }) => {
         const mem: Record<string, string> = {};
         (m.memories || []).forEach((item) => (mem[item.key] = item.value));
         if (mem.tone) setTone(mem.tone);
-        if (mem.preferred_lang) setLang(mem.preferred_lang);
       })
       .catch(() => {});
     refreshSessions();
   }, [authPending, authSession, refreshSessions]);
 
-  // Auto-detect on draft change
+  // Keep the reading voice in the language being typed, so "Read aloud" on a
+  // Kannada answer is spoken by a Kannada voice rather than an English one.
   useEffect(() => {
     if (draft.trim().length > 1) {
       const d = detectLang(draft);
@@ -349,7 +344,9 @@ function toggleSide() {
     setError("");
     setLoading(true);
     const query = text.trim();
-    const sendLang = detectLang(query) !== "en" ? detectLang(query) : lang;
+    // The answer comes back in the language of the question. There is no
+    // preference to consult and nothing for the user to have set wrong.
+    const sendLang = detectLang(query);
     try {
       // Lazy-create the session on first message (keeps sidebar clean)
       let sid = sessionId;
@@ -364,14 +361,19 @@ function toggleSide() {
       const userMsg: Msg = { id: Date.now(), role: "user", content: query, lang: sendLang };
       setMsgs((prev) => [...prev, userMsg]);
       setDraft("");
-      // Streamed: each agent step lands as it happens, so the page can show
-      // real progress instead of a fixed animation for the whole 15 seconds.
-      // askStream falls back to the plain JSON endpoint by itself.
+      // Streamed: each agent step lands as it happens, so the page shows real
+      // progress instead of a fixed animation. If the stream is cut, askStream
+      // reads the saved answer back rather than asking again — one question
+      // never produces two answers.
       const answerObj = await askStream(
         `/sessions/${sid}/ask/stream`,
         { query, lang: sendLang, tone },
         { onStep: (s) => setLiveSteps((prev) => [...prev, s]) },
       );
+      // The server reports the language it actually wrote in, which is not
+      // always the guess we sent. Trust the server: it decides from the
+      // question's script, and "Read aloud" needs the real one.
+      const answerLang = answerObj.lang || sendLang;
       const tmeta: Meta = {
         trace: answerObj.trace || [],
         steps: answerObj.trace_detail || [],
@@ -383,22 +385,24 @@ function toggleSide() {
         id: botId,
         role: "assistant",
         content: answerObj.answer,
-        lang: sendLang,
+        lang: answerLang,
       };
       setMsgs((prev) => [...prev, botMsg]);
       setMeta((prev) => ({ ...prev, [botId]: tmeta }));
+      // Re-read the thread so ids match the server. Guarded against a slow
+      // response landing after a newer question: appending this list blindly
+      // would throw away whatever the user has since asked.
       api(`/sessions/${sid}/messages`)
         .then((list: StoredMsg[]) => {
           if (!list.length) return;
-          setMsgs(list);
+          setMsgs((prev) => (list.length >= prev.length ? list : prev));
+          const next = metaFromList(list);
           // Stored citations for the whole thread, then re-attach this answer's
           // live trace to its real server id (ids change on reload).
           const match = list.find(
             (m) => m.role === "assistant" && m.content === answerObj.answer,
           );
-          const next = metaFromList(list);
           if (match) next[match.id] = tmeta;
-          delete next[botId];
           setMeta(next);
         })
         .catch(() => {});
@@ -413,21 +417,6 @@ function toggleSide() {
   async function send(e: React.FormEvent) {
     e.preventDefault();
     await sendText(draft);
-  }
-
-  async function savePref(key: string, value: string) {
-    try {
-      await api("/me", { method: "PUT", body: JSON.stringify({ [key]: value }) });
-      await api("/me/memories", {
-        method: "PUT",
-        body: JSON.stringify([{ key, value }]),
-      });
-      if (key === "preferred_lang") setLang(value);
-      if (key === "tone") setTone(value);
-    } catch {
-      // A preference that fails to save is still applied for this session; the
-      // user should not be interrupted for it.
-    }
   }
 
   async function signOut() {
@@ -515,48 +504,25 @@ function toggleSide() {
             aria-haspopup="menu"
           >
             <span className="side-avatar">{initial}</span>
+            {/* Name only. The line under it used to read "English", which said
+                two wrong things: that the user had chosen a language, and that
+                the answer would arrive in it whatever they asked. The answer
+                comes back in the language of the question. */}
             <span className="side-label side-account-text">
               <b>{displayName}</b>
-              <small>{LANG_NAMES[lang] ?? "English"}</small>
             </span>
             <Icon name="chevronDown" size={15} className="side-account-caret" />
           </button>
 
+          {/* Only sign out. The menu used to carry an answer-language picker, a
+              simple/detailed toggle and a link back to the site. All three were
+              removed on purpose: the answer already comes back in whatever
+              language the question was asked in, so a language setting told the
+              user their own question was in the "wrong" language; the tone
+              toggle changed nothing they could see; and the site link duplicated
+              the logo. What is left is the one thing this menu is for. */}
           {accountOpen && (
             <div className="side-menu" role="menu">
-              <p className="side-menu-head">Answer language</p>
-              <div className="side-menu-langs">
-                {(["en", "hi", "kn"] as const).map((code) => (
-                  <button
-                    key={code}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={lang === code}
-                    className="side-menu-lang"
-                    onClick={() => {
-                      setLang(code);
-                      savePref("preferred_lang", code);
-                    }}
-                  >
-                    <Icon name="globe" size={15} />
-                    {LANG_NAMES[code]}
-                    {lang === code && <Icon name="check" size={15} className="side-menu-tick" />}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                role="menuitem"
-                className="side-menu-lang"
-                onClick={() => setTone(tone === "simple" ? "detailed" : "simple")}
-              >
-                <Icon name="document" size={15} />
-                {tone === "simple" ? "Simple answers" : "Detailed answers"}
-              </button>
-              <Link href="/" role="menuitem" className="side-menu-lang">
-                <Icon name="arrowRight" size={15} className="flip-180" />
-                Back to the site
-              </Link>
               <button
                 type="button"
                 role="menuitem"
@@ -584,29 +550,6 @@ function toggleSide() {
               <Icon name="list" size={20} />
             </button>
             <Logo size={30} />
-            {/* Voice sits in the header, not buried in the composer: for
-                someone who cannot easily type, the mic is the way in. */}
-            {stt.supported && (
-              <button
-                type="button"
-                className={`chat-mic${stt.state === "listening" ? " on" : ""}`}
-                onClick={() =>
-                  stt.state === "listening" ? stt.stop() : stt.start(sendText)
-                }
-                disabled={loading}
-                aria-label={
-                  stt.state === "listening" ? "Stop listening" : "Ask by voice"
-                }
-              >
-                <Icon
-                  name={stt.state === "listening" ? "close" : "mic"}
-                  size={17}
-                />
-                <span>
-                  {stt.state === "listening" ? "Stop" : "Ask by voice"}
-                </span>
-              </button>
-            )}
             <span className="chat-top-tag">Family law · EN / HI / KN</span>
           </div>
         </header>
@@ -688,7 +631,6 @@ function toggleSide() {
 
         <div className="composer">
           <form onSubmit={send} className="composer-row">
-            {/* Mic lives in the header now; the composer stays a single pill. */}
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -699,6 +641,26 @@ function toggleSide() {
               }
               aria-label="Question"
             />
+            {/* Mic sits inside the pill, immediately left of the send arrow.
+                Someone who cannot type reaches for the same control they use to
+                send, not for a separate labelled button across the page — and
+                on a phone the two controls then share one row of thumb reach. */}
+            {stt.supported && (
+              <button
+                type="button"
+                className={`composer-mic${stt.state === "listening" ? " on" : ""}`}
+                onClick={() =>
+                  stt.state === "listening" ? stt.stop() : stt.start(sendText)
+                }
+                disabled={loading}
+                aria-label={
+                  stt.state === "listening" ? "Stop listening" : "Ask by voice"
+                }
+                title={stt.state === "listening" ? "Stop listening" : "Ask by voice"}
+              >
+                <Icon name={stt.state === "listening" ? "close" : "mic"} size={18} />
+              </button>
+            )}
             <button
               className="composer-send"
               type="submit"

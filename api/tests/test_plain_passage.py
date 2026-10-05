@@ -5,7 +5,7 @@ provenance header, a chapter banner, markdown residue, a repeated section
 heading, and a truncated preview of the paragraph that follows. None of that
 is the reader's problem, and all of it was reaching the answer.
 """
-from app.agent import plain_passage
+from app.agent import clip, plain_passage
 
 # Section 20, in the two shapes the corpus uses: one line with a preview of the
 # clause after it, and one without.
@@ -108,13 +108,50 @@ def test_empty_and_none_input():
     assert plain_passage(None) == ""
 
 
-def test_the_cut_lands_on_a_clause_boundary():
+def test_a_whole_sentence_is_preferred_over_a_mid_clause_cut():
+    """A cut that keeps the first sentence whole beats one that keeps more text.
+
+    The reader is a person asking about their situation. "…during her lifetime."
+    is a finished thought; "…from her husband during her lifetime. Nothing in
+    this" is a longer string that ends mid-rule. Length is not the goal.
+    """
     out = plain_passage(
         "Act: X\nSection 18: Maintenance of wife\n\n"
         "**18. Maintenance of wife.**―A Hindu wife is entitled to maintenance "
         "from her husband during her lifetime. Nothing in this section shall "
         "be construed to limit her rights.", limit=90)
-    assert out.endswith("…"), out
-    # Not mid-word: the last character before the ellipsis is real text.
-    assert not out[:-1].endswith(" "), out
+    assert out.endswith("her lifetime."), out
     assert len(out) <= 91, out
+
+
+def test_when_no_sentence_ends_in_budget_the_cut_is_still_not_mid_word():
+    """One clause, no full stop anywhere near the limit."""
+    text = ("any act, omission or commission or conduct of the respondent "
+            "shall constitute domestic violence in case it insults, ridicules, "
+            "humiliates or calls the woman names")
+    out = clip(text, limit=90)
+    assert out.endswith("…"), out
+    # Not mid-word, and not a cut so early the passage says nothing.
+    assert not out[:-1].endswith(" "), out
+    assert out[:-1].split()[-1].isalpha(), out
+    assert len(out) >= 45, out
+
+
+def test_clip_is_a_no_op_when_the_passage_fits():
+    text = "A short, whole sentence."
+    assert clip(text, limit=160) == text
+
+
+def test_a_semicolon_inside_a_list_is_not_a_sentence_end():
+    """The list in s.3 is the point of the section. Cutting at its first
+    semicolon left the reader with one item out of three and no sign that
+    anything was left out."""
+    text = ("any act, omission or commission or conduct of the respondent shall "
+            "constitute domestic violence in case it (a) insults, ridicules, "
+            "humiliates or calls the woman names with regard to not having a "
+            "child or a male child; or (b) commits any act of destruction or "
+            "injury to any property including stridhanam; or (c) takes any "
+            "action contrary to law")
+    out = clip(text, limit=240)
+    assert not out.rstrip("…").endswith(";"), out
+    assert out.endswith("…"), out

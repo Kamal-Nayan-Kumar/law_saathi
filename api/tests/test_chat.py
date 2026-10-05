@@ -63,6 +63,69 @@ def test_ask_persists_citations_so_reopened_chat_shows_sources(client, monkeypat
     assert history[0]["citations"] == []
 
 
+def test_asking_twice_stores_two_turns_not_four(client, offline_agent):
+    """The double-answer bug, at the layer it was actually caused.
+
+    One question, asked once, must leave exactly one user row and one
+    assistant row. The browser used to answer a dropped stream by re-running
+    the whole agent over the JSON endpoint, which persisted a second pair — and
+    the user read the same reply twice. Nothing in the API should make that
+    easy, and the browser fix relies on this staying true.
+    """
+    from tests.conftest import bff_headers
+
+    h = bff_headers("once")
+    sid = client.post("/sessions", json={"title": "s"}, headers=h).json()["id"]
+    client.post(f"/sessions/{sid}/ask",
+                json={"query": "what is maintenance", "lang": "en"}, headers=h)
+
+    rows = client.get(f"/sessions/{sid}/messages", headers=h).json()
+    assert [r["role"] for r in rows] == ["user", "assistant"]
+    assert rows[0]["content"] == "what is maintenance"
+
+
+def test_the_response_reports_the_language_it_wrote_in(client, offline_agent):
+    """The client picks a speaking voice from this. Guessing it client-side is
+    how a Kannada answer once got read aloud by an English voice."""
+    from tests.conftest import bff_headers
+
+    h = bff_headers("langcheck")
+    sid = client.post("/sessions", json={"title": "s"}, headers=h).json()["id"]
+    # Asked in Kannada, sent with the English default.
+    out = client.post(f"/sessions/{sid}/ask",
+                      json={"query": "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ",
+                            "lang": "en"}, headers=h).json()
+    assert out["lang"] == "kn"
+
+
+def test_one_question_gives_one_answer_even_if_the_stream_is_cut(client, offline_agent):
+    """The exact failure from the bug report, asserted end to end.
+
+    The browser's "recovery" for a dropped stream was to ask again over JSON.
+    That is what produced two identical answers under one question. This test
+    pins the contract that recovery now depends on: asking once writes one pair
+    of rows, so reading them back can never surface a duplicate.
+    """
+    from tests.conftest import bff_headers
+
+    h = bff_headers("dropped")
+    hs = dict(h, Accept="text/event-stream")
+    sid = client.post("/sessions", json={"title": "s"}, headers=h).json()["id"]
+
+    # The streamed request. Its body is never read here: this simulates the
+    # connection dying after the server has already done the work.
+    with client.stream("POST", f"/sessions/{sid}/ask/stream",
+                       json={"query": "what is maintenance", "lang": "en"},
+                       headers=hs):
+        pass
+
+    # The browser's recovery: a plain GET, which cannot run the agent again.
+    rows = client.get(f"/sessions/{sid}/messages", headers=h).json()
+    answers = [r for r in rows if r["role"] == "assistant"]
+    assert len(answers) == 1, rows
+    assert answers[0]["content"].strip()
+
+
 def test_messages_without_citations_still_read_back(client):
     """Rows written before the citations columns existed must not break."""
     from tests.conftest import bff_headers

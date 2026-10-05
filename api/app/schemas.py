@@ -100,3 +100,7 @@ class AskOut(BaseModel):
     trace_detail: List[TraceStep] = []
     verified: bool = False
     confidence: float = 0.0
+    # The language the answer is written in. The request carries a `lang`, but
+    # that is only the caller's guess: the server decides from the question's
+    # script, and reports the decision back so the client never has to guess.
+    lang: str = "en"

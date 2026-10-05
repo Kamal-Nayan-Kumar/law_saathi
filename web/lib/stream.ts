@@ -22,6 +22,8 @@ export type AskResult = {
   trace_detail: StreamStep[];
   verified: boolean;
   confidence: number;
+  /** The language the server actually wrote in. Authoritative. */
+  lang?: string;
 };
 
 export type StreamHandlers = {
@@ -73,6 +75,20 @@ async function askJson(path: string, body: unknown, timeoutMs: number): Promise<
   }
 }
 
+/**
+ * Ask a question, preferring the step stream.
+ *
+ * The one rule this function must never break: **one question, one agent run.**
+ * The old version retried the whole ask over plain JSON whenever the stream
+ * ended without a `done` event. But the stream carries the answer the whole
+ * time — the agent persisted it before sending `done`, and the connection is
+ * cut on the way out. So the "recovery" re-ran the agent, persisted a second
+ * answer, and the user read the same reply twice.
+ *
+ * So a stream that dies is no longer retried. The answer is already saved; we
+ * fetch it back from the message list. That path cannot run the agent again,
+ * because it is a plain GET.
+ */
 export async function askStream(
   path: string,
   body: unknown,
@@ -81,6 +97,12 @@ export async function askStream(
 ): Promise<AskResult> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  // How many steps arrived. Any step means the agent had already started, and
+  // therefore already owns this question — so a later failure must not lead to
+  // another run.
+  let sawStep = false;
+  let result: AskResult | null = null;
 
   let res: Response;
   try {
@@ -91,20 +113,26 @@ export async function askStream(
       signal: ctrl.signal,
     });
   } catch {
-    // No stream route at all: still answer the question.
+    // The stream route is unreachable (old server, proxy down). Nothing has run
+    // yet, so plain JSON is the correct fallback.
     clearTimeout(timer);
     return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
   }
 
   if (!res.ok || !res.body || !res.headers.get("content-type")?.includes("text/event-stream")) {
     clearTimeout(timer);
+    // A non-200 here means the request was rejected before the agent started
+    // (bad auth, missing session), so the JSON path will fail the same way and
+    // there is nothing to recover. Saying so beats re-running the agent.
+    if (res.status >= 400) {
+      throw new Error(await readError(res, res.status));
+    }
     return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: AskResult | null = null;
 
   try {
     for (;;) {
@@ -118,6 +146,7 @@ export async function askStream(
 
       for (const { event, data } of blocks) {
         if (event === "step") {
+          sawStep = true;
           handlers.onStep?.(JSON.parse(data) as StreamStep);
         } else if (event === "done") {
           result = JSON.parse(data) as AskResult;
@@ -130,17 +159,113 @@ export async function askStream(
     }
   } catch (e) {
     if ((e as Error).name === "AbortError") {
-      throw new Error("The answer is taking too long. Please try again.");
+      throw new Error("This is taking longer than usual. Please try again.");
     }
-    // A stream that dies mid-run has already lost the answer, so retry once
-    // over plain JSON rather than showing a half-sent reply.
-    if (!result) return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
+    // The run had started, so it has already saved an answer. Read it back
+    // rather than asking again.
+    if (!result && sawStep) return recoverPersisted(path);
     throw e;
   } finally {
     clearTimeout(timer);
   }
 
-  if (!result) return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
-  handlers.onDone?.(result);
-  return result;
+  if (result) {
+    handlers.onDone?.(result);
+    return result;
+  }
+  if (sawStep) return recoverPersisted(path);
+  // Nothing streamed at all: the request never reached the agent, so JSON is
+  // safe and cannot duplicate anything.
+  return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
+}
+
+/** A bare status with no body is not something to show a person. */
+async function readError(res: Response, status: number): Promise<string> {
+  const text = (await res.text().catch(() => "")).trim();
+  if (!text) return `Something went wrong (${status}). Please try again.`;
+  try {
+    const parsed = JSON.parse(text) as { detail?: string };
+    if (parsed.detail) return parsed.detail;
+  } catch {
+    // Not JSON; the raw text is the best available message.
+  }
+  return text.slice(0, 200);
+}
+
+/**
+ * Fetch the answer the agent already saved.
+ *
+ * `GET /sessions/{id}/messages` cannot run the agent, so this is the only way
+ * to finish a run whose stream was cut — and it is the reason a dropped
+ * connection no longer costs the user a second answer. Citations and the step
+ * log come back with the row, so the Sources list and the Thinking panel are
+ * exactly as they would have been on the streamed path.
+ */
+async function recoverPersisted(path: string): Promise<AskResult> {
+  const sessionId = path.split("/")[2];
+  // Losing the connection does not cancel the run — the agent keeps going on
+  // the server and saves the answer when it finishes. So when nothing is there
+  // yet, wait for it rather than telling the user to type the question again
+  // while the answer they already asked for is still being written.
+  for (let attempt = 0; attempt < RECOVERY_ATTEMPTS; attempt += 1) {
+    const list = await fetchMessages(sessionId);
+    const answer = [...list]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.content);
+    if (answer) {
+      return {
+        answer: answer.content,
+        clarification: false,
+        citations: answer.citations ?? [],
+        citation_sources: answer.citation_sources ?? [],
+        provider: "",
+        retries: 0,
+        trace: answer.trace ?? [],
+        trace_detail: answer.trace_detail ?? [],
+        verified: answer.verified ?? true,
+        confidence: answer.confidence ?? 0,
+      };
+    }
+    await sleep(RECOVERY_INTERVAL_MS);
+  }
+  throw new Error(
+    "The connection dropped before the answer arrived. Please ask again.",
+  );
+}
+
+// 6s, 12s, 18s, 24s — about 90 seconds in total, which covers a run that was
+// already under way when the connection went.
+const RECOVERY_ATTEMPTS = 10;
+const RECOVERY_INTERVAL_MS = 4000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type StoredMessage = {
+  role: string;
+  content: string;
+  citations?: string[];
+  citation_sources?: string[];
+  trace?: string[];
+  trace_detail?: StreamStep[];
+  verified?: boolean | null;
+  confidence?: number | null;
+};
+
+async function fetchMessages(sessionId: string): Promise<StoredMessage[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(`/api/bff/sessions/${sessionId}/messages`, {
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    return (await res.json()) as StoredMessage[];
+  } catch {
+    // Nothing to recover from. The caller turns this into a readable message.
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
