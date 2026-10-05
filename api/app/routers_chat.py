@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import auth as auth_lib
 from app import db as db_module
+from app import obs as obs_module
 from app.models import ChatSession, Memory, Message, User
 from app.schemas import (
     AskIn,
@@ -242,11 +243,14 @@ def ask(session_id: int, body: AskIn,
     from app import agent as agent_module
 
     chat, memories, history, body_lang = _prepare_ask(session_id, body, user, db)
+    recorder = obs_module.new_run(user_id=user.id, lang=body_lang,
+                                  tone=memories["tone"], query=body.query)
     state = agent_module.run_agent(body.query, lang=body_lang, memory=memories,
                                    tone=memories["tone"],
                                    doc_id=body.doc_id or "",
                                    min_score=float(body.min_score),
                                    history=history)
+    obs_module.record_run(recorder, state)
     return _persist_ask(session_id, body, user, db, memories, body_lang, state)
 
 
@@ -273,6 +277,8 @@ def ask_stream(session_id: int, body: AskIn,
     # from the worker thread raised DetachedInstanceError.
     user_id = user.id
     user_email = user.email
+    recorder = obs_module.new_run(user_id=user_id, lang=body_lang,
+                                  tone=memories["tone"], query=body.query)
 
     def run() -> Dict[str, Any]:
         return agent_module.run_agent(
@@ -286,6 +292,7 @@ def ask_stream(session_id: int, body: AskIn,
         # the time the answer is ready.
         from app.models import User as UserModel
 
+        obs_module.record_run(recorder, state)
         session = db_module.new_session()
         try:
             fresh = session.query(UserModel).filter_by(id=user_id).one()
