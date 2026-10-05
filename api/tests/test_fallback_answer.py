@@ -70,6 +70,42 @@ def test_the_disclaimer_survives_the_fallback():
             or "ವಕೀಲ" in answer, lang
 
 
+# Guardians and Wards Act s.17, verbatim. The word "welfare" — the whole reason
+# this section decides custody — sits about 300 characters in.
+S17 = {
+    "act": "Guardians and Wards Act, 1890",
+    "section": "Section 17",
+    "text": (
+        "Act: The Guardians and Wards Act, 1890 (Act 08 of 1890) | India | "
+        "Central | In Force\n"
+        "Chapter II: ## APPOINTMENT AND DECLARATION OF GUARDIANS | Section 17: "
+        "Matters to be considered by the Court in appointing guardian.** —( _1_ )"
+        " In appointing or declaring\n\n"
+        "**17. Matters to be considered by the Court in appointing guardian.** "
+        "—( _1_ ) In appointing or declaring the guardian of a minor, the Court "
+        "shall, subject to the provisions of this section, be guided by what, "
+        "consistently with the law to which the minor is subject, appears in "
+        "the circumstances to be for the welfare of the minor.\n\n"
+        "( _2_ ) In considering what will be for the welfare of the minor, the "
+        "Court shall have regard to the age,"),
+}
+
+
+def test_the_fallback_does_not_cut_the_reasoning_off_the_operative_words():
+    """With no model there is no summary, so the quoted text is the answer.
+
+    At 160 characters s.17 stopped mid-sentence at "be guided by what..." and the
+    phrase that decides the case — "for the welfare of the minor" — was gone.
+    A reader was left with a clause and no point."""
+    state = new_state("q", lang="en")
+    state["slots"] = {"topic": "custody"}
+    state["evidence"] = [{"id": "p1", "score": 0.9, "payload": dict(S17)}]
+    state["verified"] = True
+    state["confidence"] = 0.9
+    answer, _, _ = compose_answer(state)
+    assert "welfare of the minor" in answer, answer
+
+
 def test_a_model_written_answer_is_untouched():
     """The fallback must not leak into the normal path."""
     state = build("maintenance")

@@ -95,8 +95,35 @@ TOPIC_KEYWORDS = {
                           "beats up", "threatens me", "threaten me",
                           "scared to tell", "afraid of my husband",
                           "afraid of my wife", "not safe at home",
-                          "मारता", "मारपीट", "अत्याचार", "डरा", "धक्का",
-                          "ಹೊಡೆ", "ಹಿಂಸೆ", "ಬೀದು", "ದೌರ್ಜನೆ"),
+                          # Coercive control is domestic violence under s.3(a) —
+                          # "fear, harassment or injury" — but people describe it
+                          # as confinement or being watched. None of the words
+                          # below contain the name of the Act, and each of these
+                          # questions returned zero evidence: no topic, no
+                          # retrieval, no answer. That is the worst possible
+                          # reply to someone who is frightened.
+                          #
+                          # These are kept out of TOPIC_KEYWORDS because "scared"
+                          # and "not safe" alone are not about a person: "I am
+                          # scared of the court process" is a maintenance
+                          # question. They are matched in extract_slots, where the
+                          # surrounding words are known — see _FEAR_IS_PERSONAL.
+                          "not letting me leave", "does not let me leave",
+                          "won't let me leave", "keeps me locked",
+                          "locks the door", "locks me in",
+                          "waits for me to leave", "waits till i leave",
+                          "follows me", "watches me", "does not let me speak",
+                          "won't let me speak", "takes my phone", "hides money",
+                          "hide money", "keeps my phone", "keeps money from me",
+                          "not allowed to leave", "not allowed to go out",
+                          "i cannot leave", "i can't leave", "i cannot go out",
+                          "threatens to", "shouted at me", "screams at me",
+                          "scares me", "intimidates me", "follows me home",
+                          "मुझे डर", "डर लगता", "अकेला नहीं छोड़",
+                          "निकलने नहीं देता", "मारने की धमकी", "फोन छीन",
+                          "नजर रखता", "निगरानी रखता",
+                          "ನನಗೆ ಭಯ", "ಹೊರಡೆ", "ಬೀಗ ಹಾಕುತ್ತಾನೆ",
+                          "ದೂರ ಮನೆ", "ಹೊಡೆ", "ಹಿಂಸೆ", "ಬೀದು", "ದೌರ್ಜನೆ"),
     "marriage": ("marriage", "marry", "married", "marital", "wedding",
                  "shadi", "shaadi", "vivah",
                  "nikah", "nikaha", "sagai", "engagement", "विवाह", "शादी",
@@ -297,6 +324,29 @@ def _follow_up_topic(query_en: str) -> str:
     return ""
 
 
+# "I am scared" and "I am not safe" only point at domestic violence when the
+# fear is of a person. "I am scared of the court process" and "I am scared my
+# husband will not pay me anything" are maintenance questions, and the DV Act is
+# the wrong statute to answer them with.
+_FEAR_IS_PERSONAL = (
+    "not safe at home", "not safe in my", "not safe here", "not safe with",
+    "i am scared at home", "i am scared at night", "i am scared to go home",
+    "i am scared to tell", "i'm scared to go home", "i'm scared to tell",
+    "scared of my husband", "scared of my wife", "scared of him",
+    "scared of her", "afraid of my husband", "afraid of my wife",
+    "afraid of him", "afraid of her", "afraid to go home", "i feel unsafe",
+    "i don't feel safe", "i do not feel safe", "not safe",
+    "मुझे डर है", "डर लगता है", "सुरक्षित नहीं", "नहीं लगता कि सुरक्षित",
+    "ನನಗೆ ಭಯ", "ಸುರಕ್ಷಿತ", "ಭಯವಾಗುತ್ತದೆ",
+)
+
+
+def _fear_points_at_a_person(query_en: str) -> bool:
+    """True when the expressed fear is of a person or place, not of a process."""
+    low = (query_en or "").lower()
+    return any(p in low for p in _FEAR_IS_PERSONAL)
+
+
 def extract_slots(query_en: str) -> Dict[str, str]:
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
@@ -310,6 +360,11 @@ def extract_slots(query_en: str) -> Dict[str, str]:
 
     topics = [t for t, kws in TOPIC_KEYWORDS.items()
               if any(k in bare for k in kws)]
+    # Fear of a person is domestic violence even when no keyword above fires.
+    # Coercive control — confinement, being watched, not allowed to leave — is
+    # what s.3(a) covers, and these phrasings reached no topic at all.
+    if "domestic_violence" not in topics and _fear_points_at_a_person(query_en):
+        topics.append("domestic_violence")
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
         for pref in ("interfaith_marriage", "maintenance", "custody",
@@ -2323,10 +2378,16 @@ def compose_answer(state: Dict[str, Any],
         # list the passages. This is precisely when a user most needs the reply
         # to read like help, and it used to open with the heading "Quick answer"
         # and a third-person summary that never mentioned their situation.
+        #
+        # These passages get 320 characters, not the 160 a citation preview uses.
+        # With no model there is no summary to carry the point, so the quoted text
+        # is the answer — and at 160 it cut off exactly the operative words.
+        # s.17 lost "welfare of the minor shall be the first consideration";
+        # s.8 lost "class I of the Schedule".
         lines = ["- **[%d] %s** — %s" % (
             i, format_citation(h.get("payload", {}) if isinstance(h, dict) else {}),
             _short_meaning((h.get("payload", {}) or {}).get("text", "")
-                           if isinstance(h, dict) else ""))
+                           if isinstance(h, dict) else "", limit=320))
             for i, h in enumerate(evidence[:5], start=1)]
         answer = (
             "%s\n\n"
