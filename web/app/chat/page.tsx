@@ -549,8 +549,8 @@ function toggleSide() {
             >
               <Icon name="list" size={20} />
             </button>
-            <span className="chat-top-tag">Legal information. In your language.</span>
             <Logo size={40} />
+            <span className="chat-top-tag">Family Law, Explained in Simple Words.</span>
           </div>
         </header>
 

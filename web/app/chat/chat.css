@@ -213,8 +213,8 @@
   gap: var(--s4);
 }
 
-/* Tagline sits in front of the wordmark so the bar reads as one lockup and
-   carries the brand promise without a second row. */
+/* Tagline follows the wordmark so the bar reads as one left-aligned lockup
+   and carries the brand promise without a second row. */
 .chat-top-tag {
   font-size: 0.8rem;
   color: var(--muted-2);
