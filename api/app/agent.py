@@ -1076,10 +1076,6 @@ def node_intent(state: Dict[str, Any],
                    "earlier session.")
     if slots.get("topic"):
         updates["last_topic"] = str(slots["topic"])
-    # The language a person actually writes in is the strongest signal of the
-    # language they want read back. It is remembered so the account menu and the
-    # next visit agree, not just this one answer.
-    updates["preferred_lang"] = str(lang)
     # Which side they are on matters for the next question: "what about my
     # daughter?" after a custody answer needs the party, not the topic again.
     if slots.get("self_side"):

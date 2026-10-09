@@ -124,29 +124,6 @@
   flex-direction: column;
 }
 
-.lang-pick {
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: var(--s4);
-  margin: 0 0 var(--s4);
-}
-
-.lang-pick legend {
-  padding: 0 8px;
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
-.lang-pick .field-hint {
-  margin: 0 0 var(--s3);
-}
-
-.lang-pick .chips-row .chip-btn {
-  padding: 8px 12px;
-  font-size: 0.85rem;
-}
-
 .auth-submit {
   width: 100%;
   margin-top: var(--s2);

@@ -182,10 +182,6 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
     # the legal topic, so "what about maintenance?" tomorrow does not restart
     # from nothing.
     for k, v in (state.get("memory_updates") or {}).items():
-        # preferred_lang is recorded for the profile only. Nothing reads it to
-        # decide how to answer: the answer follows the question's script.
-        if k == "preferred_lang":
-            continue
         if str(memories.get(k, "")) == str(v):
             continue
         existing = db.query(Memory).filter_by(user_id=user.id, key=k).first()

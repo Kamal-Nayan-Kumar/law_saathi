@@ -5,15 +5,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { authClient } from "@/lib/auth/client";
-import { api } from "@/lib/api";
 import Icon from "@/components/Icon";
 import "./auth.css";
-
-const LANGS = [
-  { code: "en", label: "English", native: "English" },
-  { code: "hi", label: "Hindi", native: "हिन्दी" },
-  { code: "kn", label: "Kannada", native: "ಕನ್ನಡ" },
-];
 
 const PERKS = [
   "Ask in your own language, by voice or text",
@@ -28,12 +21,8 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [lang, setLang] = useState("en");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState("");
-  // Shown while a language preference is being saved after signup. The user is
-  // already routed to /chat by then, so this never blocks the screen.
-  const [savedHint, setSavedHint] = useState("");
   // A tap on a slow phone gave zero feedback while the request was in flight,
   // so it looked like the button was broken.
   const [busy, setBusy] = useState(false);
@@ -43,9 +32,6 @@ function LoginForm() {
   useEffect(() => {
     const q = searchParams.get("mode");
     if (q === "register" || q === "login") setMode(q);
-    // The settings menu links here with ?lang= to change the answer language.
-    const l = searchParams.get("lang");
-    if (l === "en" || l === "hi" || l === "kn") setLang(l);
   }, [searchParams]);
 
   async function submit(e: React.FormEvent) {
@@ -62,13 +48,10 @@ function LoginForm() {
         setError(error.message || "Failed");
         return;
       }
-      // Route away first. Saving the language is a second round-trip and must
-      // never be the reason the user waits on a spinner after signing in.
+      // No language is chosen or saved anywhere. The answer is written in
+      // whatever script the question arrives in, so a stored preference would
+      // only be able to contradict what the user just typed.
       router.push("/chat");
-      if (mode === "register") {
-        api("/me", { method: "PUT", body: JSON.stringify({ preferred_lang: lang }) })
-          .catch(() => setSavedHint("We could not save your language. Pick it in chat instead."));
-      }
     } catch {
       setError("Could not sign you in. Check your connection and try again.");
     } finally {
@@ -162,35 +145,9 @@ function LoginForm() {
             </span>
           </label>
 
-          {isRegister && (
-            <fieldset className="lang-pick">
-              <legend>Preferred language</legend>
-              <p className="field-hint">Answers come back in the language you ask in. This is your default.</p>
-              <div className="chips-row">
-                {LANGS.map((l) => (
-                  <button
-                    key={l.code}
-                    type="button"
-                    className="chip-btn"
-                    aria-pressed={lang === l.code}
-                    onClick={() => setLang(l.code)}
-                  >
-                    <Icon name="globe" size={15} />
-                    {l.native}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          )}
-
           {error && (
             <p className="alert alert-error" role="alert">
               {error}
-            </p>
-          )}
-          {savedHint && (
-            <p className="alert alert-error" role="status">
-              {savedHint}
             </p>
           )}
 
