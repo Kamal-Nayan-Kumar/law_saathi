@@ -111,7 +111,11 @@ def main(argv=None) -> int:
                     help="local JSONL from download_corpus.py, repeatable")
     ap.add_argument("--url", action="append", default=[],
                     help='"url:Act Name" via Firecrawl, repeatable')
-    ap.add_argument("--limit", type=int, default=500)
+    ap.add_argument("--limit", type=int, default=None,
+                    help="max HF rows to ingest (default: all). A cap here "
+                         "silently drops whole Acts, because rows are grouped "
+                         "by Act in the file: a limit of 500 kept 7 of the 14 "
+                         "family Acts the dataset holds.")
     ap.add_argument("--lang", default="en")
     ap.add_argument("--collection", default=DEFAULT_COLLECTION)
     ap.add_argument("--demo", action="store_true",
