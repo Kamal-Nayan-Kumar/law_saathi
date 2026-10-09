@@ -1,6 +1,8 @@
 """T2 tests: section-aware chunker + provenance + EN/HI/KN retrieval seam."""
 import math
 
+import pytest
+
 from app.ingest import (
     InMemoryVectorStore,
     build_points,
@@ -8,6 +10,7 @@ from app.ingest import (
     chunk_act,
     chunk_text,
     chunks_from_hf_row,
+    is_enacted_law,
     split_sections,
     stable_point_id,
 )
@@ -286,6 +289,67 @@ def test_firecrawl_loader_needs_key(monkeypatch):
         assert "FIRECRAWL_API_KEY" in str(e)
     else:
         raise AssertionError("expected RuntimeError for missing key")
+
+
+def test_text_dir_refuses_a_bill(tmp_path):
+    """The path the 2021 Bill actually came through must not index it again.
+
+    A text directory holds whatever someone downloaded, so the title is
+    unvetted. `The Prohibition of Child Marriage (Amendment) Bill, 2021.txt`
+    was ingested from exactly here and then cited as law in production.
+    """
+    from app.ingest import chunks_from_text_dir
+
+    (tmp_path / "The Dowry Prohibition Act, 1961.txt").write_text(
+        "Section 3 Penalty. Giving or taking dowry is an offence.", encoding="utf-8")
+    (tmp_path / "The Muslim Marriage Bill, 2024.txt").write_text(
+        "Section 4 Age of marriage. A man of twenty-one may marry.",
+        encoding="utf-8")
+    (tmp_path / "The Prohibition of Child Marriage (Amendment) Bill, 2021.txt"
+     ).write_text("Section 2 Amendment. The age is raised.", encoding="utf-8")
+
+    chunks = chunks_from_text_dir(str(tmp_path))
+
+    assert [c.act for c in chunks] == ["The Dowry Prohibition Act, 1961"], \
+        [c.act for c in chunks]
+    assert not any("Bill" in c.act for c in chunks)
+
+
+@pytest.mark.parametrize("act", [
+    "The Dowry Prohibition Act, 1961",
+    "Indian Succession Act, 1925",
+    "The Parsi Marriage and Divorce Act, 1936",
+])
+def test_ingestion_accepts_the_acts_we_lack(act):
+    """The guard must not block real Acts on the way to closing the gap.
+
+    Dowry Prohibition, Indian Succession and Parsi were listed in FAMILY_ACTS
+    but had no source, so answering about them returned nothing. Widening the
+    filter to "skip anything suspicious" would have blocked these too.
+    """
+    assert is_enacted_law(act)
+
+
+def test_pdf_loader_refuses_a_bill(tmp_path):
+    import app.ingest as ingest_mod
+
+    fake = tmp_path / "bill.pdf"
+    fake.write_bytes(b"%PDF-1.4\n")
+    for loader, kwargs in (
+        (ingest_mod.chunks_from_pdf, {}),
+        (ingest_mod.chunks_from_firecrawl_url, {"api_key": "test-key"}),
+    ):
+        try:
+            if loader is ingest_mod.chunks_from_firecrawl_url:
+                loader("https://example.com/x",
+                       act="The Hindu Marriage (Amendment) Bill, 2021", **kwargs)
+            else:
+                loader(str(fake), act="The Hindu Marriage (Amendment) Bill, 2021",
+                       **kwargs)
+        except RuntimeError as e:
+            assert "proposal, not law" in str(e), str(e)
+        else:
+            raise AssertionError("%s accepted a Bill" % loader.__name__)
 
 
 def test_qdrant_store_upsert_texts_uses_document():

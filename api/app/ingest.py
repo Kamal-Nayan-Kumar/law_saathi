@@ -97,6 +97,37 @@ _ACT_ALIASES = [
 ]
 
 
+# Material that is not law. A Bill is a proposal; a Bill *passed* is still not
+# in force until notified. Quoting one as "BARE ACT" tells a person seeking
+# custody that a rule exists when no court will apply it.
+#
+# Found live: the production answer to "who gets custody of my child" cited
+# "Prohibition of Child Marriage (Amendment) Bill, 2021" as source 5, and
+# stated a "children under five go to the mother" rule attributed to it. That
+# rule is not in the Bill or in the Guardians and Wards Act - the model supplied
+# it, and the citation made it look sourced. 22 chunks of that Bill had been
+# ingested from a local text file, because nothing on the ingestion path
+# checked whether a document was law at all.
+#
+# The list lives here, in the module that decides what enters the index, so
+# the corpus and the answer cannot disagree about what counts as law.
+_NOT_LAW = (
+    "bill", "draft", "ordinance", "circulated", "proposed", "referred",
+    "private member", "motion", "resolution of the", "lok sabha",
+    "rajya sabha", "bill no",
+)
+
+
+def is_enacted_law(act: Optional[str]) -> bool:
+    """False for a proposal no court would apply today.
+
+    Checked at ingestion as well as at answer time. Filtering only the answer
+    left the Bill's chunks competing for a slot in the top-k and pushing a real
+    Guardians and Wards section out of the evidence.
+    """
+    return not any(w in (act or "").lower() for w in _NOT_LAW)
+
+
 def canonical_act(title: str) -> Optional[str]:
     """Map a raw dataset title to a canonical family act, or None."""
     low = (title or "").lower()
@@ -700,6 +731,12 @@ def chunks_from_text_dir(
     for path in paths:
         raw_title = path.stem.replace("_", " ").replace("-", " ")
         act = canonical_act(raw_title) or raw_title
+        # A local directory is whatever someone downloaded, so the title is
+        # unvetted. This is how the Child Marriage (Amendment) Bill, 2021 got
+        # in: a text file with a Bill in its name, indexed like an Act.
+        if not is_enacted_law(act):
+            print("skipping not-enacted law: %s" % path.name)
+            continue
         out.extend(chunk_act(act, _read_text_file(path),
                              lang=lang, source="%s:%s" % (source, path.name),
                              uid=path.name))
@@ -715,6 +752,12 @@ def chunks_from_firecrawl_url(
     Used for URL-based corpus sources; local uploads stay on local parsers
     (free, offline). Requires FIRECRAWL_API_KEY.
     """
+    # Checked before the key, so the refusal is the same in a test with no
+    # credentials and does not depend on the order of two unrelated errors.
+    if not is_enacted_law(act):
+        raise RuntimeError(
+            "refusing to scrape %r: a Bill or ordinance is a proposal, not law"
+            % act)
     import httpx
 
     key = api_key or os.environ.get("FIRECRAWL_API_KEY", "")
@@ -739,6 +782,10 @@ def chunks_from_pdf(
     pdf_path: str, act: str, lang: str = "en", source: str = "india-code"
 ) -> List[Chunk]:
     """India Code PDF as truth: one chunk pass per page, section-aware."""
+    if not is_enacted_law(act):
+        raise RuntimeError(
+            "refusing to ingest %r: a Bill or ordinance is a proposal, not law"
+            % act)
     try:
         from pypdf import PdfReader
     except ImportError as e:

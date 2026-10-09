@@ -1509,23 +1509,26 @@ _AMENDMENT_LABEL = "Amendment notice"
 # "Prohibition of Child Marriage (Amendment) Bill, 2021" as source 5, and
 # stated a "children under five go to the mother" rule attributed to it. That
 # rule is not in the Bill or in the Guardians and Wards Act — the model supplied
-# it, and the citation made it look sourced. 22 chunks of that Bill are in the
-# corpus, from a non-official dataset.
-_NOT_LAW = (
-    "bill", "draft", "ordinance", "circulated", "proposed", "referred",
-    "private member", "motion", "resolution of the", "lok sabha",
-    "rajya sabha", "bill no",
-)
+# it, and the citation made it look sourced. 22 chunks of that Bill were in the
+# corpus, from a local text file.
+#
+# The word list now lives in ingest.py, which also refuses such a document on
+# the way in. Filtering only at answer time left those chunks taking a slot in
+# the top-k and pushing a real Guardians and Wards section out of the evidence,
+# so ingestion and the answer now read the same rule from one place.
 
 
 def is_enacted(payload: Dict[str, Any]) -> bool:
     """False for material a court would not apply today."""
+    from app.ingest import is_enacted_law
+
     act = str((payload or {}).get("act") or "")
     if not act:
         # An amendment notice is a corpus point we created; it stays citable.
         return True
-    low = act.lower()
-    return not any(w in low for w in _NOT_LAW)
+    return is_enacted_law(act)
+
+
 _TIMING_WORDS = (
     "mutual consent", "mutual", "living separately", "live apart",
     "lived apart", "separation period", "how long", "waiting period",
