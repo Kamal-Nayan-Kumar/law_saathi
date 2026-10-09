@@ -213,6 +213,16 @@
   gap: var(--s4);
 }
 
+/* Tagline sits in front of the wordmark so the bar reads as one lockup and
+   carries the brand promise without a second row. */
+.chat-top-tag {
+  font-size: 0.8rem;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .side-toggle {
   display: none;
   background: none;
@@ -222,13 +232,6 @@
   padding: 9px;
   cursor: pointer;
   flex: none;
-}
-
-.chat-top-tag {
-  margin-left: auto;
-  font-size: 0.78rem;
-  color: var(--muted-2);
-  white-space: nowrap;
 }
 
 /* The listening pulse. Owned by the composer mic, which is the only mic button
