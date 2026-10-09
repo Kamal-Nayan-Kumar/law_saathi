@@ -23,9 +23,9 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Law Saathi — Clear Family Law Guidance, In Your Language",
+  title: "Law Saathi — Family Law, Explained in Simple Words",
   description:
-    "Law Saathi is a multilingual, AI-powered legal support system that helps you understand family law in simple words — through text or voice.",
+    "Law Saathi is a multilingual, AI-powered legal support system that helps you understand family law — through text or voice, in the language you use.",
   icons: { icon: "/images/logo-mark.png" },
 };
 

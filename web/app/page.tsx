@@ -124,13 +124,13 @@ export default function Landing() {
           <div className="hero-copy">
             <span className="eyebrow-pill">Your Friendly Legal Companion</span>
             <h1>
-              Clear Family Law Guidance,{" "}
-              <span className="gold">In Your Language.</span>
+              Family Law,{" "}
+              <span className="gold">Explained in Simple Words.</span>
             </h1>
             <p className="lede">
               Law Saathi is a multilingual, AI-powered legal support system that
-              helps you understand family law in simple words — through text or
-              voice.
+              helps you understand family law — through text or voice, in the
+              language you use.
             </p>
 
             <div className="lang-pills" role="list" aria-label="Supported languages">
@@ -150,10 +150,6 @@ export default function Landing() {
               <Link href="/login?mode=register" className="btn btn-primary">
                 Start a Conversation
                 <Icon name="arrowRight" size={17} />
-              </Link>
-              <Link href="/login" className="btn btn-outline">
-                <Icon name="play" size={16} />
-                Watch Demo
               </Link>
             </div>
           </div>
