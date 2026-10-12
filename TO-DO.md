@@ -36,7 +36,7 @@ kept honest so a reader can tell what is done from what is claimed.
 | B5 | Language preference is not remembered properly | **superseded** — there is no language preference to remember. The answer follows the script of the question, so the picker was removed rather than fixed (see 0f) |
 | B6 | The "Thinking" toggle is not robust | **fixed** — SSE streams each step live, persisted on the message row |
 | B7 | Web search is not visibly implemented | **blocked** — `api/app/agent.py: stub_web_search` is written, but the `firecrawl` package is not installed. Add it and set `FIRECRAWL_API_KEY` |
-| B8 | Voice (STT/TTS) is missing from the UI | **done** — browser Web Speech APIs, no key needed. The mic is inside the input pill, left of the send arrow; Read aloud per answer |
+| B8 | Voice (STT/TTS) is missing from the UI | **done** — the mic is inside the input pill, left of the send arrow; Read aloud per answer. Rebuilt on `MediaRecorder` + server transcription after browser Web Speech turned out to work on phones and fail on laptops |
 | B9 | No real-time voice | **open** — see F8 |
 | B10 | No visibility into what the agent is doing | **fixed** — `api/app/obs.py` records one JSONL line per run; `api/scripts/agent_stats.py` draws node frequency, decisions, latency, providers, outcomes and the number of distinct paths |
 
@@ -50,8 +50,8 @@ kept honest so a reader can tell what is done from what is claimed.
 | F4 | LangSmith tracing, evals and monitoring | **partial** — tracing hooks are in place but unverified against a live LangSmith account. The local JSONL log works with no key and no network |
 | F5 | RAGAS evaluation with a golden dataset | **partial** — the dataset is real: `api/eval/golden_qas.py`, 17 questions, plus offline and live runners. RAGAS itself is **not** written; it needs an LLM judge and an embedding matrix. The runners deliberately check what can be checked deterministically: right language, right section cited, nothing confidently wrong |
 | F6 | Robust "thinking" toggle so the agent reads as agentic | **done** |
-| F7 | Voice: speech-to-text and text-to-speech | **done** |
-| F8 | Real-time voice (streaming, low latency) | **open** — needs a streaming STT/TTS provider. Browser Web Speech cannot do low-latency streaming |
+| F7 | Voice: speech-to-text and text-to-speech | **done** — Sarvam SAAR first, Groq Whisper fallback (`api/app/voice.py`); read aloud by the browser's own `speechSynthesis`. Recording is bounded by time, not silence, and the transcript lands in the input box for the user to send — never auto-sent on a pause |
+| F8 | Real-time voice (streaming, low latency) | **open** — needs a streaming STT provider. Sarvam has a WebSocket streaming API (<150ms to first token); the current REST path returns the whole clip at once. Read-aloud is still non-streaming and would need chunking |
 | F9 | A developer view that visualises agent states, graphs and latency | **done** — `api/app/obs.py` + `api/scripts/agent_stats.py`. A pipeline takes exactly one path per run; an agent does not. Distinct-path count is the check |
 
 ### 0d. How to work
@@ -116,7 +116,8 @@ happening.
 | Planner chooses act + tools | `api/app/agent.py` | implemented |
 | Verifier is a model | `api/app/agent.py` | implemented |
 | Web search | `api/app/agent.py` | written; **blocked**, `firecrawl` not installed |
-| STT / TTS | `web/lib/voice.ts` | done via browser Web Speech, no key |
+| STT | `api/app/voice.py` + `web/lib/voice.ts` | done — browser records, server transcribes. Sarvam SAAR → Groq Whisper. **Sarvam credits currently exhausted**, Groq carrying it |
+| TTS | `web/lib/voice.ts` | done via browser `speechSynthesis`, no key, no server |
 | Observability | `api/app/obs.py` | done, local JSONL, no key |
 | LangSmith | `api/app/agent.py` | hooks in, **unverified** against a live account |
 | RAGAS | none | to build; the golden dataset it needs already exists |
@@ -158,7 +159,7 @@ All generated in the pinned ChatGPT chat and cropped by
 3. F1 scope and question list — **done** (`SCOPE.md`)
 4. F2 memory for language preference — **done**
 5. F3 + F9 agent step visibility, tracing — **done**
-6. F7 voice — **done**. F8 real-time voice — **open**
+6. F7 voice — **done** (server-side STT, Sarvam → Groq). F8 real-time voice — **open**, needs Sarvam's streaming API
 7. F4 LangSmith verification, F5 RAGAS — **partial**, see 0c
 8. Persona-based regression testing, fix, re-test — **done**, 7 defects fixed
 

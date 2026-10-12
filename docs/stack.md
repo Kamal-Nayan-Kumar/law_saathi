@@ -35,13 +35,38 @@ not reachable from a browser session directly.
 | Answer rendering | `react-markdown` + `remark-gfm` | |
 | Icons and charts | hand-built SVG | no icon or chart library — see `CONTEXT.md` |
 
-Voice is **browser Web Speech** (`web/lib/voice.ts`) — `SpeechRecognition` and
-`speechSynthesis`. No key, no server round-trip, and nothing leaves the device.
+Voice is **record in the browser, transcribe on the server**.
+
+- Capture: `MediaRecorder` + `getUserMedia` (`web/lib/voice.ts`). The browser
+  never transcribes anything itself.
+- Transcribe: `POST /voice/transcribe` → `api/app/voice.py`. **Sarvam SAAR**
+  (`saaras:v4`) first, **Groq Whisper** (`whisper-large-v3-turbo`) as fallback.
+- Read aloud: still the browser's own `speechSynthesis` — free, offline, and
+  nothing to maintain.
+
 Buttons are hidden when the API is absent rather than shown broken.
 
-> The plan said Sarvam STT/TTS. That was not built. `api/app/voice.py` and the
-> `/sessions/{id}/voice` route still exist but the frontend never calls them, so
-> that path is dead.
+> **Why not the browser's `SpeechRecognition`.** It is not speech recognition,
+> it is a client for Google's speech servers. That works on Android Chrome and
+> fails on desktop Chrome with `network`, because the request to Google is the
+> part an adblocker, Brave Shields or a filtered network kills. Voice input
+> therefore worked on a phone and failed on a laptop for the same user, which
+> is the worst possible split for an accessibility feature. Capturing locally
+> and transcribing on our own API means no page extension sits in the path.
+>
+> **Why two providers.** Sarvam is much the better model for the people this
+> app is for — Indian accents, Hinglish code-switching, Kannada. It bills per
+> minute, and an account out of credits answers 402. Groq is the same call
+> shape, free at this volume, and covers English and Hindi. Sarvam is asked
+> first and Groq answers when it cannot, so topping up Sarvam credits needs no
+> code change.
+>
+> **Language is never forced.** Both providers auto-detect, and the agent
+> decides the answer's language from the question's script anyway. Pinning a
+> language before the user has spoken only costs accuracy on code-mixed speech.
+>
+> A transcript lands in the input box and is **not** sent until the user
+> presses send. `api/tests/test_voice.py` pins this.
 
 ---
 
@@ -164,7 +189,10 @@ What runs today:
 | --- | --- |
 | `firecrawl` | not installed — web search silently no-ops |
 | `ragas` | not installed — see above |
-| Sarvam / LiveKit | not used; voice is browser-based |
+| Sarvam STT | used, first choice. **Account is currently out of credits** — every request is being answered by the Groq fallback until topped up |
+| Groq Whisper | the STT fallback; also the LLM provider |
+| Sarvam TTS | not used — answers are read by the browser's own `speechSynthesis` |
+| LiveKit | not used |
 | LangSmith | tracing hooks present, **never verified against a live account** |
 | Local observability | works with no key — `api/app/obs.py`, read by `api/scripts/agent_stats.py` |
 
