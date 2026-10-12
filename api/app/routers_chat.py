@@ -20,9 +20,9 @@ from app.schemas import (
     SessionIn,
     SessionOut,
     SessionPatch,
+    TranscriptOut,
     UserOut,
     VoiceIn,
-    VoiceOut,
 )
 
 router = APIRouter(tags=["chat"])
@@ -306,47 +306,35 @@ def ask_stream(session_id: int, body: AskIn,
     )
 
 
-@router.post("/sessions/{session_id}/voice", response_model=VoiceOut)
-def voice_roundtrip(session_id: int, body: VoiceIn,
-                    user: User = Depends(auth_lib.current_user),
-                    db: Session = Depends(db_module.get_session)):
-    """T8: Sarvam STT -> agent -> Sarvam TTS; errors fall back to text."""
-    from app import agent as agent_module
+@router.post("/voice/transcribe", response_model=TranscriptOut)
+def transcribe_voice(body: VoiceIn,
+                     user: User = Depends(auth_lib.current_user)):
+    """Audio -> text, and nothing else.
+
+    No session, no agent run, no answer. The transcript goes into the user's
+    input box and they press send like anyone else, because a person who
+    dictated a question deserves to read it back and correct it before it
+    becomes a legal query in their name. The old round-trip endpoint answered
+    from a spoken clip without that step, which meant a misheard word could
+    never be fixed.
+
+    Still behind login: transcribing costs money, and an open endpoint that
+    forwards audio to a paid provider is not something to leave on the internet.
+    """
     from app import voice as voice_module
 
-    _session_owned(session_id, user, db)
-    # STT
-    transcript = voice_module.transcribe(body.audio_b64, lang=body.lang)
-    if not transcript:
-        # Fallback: treat as empty / prompt text fallback
-        return VoiceOut(
-            transcript="",
-            answer="",
-            lang=body.lang,
-            fallback_text=True,
-            error="STT failed; fall back to text input.",
+    try:
+        transcript, provider = voice_module.transcribe_detail(
+            body.audio_b64, lang=body.lang
         )
-    # Persist user turn like ask endpoint
-    db.add(Message(session_id=session_id, role="user",
-                   content=transcript, lang=body.lang))
-    db.flush()
-    # Agent
-    memories = {m.key: m.value for m in db.query(Memory).filter_by(user_id=user.id).all()}
-    state = agent_module.run_agent(transcript, lang=body.lang, memory=memories, tone="simple")
-    answer = state.get("answer", "")
-    db.add(Message(session_id=session_id, role="assistant",
-                   content=answer, lang=body.lang))
-    db.flush()
-    # TTS
-    audio = voice_module.synthesize(answer, lang=body.lang)
-    return VoiceOut(
-        transcript=transcript,
-        answer=answer,
-        audio_b64=audio,
-        lang=body.lang,
-        fallback_text=False,
-        error=None,
-    )
+    except voice_module.VoiceError as exc:
+        # A bad clip is the user's problem to fix by speaking again, not a 500.
+        # 200 with an error string keeps the client simple: one response shape,
+        # and the composer already knows how to show a note under the input.
+        return TranscriptOut(transcript="", lang=body.lang, provider="",
+                             error=str(exc))
+    logger.info("voice stt provider=%s chars=%d", provider, len(transcript))
+    return TranscriptOut(transcript=transcript, lang=body.lang, provider=provider)
 
 
 @router.get("/me/memories", response_model=MemoriesOut)

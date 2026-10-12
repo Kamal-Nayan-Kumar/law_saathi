@@ -68,16 +68,16 @@ class MemoriesOut(BaseModel):
 
 
 class VoiceIn(BaseModel):
-    audio_b64: str = Field(min_length=1, max_length=200000)
+    audio_b64: str = Field(min_length=1, max_length=2000000)
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")
 
 
-class VoiceOut(BaseModel):
+class TranscriptOut(BaseModel):
+    """Audio -> text only. `error` is a sentence to show the user, not a
+    machine code: an empty transcript with an error set means try again."""
     transcript: str = ""
-    answer: str = ""
-    audio_b64: Optional[str] = None
     lang: str = "en"
-    fallback_text: bool = False
+    provider: str = ""
     error: Optional[str] = None
 
 

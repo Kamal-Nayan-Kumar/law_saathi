@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
 import { askStream, type AskResult, type StreamStep } from "@/lib/stream";
-import { useSpeechToText, useSpeechSynthesis } from "@/lib/voice";
+import { useDictation, useSpeechSynthesis, MAX_RECORDING_SECONDS } from "@/lib/voice";
 import Icon from "@/components/Icon";
 import Logo from "@/components/Logo";
 import "./chat.css";
@@ -219,6 +219,7 @@ export default function Chat() {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const [lang, setLang] = useState("en");
   const [tone, setTone] = useState("simple");
   const [meta, setMeta] = useState<Record<number, Meta>>({});
@@ -234,8 +235,18 @@ export default function Chat() {
 
   // Voice. Both degrade quietly: no mic support hides the button, no TTS
   // support hides the speaker. A control that does nothing is worse than none.
-  const stt = useSpeechToText(lang);
+  // The transcript lands in the input box, never straight into a question.
+  const stt = useDictation(lang);
   const tts = useSpeechSynthesis(lang);
+  const onTranscript = useCallback((text: string) => {
+    setDraft((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
+    // The transcript goes to the end of whatever is already typed, so someone
+    // who started a word and then reached for the mic does not lose it.
+    inputRef.current?.focus();
+    inputRef.current?.setSelectionRange(text.length, text.length);
+  }, []);
+
+  const busyMic = stt.state === "recording" || stt.state === "transcribing";
 
   // Clicking anywhere else closes the account menu.
   useEffect(() => {
@@ -632,11 +643,12 @@ function toggleSide() {
         <div className="composer">
           <form onSubmit={send} className="composer-row">
             <input
+              ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={
-                stt.state === "listening"
-                  ? "Listening… speak now"
+                stt.state === "recording"
+                  ? "Listening… tap the mic when you are done"
                   : "Ask a question about family law…"
               }
               aria-label="Question"
@@ -644,21 +656,47 @@ function toggleSide() {
             {/* Mic sits inside the pill, immediately left of the send arrow.
                 Someone who cannot type reaches for the same control they use to
                 send, not for a separate labelled button across the page — and
-                on a phone the two controls then share one row of thumb reach. */}
+                on a phone the two controls then share one row of thumb reach.
+
+                One button, two states, and the second press is always "stop".
+                Recording does not end when the speaker pauses to think, so
+                there has to be an explicit end — silence is not consent to
+                send half a question. */}
             {stt.supported && (
               <button
                 type="button"
-                className={`composer-mic${stt.state === "listening" ? " on" : ""}`}
+                className={`composer-mic${stt.state === "recording" ? " on" : ""}${
+                  stt.state === "transcribing" ? " busy" : ""
+                }`}
                 onClick={() =>
-                  stt.state === "listening" ? stt.stop() : stt.start(sendText)
+                  stt.state === "recording" ? stt.stop(onTranscript) : stt.start(onTranscript)
                 }
-                disabled={loading}
+                disabled={loading || stt.state === "transcribing"}
                 aria-label={
-                  stt.state === "listening" ? "Stop listening" : "Ask by voice"
+                  stt.state === "recording"
+                    ? "Stop recording"
+                    : stt.state === "transcribing"
+                      ? "Transcribing"
+                      : "Ask by voice"
                 }
-                title={stt.state === "listening" ? "Stop listening" : "Ask by voice"}
+                title={
+                  stt.state === "recording"
+                    ? "Stop recording"
+                    : stt.state === "transcribing"
+                      ? "Turning your speech into text…"
+                      : "Ask by voice"
+                }
               >
-                <Icon name={stt.state === "listening" ? "close" : "mic"} size={18} />
+                <Icon
+                  name={
+                    stt.state === "recording"
+                      ? "close"
+                      : stt.state === "transcribing"
+                        ? "clock"
+                        : "mic"
+                  }
+                  size={18}
+                />
               </button>
             )}
             <button
@@ -672,10 +710,18 @@ function toggleSide() {
             </button>
           </form>
 
-          {/* Live transcript, so the user can see the mic is hearing them. */}
-          {stt.state === "listening" && stt.interim && (
+          {/* While recording, the only thing worth saying is that it is still on and
+            how much is left before it stops by itself. The words come after. */}
+          {stt.state === "recording" && (
             <p className="composer-transcript" aria-live="polite">
-              {stt.interim}
+              <span className="rec-dot" aria-hidden="true" />
+              Recording — tap the mic to send it. Stops by itself at{" "}
+              {MAX_RECORDING_SECONDS} seconds ({stt.seconds}s so far).
+            </p>
+          )}
+          {stt.state === "transcribing" && (
+            <p className="composer-transcript" aria-live="polite">
+              Turning your speech into text…
             </p>
           )}
           {stt.error && (
