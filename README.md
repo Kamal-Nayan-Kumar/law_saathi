@@ -10,13 +10,49 @@ in this repo needs it, because the browser never talks to the API directly.
 
 ## Corpus (law data we use)
 
-| Source | What | Size |
-| ------ | ---- | ---- |
-| `vaquill/open-india-law` (gated, HF token) | `in_central_legislation.parquet` streamed, title-matched to 7 family acts, repealed rows dropped | 424 in-force section rows → `data/corpus/open-india-law-family-acts.jsonl` (729KB, gitignored) |
-| `enerscript/MARRIAGEACT` | 4 bare-act txt files (HMA, SMA, Christian Marriage Act, Child Marriage Bill) | 244KB → `data/corpus/marriageact_raw/` (gitignored) |
-| India Code (indiacode.nic.in) | Ground truth: per-row `source_url` + act-PDF `mirror_url` stored in every chunk payload | Referenced, PDFs ingested on demand |
+| Source | Link | What we take from it | Size |
+| ------ | ---- | ---- | ---- |
+| `vaquill/open-india-law` (gated, HF token) | https://huggingface.co/datasets/vaquill/open-india-law | Only `in_central_legislation.parquet`, **streamed row by row** (never the ~54GB full dump). Per row we keep `text` / `title` / `section` / `lang` / `page` / `chunk_id` / `source_url` / `act_status`, for rows whose title matches a family-act alias and whose status is not `repealed` | 424 in-force section rows → `data/corpus/open-india-law-family-acts.jsonl` (729KB, gitignored) |
+| `enerscript/MARRIAGEACT` | https://huggingface.co/datasets/enerscript/MARRIAGEACT | The 4 bare-act `.txt` files (HMA 1955, SMA 1954, Indian Christian Marriage Act 1872, Prohibition of Child Marriage (Amendment) Bill 2021). Plain full-Act text, no section column — we recover sections ourselves | 3,915 rows / 246KB → `data/corpus/marriageact_raw/` (gitignored) |
+| India Code | https://www.indiacode.nic.in | **Not bulk-downloaded.** Used as the citation of record: the row's `source_url` and the act-PDF `mirror_url` are copied into every chunk payload. Act PDFs (`--pdf "path:Act Name"`) and scraped pages (`--url "url:Act Name"`, Firecrawl) are ingested on demand |
+| `corpus/amendments.jsonl` (hand-written) | this repo | Two editorial `kind: amendment_notice` chunks for SMA s.28 and HMA s.13B. India Code still publishes the **pre-2018** "living separately for one year" text, so no dataset swap can fix it | 2 chunks |
+
+Act PDF handles currently referenced in payloads, e.g.
+https://www.indiacode.nic.in/handle/123456789/17272 (HMA),
+https://www.indiacode.nic.in/handle/123456789/1387 (SMA).
+
+### Nothing goes into Qdrant raw
+
+Every source passes through `api/app/ingest.py` first. The dataset is never
+embedded as-is:
+
+1. **Filter at download** — `api/scripts/download_corpus.py` streams the
+   parquet, drops non-family rows and repealed rows (`matching_act`), and
+   writes JSONL. The full dump is never fetched.
+2. **Filter again at parse** — `is_enacted_law()` rejects anything whose Act
+   name contains `bill`, `draft`, `ordinance`, `lok sabha`, … This is what
+   keeps the Child Marriage (Amendment) Bill out of the index.
+3. **Section-aware chunking** — `split_sections()` finds `Section N` /
+   numbered bare-act headings, then `chunk_text()` slides a 1500-char window
+   with 200-char overlap, preferring sentence boundaries. Two sections are
+   never merged into one chunk.
+4. **Deterministic IDs** — `stable_point_id()` is `uuid5` over
+   `act|section|chunk_index|uid`, so re-running updates points in place.
+5. **Payload enrichment** — `act`, `section`, `lang`, `page`, `source`
+   (`source_url` appended), `kind` are stored so retrieval can filter on them.
+6. **Embedding last** — `QdrantStore.upsert_texts()` ships **raw text** as a
+   `{"text": ..., "model": ...}` Document; Qdrant Cloud embeds it with
+   `intfloat/multilingual-e5-small` (384-dim) and applies the
+   `passage:`/`query:` prefixes. Nothing is embedded locally.
+7. **Bookkeeping** — point IDs are mirrored into Neon `ingested_chunks`.
 
 7 acts: Hindu Marriage 1955 (50 rows), Special Marriage 1954 (80), Hindu Adoption & Maintenance 1956 (32), Hindu Succession 1956 (53), Guardians & Wards 1890 (67), Domestic Violence 2005 (47), Indian Divorce Act 1869 (95).
+
+The golden eval set in `api/eval/golden_qas.py` was seeded from questions in
+`steamed-potatop/indian-family-law-data`
+(https://huggingface.co/datasets/steamed-potatop/indian-family-law-data) and
+then rewritten to assert a specific governing section. It is an eval set — it
+is never ingested into Qdrant.
 
 Vectors live in Qdrant Cloud collection `law_saathi` (e5-small, 384 dims, 1132 points); Neon `ingested_chunks` mirrors every point ID (ADR-0004). Re-ingest: `api/scripts/download_corpus.py` then `api/scripts/ingest.py --jsonl ... --text-dir ...`.
 
