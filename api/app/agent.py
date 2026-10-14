@@ -23,6 +23,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+# Tried in order after the primary model fails. Same key, same provider, but
+# Groq meters its daily token allowance per model, so these do not go down when
+# gpt-oss-120b does. See _groq_models() for what happened when nothing did.
+GROQ_FALLBACK_MODELS_DEFAULT = "openai/gpt-oss-20b,qwen/qwen3.8-27b"
 # OpenRouter is the *fallback* (ADR-0002). The old default was a 7B model, which
 # is too small to write a grounded legal explanation: in persona testing it
 # produced vague answers with no inline citations and a wrong section list. The
@@ -726,8 +730,13 @@ def _groq_models() -> List[str]:
     allowance, so trying them in turn is the cheapest available fix: same
     key, same provider, no new vendor. gpt-oss-120b stays first because it is
     the one that writes the best grounded legal prose.
+
+    The default is in code, not in the environment, on purpose: adding
+    GROQ_FALLBACK_MODELS to render.yaml only reaches production when someone
+    applies the blueprint, and this outage could not wait for that. Deploying
+    this fix with the list still unset is the whole point of it.
     """
-    raw = os.environ.get("GROQ_FALLBACK_MODELS", "")
+    raw = os.environ.get("GROQ_FALLBACK_MODELS", GROQ_FALLBACK_MODELS_DEFAULT)
     models = [m.strip() for m in raw.split(",") if m.strip()]
     return [GROQ_MODEL] + [m for m in models if m != GROQ_MODEL]
 

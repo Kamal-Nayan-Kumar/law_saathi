@@ -304,12 +304,14 @@ def test_opencode_is_the_free_last_resort():
 
     with pytest.raises(RuntimeError):
         chat_complete(msg, http_post=dead)
-    # Every provider is reachable once (the cooldown is per provider, and this
-    # is the first call for each).
-    assert len(order) == 3, order
-    assert "groq" in order[0]
-    assert "openrouter" in order[1]
-    assert "opencode" in order[2], order
+    # Every model and provider is reachable once (the cooldown is per provider,
+    # and this is the first call for each). Groq is tried model by model first,
+    # because one model spending its daily allowance is not the key being dead.
+    n_models = len(agent_module._groq_models())
+    assert len(order) == n_models + 2, order
+    assert all("groq" in u for u in order[:n_models]), order
+    assert "openrouter" in order[n_models]
+    assert "opencode" in order[n_models + 1], order
 
 
 def test_opencode_completion_returns_text_and_provider():

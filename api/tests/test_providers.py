@@ -40,7 +40,11 @@ def test_a_failed_provider_is_skipped_on_the_next_call():
                                      http_post=fake_post)
     assert first == "from openrouter"
     assert provider1.startswith("openrouter:")
-    assert seen == [GROQ_URL, OPENROUTER_URL + "/chat/completions"]
+    # Every Groq model is tried before leaving the provider, because one model
+    # spending its daily allowance is not the key being dead.
+    assert seen[:len(agent_module._groq_models())] == [GROQ_URL] * \
+        len(agent_module._groq_models())
+    assert seen[-1] == OPENROUTER_URL + "/chat/completions"
 
     seen.clear()
     second, provider2 = chat_complete([{"role": "user", "content": "again"}],
@@ -70,6 +74,7 @@ def test_an_empty_completion_opens_the_cooldown():
     """A reasoning model that burns its budget returns empty content. That is
     a failure, and the next call should not pay for it again."""
     calls = {"groq": 0}
+    per_call = len(agent_module._groq_models())
 
     def fake_post(url, headers, payload):
         if "groq" in url:
@@ -79,12 +84,15 @@ def test_an_empty_completion_opens_the_cooldown():
         return {"choices": [{"message": {"content": "recovered"}}]}
 
     chat_complete([{"role": "user", "content": "1"}], http_post=fake_post)
+    first = calls["groq"]
+    assert first == per_call, "every model is tried once"
     chat_complete([{"role": "user", "content": "2"}], http_post=fake_post)
-    assert calls["groq"] == 1, "the empty provider was retried"
+    assert calls["groq"] == first, "the empty provider was retried"
 
 
 def test_translation_does_not_retry_a_dead_groq():
     calls = {"groq": 0}
+    per_call = len(agent_module._groq_models())
 
     def fake_post(url, headers, payload):
         if "groq" in url:
@@ -94,9 +102,11 @@ def test_translation_does_not_retry_a_dead_groq():
 
     translate_complete([{"role": "user", "content": "translation"}],
                        http_post=fake_post)
+    first = calls["groq"]
+    assert first == per_call
     translate_complete([{"role": "user", "content": "translation"}],
                        http_post=fake_post)
-    assert calls["groq"] == 1
+    assert calls["groq"] == first
 
 
 def test_one_run_cannot_loop_forever_on_the_model():
