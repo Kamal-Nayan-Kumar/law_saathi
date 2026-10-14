@@ -196,5 +196,3 @@ user *saw*, and neither is an assertion.
 `bash scripts/dev.sh --observe` runs both servers locally and writes
 `tmp/agent-runs.jsonl`; `EGO_SPACE=<id> .venv/bin/python scripts/shots.py chat
 <tiny|phone|tablet|laptop|xl>` reports horizontal overflow per viewport.
-
-<!-- deploy-trigger check 1791956394 -->
