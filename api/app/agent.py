@@ -2882,12 +2882,23 @@ def ends_mid_sentence(text: str) -> bool:
     The English-only version cannot see this in Devanagari or Kannada, and the
     failure it misses is the worst kind: an answer that trails off mid-clause
     looks broken rather than truncated, and a user cannot tell the difference.
+
+    Bullets count. A live Hinglish rewrite stopped at "...वह आपके घर या काम के
+    पास न" — a bullet that ran out of tokens mid-clause — and skipping bullet
+    lines let it through to the user.
     """
     body = strip_next_steps(text or "")
     body = re.split(r"\n\s*\*[^*\n]{20,}\*\s*$", body)[0]
-    # Last line that carries words, ignoring markdown bullets and headings.
-    lines = [ln.strip() for ln in body.splitlines()
-             if ln.strip() and not ln.strip().startswith(("#", "*", "-", ">", "|"))]
+    lines = []
+    for raw in body.splitlines():
+        ln = raw.strip()
+        if not ln or ln.startswith(("#", ">", "|")):
+            continue
+        # Strip the bullet marker rather than skipping the line: the thing that
+        # got cut off is almost always inside a list.
+        ln = re.sub(r"^(?:[-*•+]|\d+[.)])\s+", "", ln).strip()
+        if ln:
+            lines.append(ln)
     if not lines:
         return False
     tail = lines[-1].rstrip("*_ —-·:")
@@ -2895,8 +2906,7 @@ def ends_mid_sentence(text: str) -> bool:
         return False
     if tail[-1] in _ENDS_A_SENTENCE:
         return False
-    # A short trailing fragment ("### What to do next") is a heading, not a
-    # broken sentence.
+    # A one or two word trailing fragment is a label, not a broken sentence.
     return len(tail.split()) > 2
 
 

@@ -282,6 +282,27 @@ def test_rewrite_stopping_mid_sentence_is_rejected():
     assert out == ""
 
 
+def test_a_truncated_bullet_is_rejected_too():
+    # Live failure: the Hinglish rewrite ran out of tokens inside a bullet and
+    # shipped "…या काम के पास न".
+    out = A.rewrite_in_language(
+        _state("hi"), "An English draft of a perfectly reasonable length here.",
+        _echo_llm("कोर्ट आपकी रक्षा कर सकता है [1]।\n\n"
+                  "### आगे क्या करें\n\n"
+                  "- अदालत से कहें कि वह आपके घर या काम के पास न"))
+    assert out == ""
+
+
+def test_a_finished_bullet_list_is_accepted():
+    out = A.rewrite_in_language(
+        _state("hi"), "An English draft of a perfectly reasonable length here.",
+        _echo_llm("कोर्ट आपकी रक्षा कर सकता है [1]।\n\n"
+                  "### आगे क्या करें\n\n"
+                  "- चोटों की तस्वीरें इकट्ठा करें।\n"
+                  "- नज़दीकी अदालत में आवेदन दें।"))
+    assert "चोटों की तस्वीरें" in out
+
+
 # --- one next-steps heading, in the reader's language ----------------------
 
 def test_rewrite_is_told_the_exact_localized_next_steps_heading():
