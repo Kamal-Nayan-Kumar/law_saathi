@@ -135,16 +135,43 @@ path for two days and voice failed on desktop with "Voice input failed (network)
 — the exact failure ADR-0005 predicts, since that API is a client for Google's
 speech servers and an adblocker kills the request to Google.
 
-To turn on auto-deploy (one manual step, needs a browser):
+To turn on auto-deploy, pick **one** of the two below. Running both means two
+builds racing to alias the same domain.
+
+#### Option A — Vercel GitHub App (recommended; no repo config)
 
 1. Install the Vercel GitHub App for this repo: <https://github.com/apps/vercel>
-2. Vercel project → Settings → Git → connect `Kamal-Nayan-Kumar/law_saathi`
+2. Vercel project `law-saathi` → **Settings → Git** → connect
+   `Kamal-Nayan-Kumar/law_saathi`, production branch `main`
 3. Confirm **Root Directory** is `web`. It was `null` (repo root) until
    2026-10-14; left as-is, a git-triggered build looks for a Next.js app at the
-   repo root, where there is none, and fails.
+   repo root, where there is none, and fails. Already set.
 
-Until that is done, **push then verify**: `cd web && npx vercel ls`. If nothing
-new appeared within a couple of minutes, deploy by hand.
+Then `.github/workflows/deploy-web.yml` should be **deleted**, so only one
+thing deploys.
+
+#### Option B — GitHub Actions (`.github/workflows/deploy-web.yml`)
+
+Kept in the repo, manual-trigger by default so it cannot fight Option A. To make
+it deploy on push instead, change its trigger to `on: push: branches: [main]`,
+and do not connect the GitHub App.
+
+Needs three repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| ------ | ----- |
+| `VERCEL_TOKEN` | Vercel → Settings → Tokens → Create Token (scoped to this project) |
+| `VERCEL_ORG_ID` | `team_IkaZrHgE3Fo0Z6TvAa5I5Z7o` |
+| `VERCEL_PROJECT_ID` | `prj_D9WjsbU8cUQsezRjzslAfISH6CIN` |
+
+It builds the app before deploying, so a commit that breaks the build fails in
+GitHub instead of becoming a broken production alias — the advantage over
+Option A.
+
+#### Until one of them is set up
+
+**Push, then verify**: `cd web && npx vercel ls`. If nothing new appeared within
+a couple of minutes, deploy by hand with `npx vercel deploy --prod --yes`.
 
 ### Other deploy traps
 
