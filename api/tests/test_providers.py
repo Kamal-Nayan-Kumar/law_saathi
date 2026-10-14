@@ -145,3 +145,85 @@ def test_max_retries_is_one_by_default():
 def test_the_fallback_model_is_not_the_small_one():
     """qwen-2.5-7b produced vague answers with no inline citations."""
     assert "7b" not in agent_module.OPENROUTER_MODEL
+
+# --- one Groq model's spent quota must not take the product offline --------
+#
+# On 2026-10-14 `gpt-oss-120b` hit 199,502 / 200,000 tokens-per-day while
+# OpenRouter sat at $0 credit and OpenCode Zen refused non-OpenCode callers.
+# Production answered every question with the template fallback — raw statute
+# text, no explanation — for the rest of the day. The other chat models on the
+# same key have their own separate allowance, so the fix is to walk them.
+
+def test_a_spent_primary_model_falls_through_to_the_next_groq_model(monkeypatch):
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS",
+                       "openai/gpt-oss-20b,qwen/qwen3.8-27b")
+    tried = []
+
+    def fake_post(url, headers, payload):
+        tried.append(payload["model"])
+        if payload["model"] == agent_module.GROQ_MODEL:
+            raise RuntimeError("429 rate limit reached ... tokens per day")
+        return {"choices": [{"message": {"content": "from the fallback"}}]}
+
+    text, provider = chat_complete([{"role": "user", "content": "hi"}],
+                                   http_post=fake_post)
+    assert text == "from the fallback"
+    assert provider == "groq:openai/gpt-oss-20b"
+    assert tried == [agent_module.GROQ_MODEL, "openai/gpt-oss-20b"]
+
+
+def test_a_spent_model_does_not_put_the_whole_groq_provider_in_cooldown(
+        monkeypatch):
+    """The key works. Parking 'groq' in cooldown would cost the next run the
+    models that still have quota — the original outage all over again."""
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS", "openai/gpt-oss-20b")
+
+    def fake_post(url, headers, payload):
+        if payload["model"] == agent_module.GROQ_MODEL:
+            raise RuntimeError("429 tokens per day")
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    chat_complete([{"role": "user", "content": "hi"}], http_post=fake_post)
+    assert "groq" not in agent_module._PROVIDER_FAILURES
+
+
+def test_groq_is_only_marked_down_once_every_model_has_failed(monkeypatch):
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS", "openai/gpt-oss-20b")
+
+    def fake_post(url, headers, payload):
+        if "groq" in url:
+            raise RuntimeError("429 tokens per day")
+        return {"choices": [{"message": {"content": "from openrouter"}}]}
+
+    _, provider = chat_complete([{"role": "user", "content": "hi"}],
+                                http_post=fake_post)
+    assert provider.startswith("openrouter:")
+    assert "groq" in agent_module._PROVIDER_FAILURES
+
+
+def test_translation_also_walks_the_groq_models(monkeypatch):
+    """Translation is what the whole non-English answer depends on. It must not
+    be the step that gives up first when one model's quota is spent."""
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS", "openai/gpt-oss-20b")
+    tried = []
+
+    def fake_post(url, headers, payload):
+        tried.append(payload["model"])
+        if payload["model"] == agent_module.GROQ_MODEL:
+            raise RuntimeError("429 tokens per day")
+        return {"choices": [{"message": {"content": "अनुवाद"}}]}
+
+    text, provider = translate_complete([{"role": "user", "content": "hi"}],
+                                        http_post=fake_post)
+    assert text == "अनुवाद"
+    assert provider == "groq:openai/gpt-oss-20b"
+    assert tried == [agent_module.GROQ_MODEL, "openai/gpt-oss-20b"]
+
+
+def test_the_primary_model_is_never_listed_twice(monkeypatch):
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS",
+                       "%s,openai/gpt-oss-20b" % agent_module.GROQ_MODEL)
+    models = agent_module._groq_models()
+    assert models[0] == agent_module.GROQ_MODEL
+    assert len(models) == len(set(models))

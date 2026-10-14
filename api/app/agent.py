@@ -712,15 +712,39 @@ def _message_text(data: Dict[str, Any]) -> str:
     return text
 
 
+def _groq_models() -> List[str]:
+    """Groq models to try, in order, on one API key.
+
+    Groq meters tokens per day *per model*. On 2026-10-14 `gpt-oss-120b` hit
+    199,502 / 200,000 TPD, and because the chain went straight from "this
+    model failed" to "try OpenRouter", one model's daily allowance took the
+    whole product offline: OpenRouter had $0 credit and OpenCode Zen's free
+    tier refuses non-OpenCode callers, so every question in production fell
+    back to the template answer — raw statute text, no explanation.
+
+    The other chat models on the same key have their own separate TPD
+    allowance, so trying them in turn is the cheapest available fix: same
+    key, same provider, no new vendor. gpt-oss-120b stays first because it is
+    the one that writes the best grounded legal prose.
+    """
+    raw = os.environ.get("GROQ_FALLBACK_MODELS", "")
+    models = [m.strip() for m in raw.split(",") if m.strip()]
+    return [GROQ_MODEL] + [m for m in models if m != GROQ_MODEL]
+
+
 def chat_complete(messages: List[Dict[str, str]],
                   http_post: Optional[Callable] = None,
                   timeout: float = 45.0,
                   max_tokens: Optional[int] = None) -> Tuple[str, str]:
-    """Chat with fallbacks: Groq -> OpenRouter -> OpenCode Zen.
+    """Chat with fallbacks: Groq (several models) -> OpenRouter -> OpenCode Zen.
 
     Groq is primary per ADR-0002. The order used to be reversed, which meant the
     small OpenRouter model answered almost every question and the good model was
     only reached when OpenRouter happened to be down.
+
+    Within Groq the models are tried in turn, because the daily token quota is
+    per model and spending one model's allowance should not mean the user gets
+    nothing at all. See ``_groq_models``.
 
     Returns (text, provider). ``http_post`` is a test seam:
     ``fn(url, headers, payload) -> dict`` in the OpenAI-chat-completions shape.
@@ -732,26 +756,33 @@ def chat_complete(messages: List[Dict[str, str]],
     budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
     last_error: Optional[Exception] = None
     if (groq_key or http_post is not None) and _provider_available("groq"):
-        try:
-            data = post(
-                GROQ_URL,
-                {"Authorization": "Bearer " + groq_key,
-                 "Content-Type": "application/json"},
-                {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": budget},
-            )
-            text = _message_text(data)
-            if not text:
-                # An empty completion is a failure, not an answer: falling through
-                # beats showing the user a blank reply.
-                raise RuntimeError("groq returned no content")
-            logger.info("agent llm provider=groq model=%s", GROQ_MODEL)
-            _mark_healthy("groq")
-            return text, "groq:" + GROQ_MODEL
-        except Exception as e:  # noqa: BLE001 — fallback must catch all
-            last_error = e
-            _mark_failed("groq", e)
-            logger.warning("agent groq failed (%r); trying openrouter", e)
+        for model in _groq_models():
+            try:
+                data = post(
+                    GROQ_URL,
+                    {"Authorization": "Bearer " + groq_key,
+                     "Content-Type": "application/json"},
+                    {"model": model, "messages": messages,
+                     "temperature": 0.2, "max_tokens": budget},
+                )
+                text = _message_text(data)
+                if not text:
+                    # An empty completion is a failure, not an answer: falling through
+                    # beats showing the user a blank reply.
+                    raise RuntimeError("groq %s returned no content" % model)
+                logger.info("agent llm provider=groq model=%s", model)
+                _mark_healthy("groq")
+                return text, "groq:" + model
+            except Exception as e:  # noqa: BLE001 — fallback must catch all
+                last_error = e
+                # Deliberately NOT _mark_failed("groq"): the key is fine, this
+                # one model's daily quota is spent. Marking the whole provider
+                # down would park it in cooldown and cost the next run the
+                # models that still have quota.
+                logger.warning("agent groq %s failed (%r); trying next model",
+                               model, e)
+        _mark_failed("groq", last_error)
+        logger.warning("agent every groq model failed; trying openrouter")
     if (or_key or http_post is not None) and _provider_available("openrouter"):
         try:
             data = post(
@@ -836,23 +867,28 @@ def translate_complete(messages: List[Dict[str, str]],
             and _provider_available("groq"):
         post = http_post or _post_json
         budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
-        try:
-            data = post(
-                GROQ_URL,
-                {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
-                 "Content-Type": "application/json"},
-                {"model": GROQ_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": budget},
-            )
-            text = _message_text(data)
-            if not text:
-                raise RuntimeError("groq returned no content")
-            logger.info("agent translate provider=groq model=%s", GROQ_MODEL)
-            _mark_healthy("groq")
-            return text, "groq:" + GROQ_MODEL
-        except Exception as e:  # noqa: BLE001 — caller falls back
-            _mark_failed("groq", e)
-            logger.warning("agent groq translate failed (%r)", e)
+        for model in _groq_models():
+            try:
+                data = post(
+                    GROQ_URL,
+                    {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
+                     "Content-Type": "application/json"},
+                    {"model": model, "messages": messages,
+                     "temperature": 0.2, "max_tokens": budget},
+                )
+                text = _message_text(data)
+                if not text:
+                    raise RuntimeError("groq %s returned no content" % model)
+                logger.info("agent translate provider=groq model=%s", model)
+                _mark_healthy("groq")
+                return text, "groq:" + model
+            except Exception as e:  # noqa: BLE001 — caller falls back
+                # Same reasoning as chat_complete: one model's spent quota is
+                # not the provider being down. Translation is the step the
+                # whole non-English answer depends on, so it must not be the
+                # one that gives up first.
+                logger.warning("agent groq %s translate failed (%r)", model, e)
+        _mark_failed("groq", RuntimeError("every groq model failed translate"))
     return chat_complete(messages, http_post=http_post, timeout=timeout,
                          max_tokens=max_tokens)
 

@@ -20,8 +20,18 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      # Free last-resort provider: keeps chat answering when Groq and
-      # OpenRouter are both rate-limited. Costs nothing per token.
+      # Groq meters tokens per day *per model*, and gpt-oss-120b exhausted its
+      # 200k allowance on 2026-10-14 with every other provider already at zero
+      # credit — which took production down to the template answer. These are
+      # the same key, same provider, separate allowances, tried in order after
+      # the primary model 429s.
+      - key: GROQ_FALLBACK_MODELS
+        value: openai/gpt-oss-20b,qwen/qwen3.8-27b
+      # NOTE: OpenCode Zen no longer works as a last resort. Its free tier
+      # returns 403 "can only be used from within OpenCode" to any server-side
+      # caller, and the paid models return 402 with no account funds. Kept
+      # wired up in case funds are added, but it is not a free safety net and
+      # should not be counted as one.
       - key: OPENCODE_API_KEY
         sync: false
       - key: OPENCODE_MODEL
