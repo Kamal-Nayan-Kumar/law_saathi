@@ -85,7 +85,25 @@ def offline_agent(monkeypatch):
             return json.dumps({"verdict": "grounded",
                                "reason": "every claim traces to a passage",
                                "next_queries": []}), "stub"
-        if "Translate this family-law question" in system or "translator" in system.lower():
+        if "Translate this Indian family-law question" in system:
+            return user, "stub"
+        if "Rewrite it in" in system:
+            # The native rewrite. Returns Devanagari/Kannada so the script
+            # check in rewrite_in_language passes, which is what a real model
+            # does; a test that let English through would not exercise the
+            # path at all.
+            out = ("पत्नी को पति से मासगी मिल सकती है [1]। कोर्ट यह "
+                   "तय करता है कि उसे कितनी देनी है [1]।\n\n"
+                   "### आगे क्या करें\n\n- विवाह प्रमाणपत्र और पति की "
+                   "आय के कागज़ात ले जाएँ।\n- अपने जिले के परिवार "
+                   "अदालत में आवेदन दें।")
+            if "Kannada" in system:
+                out = ("ಹೆಂಡತಿಗೆ ಗಂಡನಿಂದ ಹಣಕಾಸು ಸಿಗುತ್ತದೆ [1]. ಎಷ್ಟು "
+                       "ಬೇಕೆಂದು ನ್ಯಾಯಾಲಯ ತೀರ್ಮಾನಿಸುತ್ತದೆ [1].\n\n"
+                       "### ಮುಂದೆ ಏನು ಮಾಡಬೇಕು\n\n- ಮದುವೆ ಪ್ರಮಾಣಪತ್ರಗಳನ್ನು "
+                       "ತೆಗೆದುಕೊಳ್ಳಿ.")
+            return out, "stub"
+        if "translator" in system.lower():
             return user, "stub"
         # The plain-language writer.
         return ("A Hindu wife is entitled to maintenance from her husband "

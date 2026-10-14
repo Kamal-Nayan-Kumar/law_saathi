@@ -23,4 +23,4 @@ Family-law legal assistant. Agentic RAG chatbot, EN + HI + KN, text + voice.
 
 - Scope is family law only (marriage, divorce, custody, maintenance, adoption, succession, DV). Land/property/criminal/tax = out of scope, reply with redirect.
 - Every legal answer: simple language + section/act citation + disclaimer (not a lawyer, verify with professional).
-- Hindi/Kannada answers must come from multilingual retrieval, not English-only translation.
+- Hindi/Kannada answers must come from multilingual retrieval, not English-only retrieval. The embeddings are multilingual and the corpus is English, so a non-English query is pivoted to English first — measured 13/20 top-1 with the pivot vs 7/20 without (ADR-0011). The *answer* is then rewritten natively in the reader's language, never word-for-word translated.

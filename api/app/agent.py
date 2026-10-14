@@ -246,6 +246,49 @@ def detect_lang(text: str, hint: str = "en") -> str:
     return "en"
 
 
+# The pivot prompt, kept in one place because losing a legal term here silently
+# ruins retrieval: the word the user used never reaches the English corpus.
+#
+# Measured on the live Qdrant collection (5 questions x 4 languages, top-8 hit
+# rate against the Act that actually governs the question):
+#
+#   raw query, no pivot : 15/20 in top-8,  7/20 at rank 1
+#   English pivot       : 20/20 in top-8, 13/20 at rank 1
+#
+# e5-small aligns topics, not legal terms. A Kannada "sampattu kelike" matched
+# the Indian Succession Act and a Hinglish "dahej maang rahe hai" matched the
+# Christian Marriage Act, because nothing in a non-English string says "dowry".
+# So the pivot stays — see ADR-0011.
+#
+# The gloss below exists because the same Kannada dowry line came back as "my
+# former spouse is demanding property from me": both "in-laws" and "dowry" were
+# replaced by ordinary words. Retrieval then chased succession law at rank 6
+# instead of the Dowry Prohibition Act at rank 1.
+QUERY_PIVOT_PROMPT = (
+    "Translate this Indian family-law question into English so it can be "
+    "matched against a corpus of Indian statutes written in English. Output "
+    "only the translation, nothing else.\n"
+    "\n"
+    "Rules:\n"
+    "- Translate for a search engine, not for elegance. Keep the exact legal "
+    "meaning of every term.\n"
+    "- Keep these terms as themselves or as their exact Indian legal English "
+    "equivalent, and never replace them with a generic word: dowry, "
+    "maintenance, alimony, custody, guardianship, adoption, succession, "
+    "inheritance, joint family, partition, khula, talaq, iddat, mahr, "
+    "domestic violence, restitution of conjugal rights, judicial separation, "
+    "mutual consent, child marriage, registration of marriage.\n"
+    "- 'Kannada/Hindi for dowry' is dowry. 'For maintenance' is maintenance. "
+    "Do not widen a specific family-law term into 'property' or 'money'.\n"
+    "- 'In-laws' (the husband's or wife's family) is in-laws, never 'former "
+    "spouse' or 'relatives'.\n"
+    "- Keep every detail: ages, numbers, relationship, religion, and who is "
+    "asking. Do not add facts that are not there.\n"
+    "- Roman Hindi (Hinglish) is a real language here. Translate it as "
+    "Hinglish, not as broken English.\n"
+)
+
+
 def new_state(query: str, lang: str = "en",
               memory: Optional[Dict[str, str]] = None,
               history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
@@ -258,6 +301,7 @@ def new_state(query: str, lang: str = "en",
         "slots": {},
         "missing_slots": [],
         "clarification": "",
+        "pivot_ok": True,
         "evidence": [],
         "verified": False,
         "retries": 0,
@@ -1037,19 +1081,31 @@ def node_intent(state: Dict[str, Any],
         # unresolved text while Hindi ones (translated below) retrieved on
         # the resolved text. That asymmetry is the bug.
         query_en = query
+    # Did the pivot actually produce English? Slot extraction, out-of-scope
+    # detection and the plan all read English, so when the pivot failed they
+    # are reading the user's Devanagari or Kannada script and finding nothing.
+    # The planner has to know, because "no topic found" then means "we could
+    # not read it", not "the user was vague" — and answering a frightened
+    # Hindi speaker with "what is this about?" is the worst possible reply.
+    state["pivot_ok"] = True
     if lang != "en":
         if llm is not None:
             try:
                 query_en, provider = llm([
                     {"role": "system",
-                     "content": "Translate this family-law question to English. "
-                                "Output only the translation. No explanations, no preamble."},
+                     "content": QUERY_PIVOT_PROMPT},
                     {"role": "user", "content": query},
                 ])
                 state["provider"] = provider
+                if not query_en.strip():
+                    state["pivot_ok"] = False
             except Exception as e:  # noqa: BLE001 — pivot is best-effort
                 logger.warning("agent translate failed (%r); using raw query", e)
-        # Without an LLM the raw query still retrieves (e5 is multilingual).
+                state["pivot_ok"] = False
+        else:
+            state["pivot_ok"] = False
+        # Without a pivot the raw query still retrieves (e5 is multilingual):
+        # measurably worse than the pivot, but far better than nothing.
     state["query_en"] = query_en.strip() or query
     slots = extract_slots(state["query_en"])
     carried = carry_slots_from_history(slots, history)
@@ -1112,6 +1168,17 @@ def node_planner(state: Dict[str, Any],
     missing = missing_for(state.get("slots", {}),
                           state.get("query_en", ""),
                           is_followup=bool(state.get("history")))
+    if missing == ["topic"] and not state.get("pivot_ok", True):
+        # The only reason we cannot see a topic is that the English pivot did
+        # not come back (every provider in cooldown). Ask "what is this about?"
+        # in that case and the user, who already asked in their own language,
+        # gets told they were unclear. Retrieval on the raw text will be
+        # weaker, but an answer they can read beats a question they resent.
+        _add_trace(state, "planner",
+                   "The English pivot did not come back, so no topic could be "
+                   "read from the question. Answering anyway rather than "
+                   "asking what they were asking about.")
+        missing = []
     state["missing_slots"] = missing
     if state.get("oos_redirect"):
         # Out of scope is a decision, not a question. Asking "what is this
@@ -2675,6 +2742,199 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
     return text
 
 
+# Per-language plain-language guidance. The English draft is already good; the
+# problem was that it was then *translated*, and translation preserves register
+# exactly. A clean English sentence with "maintenance pendente lite" in it
+# becomes a perfectly grammatical Hindi sentence with "मेंटेनेंस पेंडेंट लाइट"
+# in it — still unreadable to the person who asked. So the non-English answer
+# is rewritten from scratch in that language with the same simplicity budget,
+# using the words people actually use, not carried over word for word.
+#
+# The glosses below are the everyday words for each Act we ingest. They are
+# given as a swap table because naming the everyday word beats asking for
+# "simpler" — a model asked to be simpler picks a shorter legal word; a model
+# told "maintenance is मासगी or गुजारा" writes it that way.
+LANG_PLAIN_RULES = {
+    "hi": (
+        "हिंदी में लिखो — ऐसी भाषा में जैसे कोई अपने परिवार के सदस्य से बात "
+        "कर रहा हो, कानूनी किताब जैसी नहीं।\n"
+        "हर कानूनी शब्द की जगह वह शब्द लिखो जो लोग रोज़ बोलते हैं:\n"
+        "- maintenance = मासगी / गुजारा देना\n"
+        "- alimony = निभान सामग्री\n"
+        "- maintenance pendente lite = शादी अभी चल रही है, तब तक का खर्च\n"
+        "- judicial separation = अलग रहना\n"
+        "- restitution of conjugal rights = पति-पत्नी को साथ रहने का हक़\n"
+        "- custody of the child = बच्चे के साथ किसे रहना है\n"
+        "- respondent / applicant = पति / पत्नी / वो / आप\n"
+        "- petition / proceedings = आवेदन / कानूनी कार्रवाई\n"
+        "- section / Act / amendment = धारा / अधिनियम / बदलाव\n"
+        "- joint family / partition = संयुक्त परिवार / बँटवारा\n"
+        "- 'the court may' = 'आप court से कह सकते हैं कि…' — जो कर सकते हैं वो लिखो\n"
+        "सीधे 'आप' (आपको, आपसे, आप कर सकती हैं) इस्तेमाल करो, 'एक व्यक्ति' या "
+        "'पक्षकार' जैसे औपचारिक शब्द नहीं।"
+    ),
+    "kn": (
+        "ಕನ್ನಡದಲ್ಲಿ ಬರೆ — ಕಾನೂನಿನ ಪುಸ್ತಕದಂತೆ ಅಲ್ಲ, ಮನೆಯ "
+        "ಮನೆಯರ ಜೊತೆ ಮಾತನಾಡುವ ಹಾಗೆ.\n"
+        "ಪ್ರತಿ ಕಾನೂನಿನ ಪದಕ್ಕೆ ಬದಲು ಜನಸಾಮಾನೆಯ ಪದವನ್ನು ಬರೆ:\n"
+        "- maintenance = ಹೆಂಡತಿಗೆ/ಗಂಡನಿಗೆ ಕೊಡುವ ಹಣಕಾಸು (ಅನ್ನಧನ)\n"
+        "- alimony = ವಿಚ್ಛೇದದ ನಂತರ ಪತಿ/ಪತ್ನಿಯಿಂದ ಪಡೆಯುವ ಹಣಕಾಸು\n"
+        "- maintenance pendente lite = ಮದುಪೆ ಇನ್ನೂ ನಡೆಯುತ್ತಿರುವಾಗ ಆಗುವ ವೆಚ್ಚ\n"
+        "- judicial separation = ವಿವಾಹವನ್ನು ಮುಂದುವರಿಸುವುದು\n"
+        "- restitution of conjugal rights = ಸಂಗಾತಿಯನೊಂದಿಗೆ ಜೊತೆಗೆ ಬರುವ ಹಕ್ಕು\n"
+        "- custody of the child = ಮಕು ಯಾರಲ್ಲಿ ಉಳಿಯಬೇಕು\n"
+        "- respondent / applicant = ಗಂಡ / ಹೆಂಡತಿ / ಅವರು / ನೀವು\n"
+        "- petition / proceedings = ಅರ್ಜಿ / ಕಾನೂನು ಪ್ರಕ್ರಿಯೆ\n"
+        "- section / Act = ವಿಭಾಗ / ಕಾಯಿದೆ\n"
+        "- joint family / partition = ಉಮ್ಮ / ವಿಂಗಡಣೆ\n"
+        "- 'the court may' = 'ನೀವು ನಿಲ್ಲವಾಗಿ ಕೋರಿಬಹುದು…' — ನೀವು ಮಾಡಬಹುದಾದದ್ದನ್ನು "
+        "ಬರೆ\n"
+        "ನೀವು/ನಿಮ್ಮ (you) ಬಳಸಿ, 'ಒಂದು ವ್ಯಕ್ತಿ' ಅಥವಾ 'ಪಕ್ಷಿ' ಹಾಗಿ "
+        "ಔಪಚಾರಿಕ ಪದಗಳನ್ನು ಬಳಸಬೇಡಿ."
+    ),
+}
+
+# Rules that apply whichever language the answer is written in. Kept separate
+# from LANG_PLAIN_RULES because the English draft already follows them.
+NATIVE_SIMPLICITY_RULES = (
+    "Before you answer, read this: the reader is a normal person who has "
+    "never opened a legal book. They are upset, or worried about money, and "
+    "they want to know what to do.\n"
+    "- One idea per sentence. Most sentences under 12 words.\n"
+    "- No semicolons, no parentheses, no lists of three or more commas. If a "
+    "sentence needs a bracket, split it into two sentences.\n"
+    "- Never use a legal term you have not just explained in the same "
+    "sentence, in the everyday words.\n"
+    "- Speak to the reader as 'you'. Warm, direct, calm. No formality, no "
+    "passive voice hiding who must act.\n"
+    "- Never repeat a sentence or a phrase. Every sentence must be new.\n"
+    "- Leave no English words in the text. The only English allowed is an "
+    "Act name, a section number, and a place name the reader would say the "
+    "same way. If a word has a word in the reader's language, use that one.\n"
+    "- Never stop mid-sentence. Every sentence you start, you finish.\n"
+)
+
+# "What to do next" in the reader's language, and the other half of that
+# heading. compose_answer only recognizes the English string or the exact
+# localized heading, so a rewrite that came back with its own translation of
+# the heading ("अगला क्या करें" against "आगे क्या करें") had the boilerplate
+# next-steps appended under a second heading. The heading is now dictated, not
+# left to the model.
+def _next_steps_heading(lang: str) -> str:
+    return headings_for(lang)[1]
+
+
+# A body that stops mid-clause. truncated_mid_sentence() only knows English
+# connectives, so a Hindi rewrite cut off at "इसलिए लड़की की शादी की" passed it
+# and shipped a broken answer. What is actually being checked here is simpler
+# and script-independent: does the text end on a finished sentence at all?
+_ENDS_A_SENTENCE = ".!?।॥۔…:;\"')]}"
+
+
+def ends_mid_sentence(text: str) -> bool:
+    """True when the last line stops before finishing.
+
+    The English-only version cannot see this in Devanagari or Kannada, and the
+    failure it misses is the worst kind: an answer that trails off mid-clause
+    looks broken rather than truncated, and a user cannot tell the difference.
+    """
+    body = strip_next_steps(text or "")
+    body = re.split(r"\n\s*\*[^*\n]{20,}\*\s*$", body)[0]
+    # Last line that carries words, ignoring markdown bullets and headings.
+    lines = [ln.strip() for ln in body.splitlines()
+             if ln.strip() and not ln.strip().startswith(("#", "*", "-", ">", "|"))]
+    if not lines:
+        return False
+    tail = lines[-1].rstrip("*_ —-·:")
+    if not tail:
+        return False
+    if tail[-1] in _ENDS_A_SENTENCE:
+        return False
+    # A short trailing fragment ("### What to do next") is a heading, not a
+    # broken sentence.
+    return len(tail.split()) > 2
+
+
+def rewrite_in_language(state: Dict[str, Any], english: str,
+                        llm: Optional[Callable]) -> str:
+    """Rewrite a verified English answer natively, in the reader's language.
+
+    This replaced a plain translate call, and the difference is the whole point:
+    a translator reproduces the source's difficulty. A rewriter is told what
+    difficulty to remove, is given the everyday word for each legal term, and
+    keeps the citations and the 'what to do next' steps. It is grounded on the
+    same English draft the verifier already approved, so nothing new can be
+    invented — it can only say the same thing more simply.
+
+    Returns "" on any failure so the caller keeps the English answer, which is
+    still correct and still cited.
+    """
+    lang = state.get("lang", "en")
+    if lang == "en" or not english.strip() or llm is None:
+        return ""
+    name = LANG_NAMES.get(lang, lang)
+    rules = LANG_PLAIN_RULES.get(lang, "")
+    question = str(state.get("query") or state.get("query_en") or "")
+    system = (
+        "You are LawSaathi, a patient family-law advisor speaking to a normal "
+        "person in India — not a lawyer. You are given a finished, "
+        "source-checked answer written in English. Rewrite it in %s so the same "
+        "person can read it as easily as if it had been written that way from "
+        "the start.\n\n"
+        "What must NOT change:\n"
+        "- Every fact, number, age, amount and timeframe stays exactly as it "
+        "is. You are rephrasing, not re-deciding.\n"
+        "- Keep the [1], [2], [3] citation markers, attached to the same "
+        "claims they are attached to now. Keep every Act name and section "
+        "number in English (for example 'Hindu Marriage Act, Section 5').\n"
+        "- Keep the structure: the same headings, and the same 'what to do "
+        "next' steps at the end.\n"
+        "- The final heading must read exactly '### %s'. Do not translate "
+        "that heading differently, and do not add a second one.\n"
+        "- Keep the same length or shorter. Never pad.\n\n"
+        "%s\n\n"
+        "%s\n\n"
+        "Output ONLY the rewritten answer in %s. No preamble, no explanation "
+        "of what you changed, no English version alongside it, no code blocks."
+        % (name, _next_steps_heading(lang), rules,
+           NATIVE_SIMPLICITY_RULES, name)
+    )
+    user = ("The reader asked (in %s): %s\n\n"
+            "Rewrite this answer in %s:\n\n%s"
+            % (name, question or "(follow-up in the same conversation)",
+               name, english))
+    try:
+        text, provider = llm([
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ])
+    except Exception as e:  # noqa: BLE001 — English answer still usable
+        logger.warning("agent native rewrite failed (%r); keeping English", e)
+        return ""
+    state["provider"] = provider
+    text = strip_reasoning_leak(text or "")
+    # A rewrite that came back empty, English-only, or looping is worse than
+    # the English it was meant to improve. Reject all three.
+    if not text or len(text) < 40 or looks_looped(text):
+        logger.warning("agent native rewrite unusable; keeping English")
+        return ""
+    if ends_mid_sentence(text):
+        # Shipping a half sentence in Devanagari reads as a broken product.
+        # The English draft is unfinished in exactly the same place, so there
+        # is nothing to gain by keeping this one.
+        logger.warning("agent native rewrite stopped mid-sentence; keeping English")
+        return ""
+    if state.get("lang") in ("hi", "kn"):
+        # Not a raw string: r"[\u0900-\u097F]" is a literal backslash-u and
+        # matches nothing, which silently disabled this whole check once.
+        script = "[\u0900-\u097F]" if state["lang"] == "hi" else "[\u0C80-\u0CFF]"
+        # An "Hindi" answer with no Devanagari in it is an untranslated echo.
+        if not re.search(script, text):
+            logger.warning("agent native rewrite stayed in English script")
+            return ""
+    return text
+
+
 _LOOP_NGRAM = 4
 
 
@@ -2812,37 +3072,25 @@ def node_response(state: Dict[str, Any],
     # The draft was written and checked in node_reason; this node assembles
     # the user-facing answer. Re-writing here would throw away the judge's work.
     written = str(state.get("draft", "") or "")
+    rewritten = False
+    if written and lang != "en":
+        # Written in English because the model is far steadier there. Now
+        # rewrite it natively rather than translating it: a translator carries
+        # the source's register across intact, which is how a plain English
+        # answer arrived in Hindi still full of "मेंटेनेंस पेंडेंट लाइट". The
+        # rewriter is grounded on the same verified draft, so it can simplify
+        # without being able to invent. English is the fallback, unchanged.
+        #
+        # Prefer Groq here: the small model produced garbled Hindi ("माफिक आरोप
+        # कार्यक्रम") where gpt-oss-120b was clean.
+        native = rewrite_in_language(state, written, translate_in or llm)
+        if native:
+            written = native
+            rewritten = True
+        else:
+            logger.warning("agent falling back to English answer for lang=%s", lang)
     answer_en, citations, citation_sources = compose_answer(state, written)
     final = strip_reasoning_leak(answer_en)
-    translated = False
-    if written and lang != "en":
-        # Written in English because the model is far steadier there; now
-        # translate the finished explanation into the user's language.
-        # Prefer Groq here: qwen-2.5-7b produced garbled Hindi ("माफिक आरोप
-        # कार्यक्रम") where gpt-oss-120b was clean.
-        translator = translate_in or llm
-        try:
-            final, provider = translator([
-                {"role": "system",
-                 "content": ("You are a translator. Translate the text into %s. "
-                             "Keep the [1], [2] citation markers exactly as they "
-                             "are. Keep act names and section names in English. "
-                             "Translate each sentence once — never repeat a "
-                             "sentence or a phrase. Output ONLY the translation. "
-                             "Do NOT explain, do NOT think aloud, no preamble, "
-                             "no code blocks, no commentary." % lang)},
-                {"role": "user", "content": written},
-            ])
-            final = strip_reasoning_leak(final)
-            if looks_looped(final):
-                logger.warning("agent translation looped; keeping English")
-                final = written
-            else:
-                translated = True
-                state["provider"] = provider
-        except Exception as e:  # noqa: BLE001 — English answer still usable
-            logger.warning("agent answer translate failed (%r)", e)
-            final = written
     guarded = apply_amendment_guard(state, final)
     if guarded != final:
         _add_trace(state, "response",
@@ -2860,8 +3108,12 @@ def node_response(state: Dict[str, Any],
     state["citation_sources"] = citation_sources
     how = ("wrote a plain-language answer" if written
            else "used the template answer (no model)")
-    if translated:
-        how += " and translated it"
+    if rewritten:
+        how += " in everyday %s, not translated word for word" % (
+            LANG_NAMES.get(lang, lang))
+    elif written and lang != "en":
+        how += " (kept in English — the %s rewrite came back unusable)" % (
+            LANG_NAMES.get(lang, lang))
     _add_trace(state, "response",
                "%s with %d citation%s%s."
                % (how[0].upper() + how[1:], len(citations),

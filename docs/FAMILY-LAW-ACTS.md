@@ -309,6 +309,23 @@ hard guarantee that every non-English query is translated before it touches
 Qdrant — a test that asserts no non-ASCII query string reaches
 `search_text()`.
 
+### Measured (2026-10-14, ADR-0011): the pivot is load-bearing even on e5-small
+
+The premise above — that a good multilingual embedder makes the pivot optional
+— was tested directly against the live collection. 5 questions × 4 languages,
+same search run on the raw text and on the Groq translation, scored on whether
+the Act that actually governs the question appeared in the top 8:
+
+| | top-1 correct | in top 8 |
+| --- | --- | --- |
+| raw query, no pivot | 7/20 | 15/20 |
+| English pivot | 13/20 | 20/20 |
+
+So the guarantee asked for above is needed regardless of which embedder ships,
+and dropping the pivot to "simplify" the pipeline would halve top-1 retrieval
+accuracy. The corpus is English; the queries are not; something has to bridge
+them, and measurement says it should be the pivot, not the embedder.
+
 ---
 
 ## 4. Order of work
