@@ -1,6 +1,12 @@
 services:
   - type: web
-    name: lawsathi-api
+    # Must match the existing service, or Render treats this blueprint as a new
+    # service and creates a second one. The live service is `law_saathi`
+    # (srv-dase35m0tbcc73f0qcu0) at https://law-saathi.onrender.com — note the
+    # underscore here and the hyphen in the hostname, which is Render's doing.
+    # This file previously said `lawsathi-api`, which was never how the service
+    # was actually created, so anyone applying it would have got a duplicate.
+    name: law_saathi
     runtime: docker
     dockerfilePath: ./api/Dockerfile
     healthCheckPath: /health

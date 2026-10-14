@@ -108,22 +108,46 @@ the keys rather than about the product.
 
 ## Deploy
 
-Web is Vercel with `web/` as the root directory. The API is Render, from
-`render.yaml` (Docker), and autodeploys on push to `main`.
+Web is Vercel (project `law-saathi`, root directory `web`). The API is Render
+service `law_saathi` at `https://law-saathi.onrender.com`, from `render.yaml`
+(Docker), and autodeploys on push to `main`.
 
 Required Vercel production env: `FASTAPI_URL`, `INTERNAL_API_SECRET`,
-`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`.
+`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`. Pull them with
+`cd web && npx vercel env pull .env.production.local --environment=production`
+— note it writes the values as empty strings, which is a CLI decryption
+limitation, **not** an unset variable. Chat working is the real proof they are set.
 
 ```sh
 cd web && npx vercel deploy --prod --yes
 ```
 
-Two things about the web deploy that are easy to lose an afternoon to:
+### The web deploy is manual, and that is a real gap
 
-- **Vercel's Git integration is not currently triggering.** A push to `main`
-  did not produce a build on 2026-10-05 — the newest deployment was still hours
-  old. Push, then check `npx vercel ls`; if nothing appeared after a few
-  minutes, deploy by hand as above.
+**Vercel has never been connected to this Git repository.** Every deployment has
+been a manual `vercel deploy --prod`. Pushing to `main` does not build anything,
+and there is no failure signal — the push just succeeds and production keeps
+serving the old code.
+
+This is not theoretical. The server-side voice fix (`677bbfb`, 2026-10-12) sat
+undeployed until 2026-10-14, so production ran the old `webkitSpeechRecognition`
+path for two days and voice failed on desktop with "Voice input failed (network)"
+— the exact failure ADR-0005 predicts, since that API is a client for Google's
+speech servers and an adblocker kills the request to Google.
+
+To turn on auto-deploy (one manual step, needs a browser):
+
+1. Install the Vercel GitHub App for this repo: <https://github.com/apps/vercel>
+2. Vercel project → Settings → Git → connect `Kamal-Nayan-Kumar/law_saathi`
+3. Confirm **Root Directory** is `web`. It was `null` (repo root) until
+   2026-10-14; left as-is, a git-triggered build looks for a Next.js app at the
+   repo root, where there is none, and fails.
+
+Until that is done, **push then verify**: `cd web && npx vercel ls`. If nothing
+new appeared within a couple of minutes, deploy by hand.
+
+### Other deploy traps
+
 - **Both API proxies set `maxDuration = 300`.** An agent run takes 60–90s. At
   Vercel's default function limit the `/api/stream` response is cut mid-answer,
   and the browser sees a stream that ends cleanly with no `done` event. Do not
