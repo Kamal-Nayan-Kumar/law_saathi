@@ -95,6 +95,27 @@ happening.
 | Answers used "the respondent", "the aggrieved person", Latin | Unusable for the people who need it | **fixed** — `PLAIN_LANGUAGE_RULES` in the writing prompt, each rule traceable to a line in a real answer |
 | The collapsed rail's avatar jumped to the top | The spacer that pushes it down was the chat list, which is hidden when collapsed | **fixed** — `margin-top: auto` on the account block |
 
+### 0g. Reading the screen again, in Hindi and Kannada (2026-10-15)
+
+Found by asking real questions on the deployed site in Hindi and Kannada and
+reading what came back, in the reader's language. Every automated check passed
+while all of these were happening.
+
+| Found | Why it mattered | State |
+| --- | --- | --- |
+| "How Saathi worked this out" and the source tags were English | A Hindi reader could see that an answer existed but not which Act was chosen, that a Bill was set aside, or that the answer carried a caution — the three things the panel exists to say | **fixed** — trace lines are held as templates with `en`/`hi`/`kn` renderings; the client localises the panel's own chrome. Act names and section numbers stay English because they are the citation (ADR-0012 Decision 4) |
+| The answer was read as a translation in places | The rewriter was told to "keep the structure", which holds the English sentence order in place — the exact thing that makes a rewrite read as line-by-line translation | **fixed** — the rewriter is now told to re-say it naturally, with a short worked example per language, and to keep the *facts and citations* rather than the English shape (ADR-0012 Decision 2) |
+| Hindi answers carried `court`, `FIR`, `Act` in Latin letters | A Devanagari sentence with Latin words in it reads as machine output, not as a person. The loanword is fine (कोर्ट); the Latin spelling of it is not | **fixed** — the reader's script is now required for every word except an Act name, a section number and a place name |
+| Length was set by a tone switch, not by the question | "What is the minimum age to marry?" got the same budget as a paragraph describing a marriage, a child and a beating | **fixed** — `answer_length()` sizes the answer to the question: brief for a one-fact question, fuller for a described situation (ADR-0012 Decision 3) |
+| A follow-up restated the previous answer | Repeating what was just said is the first thing a reader notices in a chat | **fixed** — the writing prompt is told this is a follow-up and must answer *this* question without restating the earlier one |
+
+### 0h. Asked for, decided, not built
+
+| Ask | Decision | Why |
+| --- | --- | --- |
+| "Drop the translation step — the embeddings are multilingual" | **Kept for search, and no longer the only search.** The question is searched as written *and* pivoted; both result sets are merged | The pivot is what makes retrieval precise (13/20 top-1 vs 7/20). Dropping it makes answers *wrong*, not just worse — no non-English string says "dowry". The answer itself is never translated; it is rewritten. ADR-0012 Decision 1 |
+| Token-level streaming of the answer | **Not built.** Step-level SSE streaming is live, so the run shows real progress; the answer arrives as one `done` event | The answer is verified *after* it is written, and streaming tokens the verifier may then reject means showing text we are about to withdraw. Worth doing; see §5 |
+
 ---
 
 ## 1. Current state

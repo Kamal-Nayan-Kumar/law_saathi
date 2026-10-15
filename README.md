@@ -46,7 +46,21 @@ embedded as-is:
    `passage:`/`query:` prefixes. Nothing is embedded locally.
 7. **Bookkeeping** — point IDs are mirrored into Neon `ingested_chunks`.
 
-7 acts: Hindu Marriage 1955 (50 rows), Special Marriage 1954 (80), Hindu Adoption & Maintenance 1956 (32), Hindu Succession 1956 (53), Guardians & Wards 1890 (67), Domestic Violence 2005 (47), Indian Divorce Act 1869 (95).
+The Acts that carry the product, as they stand in the live collection (counted
+2026-10-15): Hindu Marriage 1955 (57), Special Marriage 1954 (98), Hindu
+Adoption & Maintenance 1956 (42), Hindu Succession 1956 (65), Guardians & Wards
+1890 (75), Domestic Violence 2005 (58), Indian Divorce 1869 (106), Indian
+Christian Marriage 1872 (121), Parsi Marriage & Divorce 1936 (78), Foreign
+Marriage 1969 (56), Family Courts 1984 (31), Parents & Senior Citizens 2007
+(45).
+
+The collection is much larger than the family-law slice: **8,852 points**, of
+which 1,385 are `kind: repealed_statute` (kept for history, never retrieved) and
+2 are hand-written amendment notices. The rest is tagged with a `topic` on
+ingestion — `civil_procedure` (1,896, mostly the Code of Civil Procedure 1908),
+`criminal` (1,468), `evidence`, `succession`, `property`, `children`, and so on.
+Only the family-law topics are in scope; see `AGENTS.md` → Open items for the
+two consequences of the wider collection that are still open.
 
 The golden eval set in `api/eval/golden_qas.py` was seeded from questions in
 `steamed-potatop/indian-family-law-data`
@@ -54,11 +68,11 @@ The golden eval set in `api/eval/golden_qas.py` was seeded from questions in
 then rewritten to assert a specific governing section. It is an eval set — it
 is never ingested into Qdrant.
 
-Vectors live in Qdrant Cloud collection `law_saathi` (e5-small, 384 dims, 1132 points); Neon `ingested_chunks` mirrors every point ID (ADR-0004). Re-ingest: `api/scripts/download_corpus.py` then `api/scripts/ingest.py --jsonl ... --text-dir ...`.
+Vectors live in Qdrant Cloud collection `law_saathi` (e5-small, 384 dims);
+Neon `ingested_chunks` mirrors every point ID (ADR-0004). Re-ingest:
+`api/scripts/download_corpus.py` then `api/scripts/ingest.py --jsonl ... --text-dir ...`.
 
 ## Languages (EN/HI/KN)
-
-English-pivot pipeline (ADR-0009): detect input language → translate non-English queries to English → retrieve + reason in English → answer back in the user's language. Voice uses Sarvam STT/TTS at the edges.
 
 **There is no language setting, and that is deliberate.** The script of the
 question decides the language of the answer, on both sides of the wire:
@@ -72,6 +86,42 @@ question decides the language of the answer, on both sides of the wire:
   spoken by a Kannada voice.
 
 Hinglish ("shadi ke liye umar") is detected as Hindi.
+
+### How a non-English question is answered
+
+1. **The question is read in the reader's own words.** It is embedded as written
+   and searched. e5-small is multilingual, so a Hindi or Kannada question does
+   match English statute text at the level of *topics*.
+2. **The question is also pivoted to English** and searched. This is the half
+   that is not optional: nothing in a non-English string says "dowry", so raw
+   Hinglish and Kannada went to the Christian Marriage Act and the Succession
+   Act instead. Measured on the live collection — 5 questions × 4 languages,
+   scored on whether the governing Act came back in the top 8: the reader's own
+   words alone got 15/20 (7/20 at rank 1), the English pivot 20/20 (13/20 at
+   rank 1). Both result sets are merged, so a translation that drops a term
+   cannot drop the section with it.
+3. **The answer is written once, in English**, grounded in the sections that
+   were retrieved, and checked against them.
+4. **The answer is then rewritten in the reader's language** — not translated.
+   A translator carries the source's difficulty across intact; a rewriter is
+   given the everyday word for each legal term (maintenance = मासगी, not
+   "maintenance"), is told to say it the way a person would say it out loud,
+   and cannot invent anything because it only re-says a verified draft.
+   Citations, Act names, section numbers and every number stay as they are.
+   If the rewrite comes back empty, looping, half-finished, in the wrong script,
+   or with English words left in Latin letters inside Devanagari, the English
+   answer ships instead.
+
+### The reasoning is in the reader's language too
+
+"How Saathi worked this out" and the source tags are localised the same way, so
+a Hindi reader can see which Act was chosen, that a Bill was set aside, or that
+the answer carries a caution. Act names and section numbers stay in English —
+they are the citation, and a translated citation cannot be checked.
+
+Full decisions: [ADR-0009](docs/adr/0009-english-pivot-language-pipeline.md),
+[ADR-0011](docs/adr/0011-pivot-stays-native-rewrite.md),
+[ADR-0012](docs/adr/0012-readers-language-and-a-talking-answer.md).
 
 ## Run locally (T1 scaffold)
 
@@ -93,7 +143,7 @@ cd web && npm install && npm run dev   # needs API on :8000 (see FASTAPI_URL)
 Auth: browser → Next.js (`/api/bff/*` verifies Neon Auth session) → FastAPI
 (internal secret). Never call FastAPI directly from the browser.
 
-Tests: `.venv/bin/python -m pytest api/tests -q` (270)
+Tests: `.venv/bin/python -m pytest api/tests -q` (315)
 Golden routing: `.venv/bin/python api/eval/run_golden.py --offline` (18/18)
 
 `--offline` matters. A live run measures whatever the providers are doing that

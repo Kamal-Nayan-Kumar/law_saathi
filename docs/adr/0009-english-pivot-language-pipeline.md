@@ -27,3 +27,13 @@ register across intact, so a plain English answer arrived in Hindi still full
 of untranslated legal terminology. The answer is now **rewritten** natively in
 the user's language, grounded on the same verified English draft, with the
 everyday word named for each legal term and English kept as the fallback.
+
+## Amendment (2026-10-15, ADR-0012)
+
+"Detect input language → translate to English → retrieve + reason in English →
+answer in the user's language" is still the shape, with two changes. The
+translation step is no longer the only search: the reader's own words are
+retrieved as well and merged, because the multilingual embeddings are the safety
+net for the terms a pivot drops. And "answer in the user's language" now covers
+the step log and the source tags, not just the answer — see
+[ADR-0012](0012-readers-language-and-a-talking-answer.md).

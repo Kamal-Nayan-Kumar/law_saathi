@@ -4,7 +4,8 @@ Status: accepted (2026-10-14).
 
 Supersedes nothing. Amends [ADR-0009](0009-english-pivot-language-pipeline.md)
 (keeps its pivot, replaces its answer-translation step) and adds evidence to
-[ADR-0003](0003-multilingual-embeddings.md).
+[ADR-0003](0003-multilingual-embeddings.md). Amended in turn by
+[ADR-0012](0012-readers-language-and-a-talking-answer.md).
 
 ## Context
 
@@ -72,6 +73,12 @@ Two properties make it safe:
 - **It can be rejected.** Empty, too short, looping, or still in the wrong
   script → the English answer is used. A rewrite that made things worse is
   never shipped.
+
+> **Amended 2026-10-15 (ADR-0012).** "Keep the structure" below is what let a
+> rewrite read as line-by-line translation: holding the English sentence order
+> produces exactly the register it was meant to remove. The rewriter is now told
+> to re-say the answer naturally, and to keep the *facts and citations* rather
+> than the English shape.
 
 Naming the everyday word is what makes it work: `LANG_PLAIN_RULES` gives
 "maintenance = मासगी / गुजारा देना", not "be simpler". A model told to be
