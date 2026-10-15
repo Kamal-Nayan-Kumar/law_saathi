@@ -457,6 +457,97 @@ class QdrantStore:
         resp.raise_for_status()
         return len(points)
 
+    def upsert_texts_batched(self, ids, texts, payloads,
+                             batch_size: int = 128) -> int:
+        """``upsert_texts`` in fixed-size HTTP batches.
+
+        Cloud Inference embeds every text in a single request; a whole-corpus
+        upsert is thousands of texts and one multi-megabyte body that the
+        inference endpoint rejects. Batching also means a failure halfway
+        through leaves the earlier points committed, and the stable point IDs
+        make a re-run finish the rest idempotently.
+        """
+        n = 0
+        for start in range(0, len(ids), batch_size):
+            n += self.upsert_texts(ids[start:start + batch_size],
+                                   texts[start:start + batch_size],
+                                   payloads[start:start + batch_size])
+        return n
+
+    def ensure_payload_indexes(self, fields) -> List[str]:
+        """Create keyword/integer indexes so payload filters are fast.
+
+        Qdrant filters work without an index, but scan every point. The
+        amendment-notice lookup and any act/category filter used one, so the
+        index is created up front. Idempotent: creating an existing index is
+        a no-op (HTTP 200).
+        """
+        import httpx
+
+        if not self._url:
+            raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        created: List[str] = []
+        for spec in fields:
+            name = spec["field_name"]
+            resp = httpx.put(
+                "%s/collections/%s/index" % (self._url, self.collection),
+                headers={"api-key": self._api_key,
+                         "Content-Type": "application/json"},
+                json={"field_name": name,
+                      "field_schema": spec.get("field_schema",
+                                               {"type": "keyword"})},
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            created.append(name)
+        return created
+
+    def delete_all_points(self) -> None:
+        """Empty the collection; the collection shell is kept."""
+        import httpx
+
+        if not self._url:
+            raise RuntimeError("QDRANT_URL is empty — add it to api/.env")
+        resp = httpx.post(
+            "%s/collections/%s/points/delete?wait=true"
+            % (self._url, self.collection),
+            headers={"api-key": self._api_key,
+                     "Content-Type": "application/json"},
+            json={"filter": {}},
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+
+    def count(self) -> int:
+        import httpx
+
+        resp = httpx.get("%s/collections/%s" % (self._url, self.collection),
+                         headers={"api-key": self._api_key}, timeout=30.0)
+        resp.raise_for_status()
+        return int(resp.json().get("result", {}).get("points_count") or 0)
+
+    def scroll_all(self, batch: int = 512) -> List[Dict]:
+        """Every point's payload, for verification and stats."""
+        import httpx
+
+        out: List[Dict] = []
+        offset = None
+        headers = {"api-key": self._api_key, "Content-Type": "application/json"}
+        while True:
+            body = {"limit": batch, "with_payload": True, "with_vector": False}
+            if offset is not None:
+                body["offset"] = offset
+            resp = httpx.post(
+                "%s/collections/%s/points/scroll"
+                % (self._url, self.collection), headers=headers, json=body,
+                timeout=60.0)
+            resp.raise_for_status()
+            res = resp.json().get("result", {})
+            out.extend(p.get("payload") or {} for p in res.get("points", []))
+            offset = res.get("next_page_offset")
+            if not offset:
+                return out
+
     def upsert(self, ids, vectors, payloads) -> int:
         from qdrant_client.models import PointStruct
 
