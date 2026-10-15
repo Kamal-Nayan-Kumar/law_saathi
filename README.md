@@ -119,6 +119,11 @@ a Hindi reader can see which Act was chosen, that a Bill was set aside, or that
 the answer carries a caution. Act names and section numbers stay in English —
 they are the citation, and a translated citation cannot be checked.
 
+### Streaming and latency
+
+- **Step-level SSE streaming is active:** Every intermediate agent step ("How Saathi worked this out" / "Working on it…", intent detection, tool searches, verification) streams live over Server-Sent Events as it happens so the user sees live progress instead of a blank spinner.
+- **Answer text arrives as a complete verified block:** ChatGPT-style word-by-word token streaming is intentionally held back. LawSaathi runs a strict **legal verifier** and a **native-language rewriter** after drafting; streaming tokens before the verifier approves could display legal hallucination or unverified text that would later be rejected and retracted.
+
 Full decisions: [ADR-0009](docs/adr/0009-english-pivot-language-pipeline.md),
 [ADR-0011](docs/adr/0011-pivot-stays-native-rewrite.md),
 [ADR-0012](docs/adr/0012-readers-language-and-a-talking-answer.md).
