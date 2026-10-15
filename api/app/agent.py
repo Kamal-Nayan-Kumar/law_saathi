@@ -970,11 +970,356 @@ def trace_run(state: Dict[str, Any]) -> None:
 
 LANG_NAMES = {"en": "English", "hi": "Hindi", "kn": "Kannada"}
 
+# The name of each language, written *in* that language and in the other two.
+# `LANGUAGE_NAMES[lang][reader_lang]` — a Hindi reader is told "हिंदी", not
+# "Hindi", for the same reason the answer is not in English.
+LANGUAGE_NAMES = {
+    "en": {"en": "English", "hi": "अंग्रेज़ी", "kn": "ಇಂಗ್ಲಿಷ್"},
+    "hi": {"en": "Hindi", "hi": "हिंदी", "kn": "ಹಿಂದಿ"},
+    "kn": {"en": "Kannada", "hi": "कन्नड़", "kn": "ಕನ್ನಡ"},
+}
 
-def _add_trace(state: Dict[str, Any], node: str, detail: str) -> None:
+# Topic, divorce-type and party names in the reader's language. `slots` holds the
+# English identifier ("domestic_violence") because that is what the maps and the
+# retrieval are keyed on; printing it to a Hindi reader is the defect this table
+# fixes.
+TOPIC_LOCAL = {
+    "divorce": {"en": "divorce", "hi": "तलाक", "kn": "ವಿಚ್ಛೇದನ"},
+    "maintenance": {"en": "maintenance", "hi": "भरण-पोषण", "kn": "ಜೀವನಾಂಶ"},
+    "custody": {"en": "custody", "hi": "अभिरक्षा", "kn": "ಪಾಲನೆ"},
+    "adoption": {"en": "adoption", "hi": "गोद लेना", "kn": "ದತ್ತು"},
+    "succession": {"en": "succession", "hi": "उत्तराधिकार", "kn": "ಉತ್ತರಾಧಿಕಾರ"},
+    "domestic_violence": {"en": "domestic violence", "hi": "घरेलू हिंसा",
+                         "kn": "ಕೌಟುಂಬಿಕ ಹಿಂಸೆ"},
+    "marriage": {"en": "marriage", "hi": "विवाह", "kn": "ಮದುವೆ"},
+    "dowry": {"en": "dowry", "hi": "दहेज", "kn": "ಸंಪತ್ತು ಕೋಲಿಕೆ"},
+    "interfaith_marriage": {"en": "inter-faith marriage", "hi": "अंतर-धार्मिक विवाह",
+                            "kn": "ಬೇರೆ ಧರ್ಮದ ಮದುವೆ"},
+    "general": {"en": "a general question", "hi": "सामान्य प्रश्न",
+                "kn": "ಸಾಮಾನ್ಯ ಪ್ರಶ್ನೆ"},
+}
+
+DIVORCE_TYPE_LOCAL = {
+    "mutual": {"en": "mutual consent", "hi": "आपसी सहमति", "kn": "ಪರಸ್ಪರ ಒಪ್ಪಿಗೆ"},
+    "contested": {"en": "contested", "hi": "विवादित", "kn": "ವಿವಾದಿತ"},
+    "khula": {"en": "khula", "hi": "खुला", "kn": "ಖುಲಾ"},
+}
+
+PARTY_LOCAL = {
+    "husband": {"en": "the husband", "hi": "पति", "kn": "ಗಂಡ"},
+    "wife": {"en": "the wife", "hi": "पत्नी", "kn": "ಹೆಂಡತಿ"},
+    "spouse": {"en": "the spouse", "hi": "जीवनसाथी", "kn": "ಜೀವನಸಂಗಾತಿ"},
+    "child": {"en": "the child", "hi": "बच्चा", "kn": "ಮಗು"},
+    "minor": {"en": "the minor", "hi": "नाबालिग", "kn": "ಅಲ్పವಯಸ್ಸಿನವನು"},
+    "father": {"en": "the father", "hi": "पिता", "kn": "ತಂದೆ"},
+    "mother": {"en": "the mother", "hi": "माता", "kn": "ತಾಯಿ"},
+    "widow": {"en": "the widow", "hi": "विधवा", "kn": "ವಿಧವೆ"},
+    "widower": {"en": "the widower", "hi": "विधुर", "kn": "ವಿಧುರ"},
+}
+
+
+def _local(table: Dict[str, Dict[str, str]], value: str, lang: str) -> str:
+    """Reader-language name for a stored English identifier."""
+    bank = table.get(value or "")
+    if not bank:
+        return value
+    return bank.get(lang) or bank.get("en") or value
+
+
+def _phrase(bank: Dict[str, str], lang: str) -> str:
+    """Reader-language text for a small fixed bank, e.g. "no clear topic yet"."""
+    return bank.get(lang) or bank.get("en") or ""
+
+
+def _plural(lang: str, n: int) -> str:
+    """The plural suffix to append, per language.
+
+    English is the only one of the three that marks a plural with a suffix.
+    "3 ವಿಭಾಗs." in Kannada and "2 और धाराs." in Hindi read as a stray Latin
+    letter in the middle of the sentence — which is the same defect as leaving
+    `court` in Latin letters inside Devanagari, one letter at a time.
+    """
+    if lang != "en":
+        return ""
+    return "" if n == 1 else "s"
+
+
+# Every line the Thinking panel shows, in the reader's language.
+#
+# These are template ids, not prose: `_add_trace(state, node, key, **fields)`
+# renders the key for `state["lang"]`. A key with no translation falls back to
+# English, which is the old behaviour — so the cost of adding a trace line and
+# forgetting its translation is the old defect, not a blank panel.
+#
+# Act names, section numbers, tool names and the queries the agent actually ran
+# stay as they are, in every language: they are the citation, and a translated
+# citation cannot be checked.
+TRACE_TEXT: Dict[str, Dict[str, str]] = {
+    "ctx_resolved": {
+        "en": "Read the conversation and expanded your follow-up “{q}” into a "
+              "full question.",
+        "hi": "बातचीत पढ़ी और आपके संक्षिप्त सवाल “{q}” को पूरा प्रश्न बना दिया।",
+        "kn": "ಸಂಭಾಷಣೆಯನ್ನು ಓದಿ ನಿಮ್ಮ ಸಂಕ್ಷಿಪ್ತ ಪ್ರಶ್ನೆ “{q}” ಅನ್ನು ಪೂರ್ಣ "
+              "ಪ್ರಶ್ನೆಯಾಗಿ ವಿಸ್ತರಿಸಿದೆ.",
+    },
+    "ctx_retry": {
+        "en": "Read the conversation. Your follow-up needed a second attempt; "
+              "it became “{q}”.",
+        "hi": "बातचीत पढ़ी। आपके संक्षिप्त सवाल को दूसरी कोशिश चाहिए हुई; वह "
+              "“{q}” बना।",
+        "kn": "ಸಂಭಾಷಣೆಯನ್ನು ಓದಿದೆ. ನಿಮ್ಮ ಸಂಕ್ಷಿಪ್ತ ಪ್ರಶ್ನೆಗೆ ಎರಡನೇ ಪ್ರಯತ್ನ "
+              "ಬೇಕಾಯಿತು; ಅದು “{q}” ಆಯಿತು.",
+    },
+    "ctx_standalone": {
+        "en": "Read the conversation; your message stands on its own.",
+        "hi": "बातचीत पढ़ी; आपका संदेश अपने आप पूरा है।",
+        "kn": "ಸಂಭಾಷಣೆಯನ್ನು ಓದಿದೆ; ನಿಮ್ಮ ಸಂದೇಶವು ತನkVಾಗಿಯೇ ಪೂರ್ಣವಾಗಿದೆ.",
+    },
+    "mem_topic": {
+        "en": "Remembered from an earlier session that you were asking about "
+              "{topic}.",
+        "hi": "पिछली बार की बातचीत से याद है कि आप {topic} के बारे में पूछ रहे "
+              "थे।",
+        "kn": "ಹಿಂದಿನ ಘಟನೆಯಿಂದ ನೆನಪಿದೆ — ನೀವು {topic} ಬಗ್ಗೆ ಕೇಳುತ್ತಿದ್ದೀರಿ.",
+    },
+    "mem_side": {
+        "en": "Remembered which side of the dispute you are on from an earlier "
+              "session.",
+        "hi": "पिछली बार से याद है कि आप इस मामले में किस तरफ हैं।",
+        "kn": "ಹಿಂದಿನ ಘಟನೆಯಿಂದ ನಿಮ್ಮ ಸ್ಥಾನ ಧ್ಯಾನದಲ್ಲಿದೆ.",
+    },
+    "intent_summary": {
+        "en": "Detected {found}, language {langname}.",
+        "hi": "{found} पहचाना गया, भाषा {langname}।",
+        "kn": "{found} ಗುರುತಿಸಲಾಗಿದೆ, ಭಾಷೆ {langname}.",
+    },
+    "planner_pivot_failed": {
+        "en": "The English pivot did not come back, so no topic could be read "
+              "from the question. Answering anyway rather than asking what they "
+              "were asking about.",
+        "hi": "अंग्रेज़ी अनुवाद वापस नहीं आया, इसलिए प्रश्न से विषय नहीं पढ़ा जा "
+              "सका। फिर भी उत्तर दिया जा रहा है — आपसे दोबारा पूछने के बजाय।",
+        "kn": "ಇಂಗ್ಲಿಷ್ ಅನುವಾದ ಬಂದಿಲ್ಲ, ಆದ್ದರಿಂದ ಪ್ರಶ್ನೆಯಿಂದ ವಿಷಯವನ್ನು "
+              "ಓದಲಾಗಲಿಲ್ಲ. ನೀವು ಏನು ಕೇಳಿದ್ದೀರಿ ಎಂದು ಮತ್ತೆ ಕೇಳುವ ಬದಲಿಗೆ, "
+              "ಉತ್ತರಿಸಲಾಗುವಿದೆ.",
+    },
+    "planner_oos": {
+        "en": "Outside family-law scope — saying so instead of answering or "
+              "asking.",
+        "hi": "यह पारिवारिक कानून के दायरे से बाहर है — उत्तर देने या पूछने के "
+              "बजाय यही बताया जा रहा है।",
+        "kn": "ಇದು ಕುಟುಂಬ ಕಾನೂನಿನ ವ್ಯಾಪ್ತಿಯಿಂದ ಹೊರಗಿದೆ — ಉತ್ತರಿಸುವುದು ಅಥವಾ "
+              "ಕೇಳುವುದರ ಬದಲಿಗೆ ಅದನ್ನೇ ಹೇಳಲಾಗುವಿದೆ.",
+    },
+    "planner_ask": {
+        "en": "Still need: {missing} — asking you instead of guessing.",
+        "hi": "यह चाहिए: {missing} — अंदाज़ा लगाने के बजाय आपसे पूछा जा रहा है।",
+        "kn": "ಇದು ಬೇಕು: {missing} — ಊಹಿಸುವುದರ ಬದಲಿಗೆ ನಿಮ್ಮನ್ನು ಕೇಳಲಾಗುವಿದೆ.",
+    },
+    "planner_answer_and_ask": {
+        "en": "Missing {missing}, but answering anyway and asking at the end "
+              "rather than making you wait.",
+        "hi": "{missing} निर्णय नहीं हो सका, फिर भी उत्तर दिया जा रहा है और आगे "
+              "एक प्रश्न रखा गया है — आपको इंतज़ार नहीं करवाना।",
+        "kn": "{missing} ಇಲ್ಲ, ಆದರೂ ಉತ್ತರಿಸಿ ಕೊನೆಯಲ್ಲಿ ಒಂದು ಪ್ರಶ್ನೆ "
+              "ಕೇಳಲಾಗುವುದು — ನಿಮ್ಮನ್ನು ಕಾಯಬೇಕಾಗಿಲ್ಲ.",
+    },
+    "planner_model_plan": {
+        "en": "Chose {act}. {why} Plan: {steps}",
+        "hi": "{act} चुना। {why} योजना: {steps}",
+        "kn": "{act} ಆಯ್ಕೆ. {why} ಯೋಜನೆ: {steps}",
+    },
+    "planner_fixed_plan": {
+        "en": "No planner model available — fixed plan: {steps}",
+        "hi": "योजना बनाने वाला मॉडल उपलब्ध नहीं है — तय योजना: {steps}",
+        "kn": "ಯೋಜನೆ ಮಾಡುವ ಮಾದರಿ ಲಭ್ಯವಿಲ್ಲ — ನಿಗದಿತ ಯೋಜನೆ: {steps}",
+    },
+    "planner_replan": {
+        "en": "The Acts did not have an answer — re-planning: {steps}",
+        "hi": "अधिनियमों में उत्तर नहीं मिला — नई योजना: {steps}",
+        "kn": "ಕಾಯ್ದೆಗಳಲ್ಲಿ ಉತ್ತರ ಸಿಕ್ಕಿಲ್ಲ — ಹೊಸ ಯೋಜನೆ: {steps}",
+    },
+    "tools_web": {
+        "en": 'web_search "{q}" → {n} web result{plural}.',
+        "hi": 'web_search "{q}" → {n} वेब परिणाम।',
+        "kn": 'web_search "{q}" → {n} ಜಾಲ ಪರಿಣಾಮ.',
+    },
+    "tools_web_fail": {
+        "en": 'web_search "{q}" unavailable ({err}).',
+        "hi": 'web_search "{q}" उपलब्ध नहीं ({err})।',
+        "kn": 'web_search "{q}" ಲಭ್ಯವಿಲ್ಲ ({err}).',
+    },
+    "tools_sections": {
+        "en": '{tool} "{q}" → {n} section{plural} from {act}.',
+        "hi": '{tool} "{q}" → {act} से {n} धारा।',
+        "kn": '{tool} "{q}" → {act} ಇಂದ {n} ವಿಭಾಗ.',
+    },
+    "tools_sections_no_act": {
+        "en": '{tool} "{q}" → {n} section{plural}.',
+        "hi": '{tool} "{q}" → {n} धारा।',
+        "kn": '{tool} "{q}" → {n} ವಿಭಾಗ.',
+    },
+    "tools_nothing_new": {
+        "en": '{tool} "{q}" → nothing new.',
+        "hi": '{tool} "{q}" → कुछ नया नहीं।',
+        "kn": '{tool} "{q}" → ಹೊಸದು ಏನೂ ಇಲ್ಲ.',
+    },
+    "tools_retrieval_failed": {
+        "en": '{tool} "{q}" failed ({err}).',
+        "hi": '{tool} "{q}" विफल ({err})।',
+        "kn": '{tool} "{q}" ವಿಫಲವಾಯಿತು ({err}).',
+    },
+    "tools_skipped_bill": {
+        "en": "Skipped {n} passage{plural} that is not enacted law (a Bill or a "
+              "draft). It cannot be applied by a court.",
+        "hi": "{n} अनुच्छेद छोड़े गए जो लागू होने वाला कानून नहीं है (बिल या "
+              "मसौदा)। कोई अदालत इन्हें लागू नहीं कर सकती।",
+        "kn": "{n} ಭಾಗ ಬದಲಾಗಿದೆ — ಇವು ಜಾರಿಯಾದ ಕಾಯ್ದೆ ಅಲ್ಲ (ಬಿಲ್ಲು ಅಥವಾ "
+              "ಕರಡು). ಯಾವ ನ್ಯಾಯಾಲಯವೂ ಇವನ್ನು ಅನ್ವಯಿಸುವುದಿಲ್ಲ.",
+    },
+    "tools_no_evidence": {
+        "en": "No evidence from any tool — the verifier will decide.",
+        "hi": "किसी भी साधन से कोई प्रमाण नहीं मिला — जाँचकर्ता तय करेगा।",
+        "kn": "ಯಾವುದೇ ಸಾಧನದಿಂದ ಪುರಾವೆ ಸಿಗಲಿಲ್ಲ — ಪರಿಶೀಲಕನು ನಿರ್ಧರಿಸುತ್ತಾನೆ.",
+    },
+    "tools_native": {
+        "en": "Also searched your own words (“{q}”) — {n} more section{plural}.",
+        "hi": "आपके अपने शब्दों (“{q}”) से भी खोज की — {n} और धारा।",
+        "kn": "ನಿಮ್ಮನ್ನೇ ಪದಗಳಿಂದ (“{q}”) ಅನ್ನು ಹುಡುಕಿದೆ — {n} ಇನ್ನಷ್ಟು "
+              "ವಿಭಾಗ.",
+    },
+    "tools_amendment": {
+        "en": "Added the amendment notice for this Act, because the "
+              "consolidated text is out of date.",
+        "hi": "इस अधिनियम की संशोधन सूचना जोड़ी गई, क्योंकि एकीकृत पाठ पुराना "
+              "है।",
+        "kn": "ಈ ಕಾಯ್ದೆಯ ತಿದ್ದುಪಡಿ ಸೂಚನೆಯನ್ನು ಸೇರಿಸಲಾಗಿದೆ, ಏಕೀಕೃತ ಪಠ್ಯ "
+              "ಹಳೆಯದಾಗಿರುವುದರಿಂದ.",
+    },
+    "verifier_grounded": {
+        "en": "Checked the draft against the passages — {reason}. Confidence "
+              "{conf}.",
+        "hi": "मसौदे को अनुच्छेदों से मिलाया — {reason}। विश्वास {conf}।",
+        "kn": "ಕರಡನ್ನು ಭಾಗಗಳೊಂದಿಗೆ ಹೊಂದಿಸಿ — {reason}. ವಿಶ್ವಾಸ {conf}.",
+    },
+    "verifier_retry": {
+        "en": "Rejected the draft — {reason} Searching again with better "
+              "queries (retry {n}/{max}).",
+        "hi": "मसौदा अस्वीकृत — {reason} बेहतर प्रश्नों से दोबारा खोज ({n}/{max})।",
+        "kn": "ಕರಡು ತಿರಸ್ಕೃತ — {reason} ಉತ್ತಮ ಪ್ರಶ್ನೆಗಳಿಂದ ಮತ್ತೆ ಹುಡುಕು "
+              "({n}/{max}).",
+    },
+    "verifier_no_retries": {
+        "en": "Rejected the draft — {reason} Out of retries, so the answer "
+              "carries a caution.",
+        "hi": "मसौदा अस्वीकृत — {reason} कोशिशें खत्म, इसलिए उत्तर में सावधानी "
+              "दी गई है।",
+        "kn": "ಕರಡು ತಿರಸ್ಕೃತ — {reason} ಪ್ರಯತ್ನಗಳು ಮುಗಿದವು, ಆದ್ದರಿಂದ "
+              "ಉತ್ತರದಲ್ಲಿ ಎಚ್ಚರಿಕೆ ಇದೆ.",
+    },
+    "verifier_threshold_ok": {
+        "en": "Citations cover the answer — confidence {conf}.",
+        "hi": "उत्तर के हर हिस्से का संदर्भ मिला — विश्वास {conf}।",
+        "kn": "ಉತ್ತರದ ಪ್ರತಿ ಭಾಗಕ್ಕೂ ಉಲ್ಲೇಖ ಸಿಕ್ಕಿದೆ — ವಿಶ್ವಾಸ {conf}.",
+    },
+    "verifier_thin": {
+        "en": "Evidence too thin — broadening the search (retry {n}/{max}).",
+        "hi": "प्रमाण बहुत कम — खोज को व्यापक किया जा रहा है ({n}/{max})।",
+        "kn": "ಪುರಾವೆ ತುಂಬಾ ಕಡಿಮೆ — ಹುಡುಕಾಟವನ್ನು ವಿಸ್ತರಿಸಲಾಗುತ್ತಿದೆ "
+              "({n}/{max}).",
+    },
+    "verifier_thin_out": {
+        "en": "Still thin after {n} retries — answering with a caution.",
+        "hi": "{n} कोशिशों के बाद भी कम — सावधानी के साथ उत्तर दिया जा रहा है।",
+        "kn": "{n} ಪ್ರಯತ್ನಗಳ ನಂತರವೂ ಕಡಿಮೆ — ಎಚ್ಚರಿಕೆಯೊಂದಿಗೆ ಉತ್ತರಿಸಲಾಗುವಿದು.",
+    },
+    "verifier_default_reason": {
+        "en": "every claim traces to a passage",
+        "hi": "हर बात का संदर्भ किसी अनुच्छेद में मिला",
+        "kn": "ಪ್ರತಿ ಹೇಳಿಕೆಗೂ ಒಂದು ಭಾಗದಲ್ಲಿ ಉಲ್ಲೇಖ ಸಿಕ್ಕಿದೆ",
+    },
+    "reason_drafted": {
+        "en": "Drafted a {n}-character explanation of {m} passage{plural}, ready to "
+              "be checked against them.",
+        "hi": "{m} अनुभाग की {n}-अक्षर की व्याख्या लिखी, जाँच के लिए तैयार।",
+        "kn": "{m} ಭಾಗದ {n}-ಅಕ್ಷರದ ವಿವರಣೆ ಬರೆಯಲಾಗಿದೆ, ಪರಿಶೀಲನೆಗೆ "
+              "ಸಿದ್ಧ.",
+    },
+    "reason_none": {
+        "en": "No draft to check — nothing readable came back from the "
+              "retrieval.",
+        "hi": "जाँचने के लिए कुछ नहीं — खोज से कुछ पढ़ने योग्य नहीं मिला।",
+        "kn": "ಪರಿಶೀಲಿಸಲು ಏನೂ ಇಲ್ಲ — ಹುಡುಕಾಟದಿಂದ ಓದಬಹುದಾದದ್ದು ಸಿಗಲಿಲ್ಲ.",
+    },
+    "response_clarify_missing": {
+        "en": "Asked you for: {missing}.",
+        "hi": "आपसे यह पूछा: {missing}।",
+        "kn": "ನಿಮ್ಮನ್ನು ಇದಕ್ಕಾಗಿ ಕೇಳಲಾಯಿತು: {missing}.",
+    },
+    "response_clarify_plain": {
+        "en": "Asked you a follow-up question.",
+        "hi": "आपसे एक प्रश्न पूछा।",
+        "kn": "ನಿಮ್ಮನ್ನು ಒಂದು ಪ್ರಶ್ನೆ ಕೇಳಲಾಯಿತು.",
+    },
+    "response_amendment": {
+        "en": "The passages carried an amendment notice and the draft quoted a "
+              "duration, so the answer now carries the amending Act rather than "
+              "the pre-amendment figure.",
+        "hi": "अनुच्छेदों में संशोधन की सूचना थी और मसौदे में एक अवधि लिखी थी, "
+              "इसलिए उत्तर में पुरानी अवधि के बजाय संशोधन करने वाला अधिनियम "
+              "दिया गया है।",
+        "kn": "ಭಾಗಗಳಲ್ಲಿ ತಿದ್ದುಪಡಿ ಸೂಚನೆ ಇದ್ದರಿಂದ ಮತ್ತು ಕರಡಿನಲ್ಲಿ ಒಂದು "
+              "ಅವಧಿ ಇದ್ದುದರಿಂದ, ಹಳೆಯ ಅವಧಿಯ ಬದಲಿಗೆ ತಿದ್ದುಪಡಿ ಮಾಡಿದ ಕಾಯ್ದನ್ನು "
+              "ಉತ್ತರದಲ್ಲಿ ನೀಡಲಾಗಿದೆ.",
+    },
+    "response_how_written": {
+        "en": "Wrote a plain-language answer",
+        "hi": "सरल भाषा में उत्तर लिखा",
+        "kn": "ಸರಳ ಭಾಷೆಯಲ್ಲಿ ಉತ್ತರ ಬರೆದಿದೆ",
+    },
+    "response_how_template": {
+        "en": "Used the template answer (no model)",
+        "hi": "तैयार नमूना उत्तर इस्तेमाल किया (कोई मॉडल नहीं)",
+        "kn": "ಸಿದ್ಧ ಮಾದರಿ ಉತ್ತರ ಬಳಸಲಾಗಿದೆ (ಮಾದರಿ ಇಲ್ಲ)",
+    },
+    "response_how_native": {
+        "en": " in everyday {langname}, not translated word for word",
+        "hi": " — {langname} में रोज़मर्रा की भाषा में, शब्द-दर-शब्द अनुवाद नहीं",
+        "kn": " — {langname} ನಲ್ಲಿ ದಿನನಿತ್ಯದ ಭಾಷೆಯಲ್ಲಿ, ಪದಬಂದ ಪದ ಅನುವಾದವಲ್ಲ",
+    },
+    "response_how_english_fallback": {
+        "en": " (kept in English — the {langname} rewrite came back unusable)",
+        "hi": " (अंग्रेज़ी में ही रखा — {langname} में फिर लिखना असफल रहा)",
+        "kn": " (ಇಂಗ್ಲಿಷ್ ನಲ್ಲಿ ಇರಿಸಲಾಗಿದೆ — {langname} ಗೆ ಮತ್ತೆ ಬರೆಯುವುದು "
+              "ವಿಫಲವಾಯಿತು)",
+    },
+    "response_final": {
+        "en": "{how} with {n} citation{plural}{extra}.",
+        "hi": "{how} — {n} संदर्भ{extra}।",
+        "kn": "{how} — {n} ಉಲ್ಲೇಖ{extra}.",
+    },
+}
+
+
+def trace_text(lang: str, key: str, **fields: Any) -> str:
+    """Render one trace template in the reader's language.
+
+    A missing key or a missing field renders the template as-is rather than
+    raising: the Thinking panel is never worth breaking an answer over.
+    """
+    bank = TRACE_TEXT.get(key) or {}
+    template = bank.get(lang) or bank.get("en") or key
+    try:
+        return template.format(**fields)
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
+def _add_trace(state: Dict[str, Any], node: str, key: str, **fields: Any) -> None:
     state["trace"] = list(state.get("trace", [])) + [node]
     state["trace_detail"] = list(state.get("trace_detail", [])) + [
-        {"node": node, "detail": detail}]
+        {"node": node,
+         "detail": trace_text(state.get("lang", "en"), key, **fields)}]
 
 
 def carry_slots_from_history(slots: Dict[str, str],
@@ -1107,20 +1452,15 @@ def node_intent(state: Dict[str, Any],
         if candidate and candidate.lower() != raw_query.strip().lower():
             query = candidate
             _add_trace(state, "contextualize",
-                       "Follow-up %r became %r using chat history."
-                       % (raw_query[:60], candidate[:100]))
+                       "ctx_resolved", q=raw_query[:60])
         else:
             retry = "" if looks_standalone(raw_query) else \
                 _force_contextualize(history, raw_query, llm)
             if retry:
                 query = retry
-                _add_trace(state, "contextualize",
-                           "Follow-up %r needed a second attempt; resolved "
-                           "to %r." % (raw_query[:60], retry[:100]))
+                _add_trace(state, "contextualize", "ctx_retry", q=retry[:100])
             else:
-                _add_trace(state, "contextualize",
-                           "Follow-up %r stands alone; kept as written."
-                           % raw_query[:60])
+                _add_trace(state, "contextualize", "ctx_standalone")
         # query_en was seeded from the raw query and, for English, never
         # refreshed after the rewrite — so English follow-ups retrieved on the
         # unresolved text while Hindi ones (translated below) retrieved on
@@ -1165,16 +1505,13 @@ def node_intent(state: Dict[str, Any],
     updates: Dict[str, str] = {}
     if not slots.get("topic") and memory.get("last_topic"):
         slots["topic"] = str(memory["last_topic"])
-        _add_trace(state, "intent",
-                   "Remembered from an earlier session that you were asking "
-                   "about %s." % slots["topic"])
+        _add_trace(state, "intent", "mem_topic",
+                   topic=_local(TOPIC_LOCAL, slots["topic"], lang))
     if not slots.get("self_side") and memory.get("last_party_role"):
         # Someone who asked about maintenance as a wife should not be answered
         # as though they were the husband on their next question.
         slots["self_side"] = str(memory["last_party_role"])
-        _add_trace(state, "intent",
-                   "Remembered which side of the dispute you are on from an "
-                   "earlier session.")
+        _add_trace(state, "intent", "mem_side")
     if slots.get("topic"):
         updates["last_topic"] = str(slots["topic"])
     # Which side they are on matters for the next question: "what about my
@@ -1186,19 +1523,24 @@ def node_intent(state: Dict[str, Any],
     state["intent"] = classify_intent(state["query_en"], slots)
     state["oos_redirect"] = is_oos(state["query_en"])
     topic = slots.get("topic")
-    bits = []
+    found_bits = []
     if topic:
-        bits.append("topic %r" % topic)
+        found_bits.append("topic %s" % _local(TOPIC_LOCAL, topic, lang))
     if slots.get("divorce_type"):
-        bits.append("type %r" % slots["divorce_type"])
+        found_bits.append("type %s"
+                          % _local(DIVORCE_TYPE_LOCAL, slots["divorce_type"], lang))
     if slots.get("parties"):
-        bits.append("asking for %r" % slots["parties"])
+        found_bits.append("asking for %s"
+                          % _local(PARTY_LOCAL, slots["parties"], lang))
     if slots.get("section"):
-        bits.append("section %s" % slots["section"])
-    found = "; ".join(bits) if bits else "no clear topic yet"
-    _add_trace(state, "intent",
-               "Detected %s, language %s." % (
-                   found, LANG_NAMES.get(state["lang"], state["lang"])))
+        found_bits.append("section %s" % slots["section"])
+    if not found_bits:
+        found_bits.append(_phrase({"en": "no clear topic yet",
+                                   "hi": "अभी कोई साफ़ विषय नहीं",
+                                   "kn": "ಇನ್ನೂ ಸ್ಪಷ್ಟ ವಿಷಯವಿಲ್ಲ"}, lang))
+    _add_trace(state, "intent", "intent_summary",
+               found="; ".join(found_bits),
+               langname=LANGUAGE_NAMES.get(lang, {}).get(lang, lang))
     return state
 
 
@@ -1219,10 +1561,7 @@ def node_planner(state: Dict[str, Any],
         # in that case and the user, who already asked in their own language,
         # gets told they were unclear. Retrieval on the raw text will be
         # weaker, but an answer they can read beats a question they resent.
-        _add_trace(state, "planner",
-                   "The English pivot did not come back, so no topic could be "
-                   "read from the question. Answering anyway rather than "
-                   "asking what they were asking about.")
+        _add_trace(state, "planner", "planner_pivot_failed")
         missing = []
     state["missing_slots"] = missing
     if state.get("oos_redirect"):
@@ -1231,27 +1570,22 @@ def node_planner(state: Dict[str, Any],
         # redirect explaining our scope is the right one.
         state["clarification"] = ""
         state["plan"] = default_plan(state)
-        _add_trace(state, "planner",
-                   "Outside family-law scope — saying so instead of "
-                   "answering or asking.")
+        _add_trace(state, "planner", "planner_oos")
         return state
     if missing and not should_answer_anyway(missing):
         state["clarification"] = clarification_question(
             missing, state.get("lang", "en"))
         # No retrieval worth planning when we are about to ask the user anyway.
         state["plan"] = default_plan(state)
-        _add_trace(state, "planner",
-                   "Still need: %s — asking you instead of guessing."
-                   % ", ".join(missing))
+        _add_trace(state, "planner", "planner_ask",
+                   missing=", ".join(missing))
         return state
     if missing:
         # Answer now, and end with the question. Making the user wait a whole
         # turn for a bare "how do I get a divorce" was the wrong trade.
         state["clarification"] = ""
-        _add_trace(state, "planner",
-                   "Missing %s, but answering anyway and asking at the end "
-                   "rather than making you wait."
-                   % ", ".join(missing))
+        _add_trace(state, "planner", "planner_answer_and_ask",
+                   missing=", ".join(missing))
         state["follow_up_question"] = clarification_question(
             missing, state.get("lang", "en"))
     state["clarification"] = ""
@@ -1261,13 +1595,11 @@ def node_planner(state: Dict[str, Any],
         "%s (%s)" % (s["tool"], (s.get("why") or s["query"])[:60])
         for s in plan["steps"])
     if plan["source"] == "model":
-        lead = ("Chose %s. " % (plan["governing_act"] or "the governing Act")
-                if plan["governing_act"] else "Chose an Act. ")
-        why = (" %s" % plan["reasoning"]) if plan["reasoning"] else ""
-        _add_trace(state, "planner", lead + why + " Plan: " + steps)
+        _add_trace(state, "planner", "planner_model_plan",
+                   act=plan["governing_act"] or "an Act",
+                   why=plan["reasoning"] or "", steps=steps)
     else:
-        _add_trace(state, "planner",
-                   "No planner model available — fixed plan: " + steps)
+        _add_trace(state, "planner", "planner_fixed_plan", steps=steps)
     return state
 
 
@@ -1463,6 +1795,17 @@ def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                       "act": str(item.get("act") or "").strip()[:80]})
     if not steps:
         return None
+    # The Acts are the product. A plan made only of web searches leaves the
+    # answer resting on whatever a crawler returns, and a live follow-up
+    # ("and if I want a divorce?") came back with no evidence at all because the
+    # model decided the Acts did not govern it and went to the web alone, where
+    # nothing was found. So the Act search is not optional: if the model left
+    # it out, it goes back in first.
+    if not any(s["tool"] == ACT_SEARCH for s in steps):
+        fixed = default_plan(state)["steps"][0]
+        fixed["why"] = "The bare Acts are always searched, even when the web " \
+                       "is also used."
+        steps.insert(0, fixed)
     return {"governing_act": str(raw.get("governing_act") or "").strip()[:120],
             "reasoning": str(raw.get("reasoning") or "").strip()[:400],
             "steps": steps, "source": "model"}
@@ -1836,10 +2179,9 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
         fresh = replan_after_empty(state, llm=llm)
         if fresh:
             state["plan"] = fresh
-            _add_trace(state, "planner",
-                       "The Acts did not have an answer — re-planning: "
-                       + " then ".join("%s (%s)" % (s["tool"], s["query"][:50])
-                                       for s in fresh["steps"]))
+            _add_trace(state, "planner", "planner_replan",
+                       steps=" then ".join("%s (%s)" % (s["tool"], s["query"][:50])
+                                           for s in fresh["steps"]))
     plan = state.get("plan") or default_plan(state)
     # On a retry the verifier's own next_queries replace the plan's queries,
     # but the tools stay the ones the planner picked.
@@ -1851,6 +2193,25 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     seen = set()
     notes: List[str] = []
     n_web = 0
+    lang = state.get("lang", "en")
+
+    def note(key: str, **fields: Any) -> None:
+        """One line of the step log, in the reader's language."""
+        notes.append(trace_text(lang, key, **fields))
+
+    # The reader's own words. e5-small is multilingual, so a Kannada or Hindi
+    # question does match English statute text — at the level of topics. The
+    # pivot exists because it does not match *legal terms*: nothing in a
+    # non-English string says "dowry". Running both is what makes each one's
+    # weakness the other's safety net — see ADR-0012 Decision 1.
+    native_query = ""
+    if lang != "en":
+        raw = (state.get("query") or "").strip()
+        pivot = (state.get("query_en") or "").strip()
+        # Only when it would actually search something different. An English
+        # fallback question (the pivot failed) is already all we have.
+        if raw and raw.lower() != pivot.lower():
+            native_query = raw
 
     for i, step in enumerate(steps):
         tool = step.get("tool", ACT_SEARCH)
@@ -1877,8 +2238,8 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 hits = list(ws(query) or [])
             except Exception as e:  # noqa: BLE001 — web is best-effort
                 logger.warning("agent web_search failed (%r)", e)
-                notes.append('web_search "%s" unavailable (%s).'
-                             % (shown, (str(e) or e.__class__.__name__)[:60]))
+                note("tools_web_fail", q=shown,
+                     err=(str(e) or e.__class__.__name__)[:60])
                 continue
             n_web += len(hits)
             for h in hits:
@@ -1886,9 +2247,8 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 if k not in seen:
                     seen.add(k)
                     evidence.append(h)
-            notes.append('web_search "%s" → %d web result%s.'
-                         % (shown, len(hits),
-                            "" if len(hits) == 1 else "s"))
+            note("tools_web", q=shown, n=len(hits),
+                 plural=_plural(lang, len(hits)))
             continue
 
         # search_acts and read_section both go to the vector store; the act
@@ -1910,10 +2270,29 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 hits = list(store.search_text(search_text, top_k=6) or [])
         except Exception as e:  # noqa: BLE001 — retrieval failure is retryable
             logger.warning("agent retrieval failed (%r)", e)
-            notes.append('%s "%s" failed (%s).'
-                         % (tool, shown, (str(e) or e.__class__.__name__)[:60]))
+            note("tools_retrieval_failed", tool=tool, q=shown,
+                 err=(str(e) or e.__class__.__name__)[:60])
             continue
         act_for_filter = act
+        # The second path runs before the ranking, on purpose: a section the
+        # reader's own words found has to be able to outrank an off-Act hit the
+        # anchored query produced, which is the whole point of running it.
+        # Anything already known is dropped, so the two paths agree on what they
+        # found rather than doubling the count.
+        if native_query and tool != WEB_SEARCH and not retry_queries:
+            try:
+                extra = list(store.search_text(
+                    "%s %s" % (native_query, act) if act else native_query,
+                    top_k=4) or [])
+            except Exception as e:  # noqa: BLE001 — best effort, like the first
+                logger.warning("agent native-query search failed (%r)", e)
+            else:
+                known = {_hit_key(h) for h in hits}
+                fresh = [h for h in extra if _hit_key(h) not in known]
+                if fresh:
+                    hits = list(hits) + fresh
+                    note("tools_native", q=native_query[:80], n=len(fresh),
+                         plural=_plural(lang, len(fresh)))
         if tool == SECTION_READ:
             section = re.sub(r"[^0-9A-Za-z]", "", query).lower()
             exact = [h for h in hits
@@ -1950,20 +2329,19 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 seen.add(k)
                 evidence.append(h)
                 added += 1
+        if added and act:
+            note("tools_sections", tool=tool, q=shown, n=added,
+                 plural=_plural(lang, added), act=act)
+        elif added:
+            note("tools_sections_no_act", tool=tool, q=shown, n=added,
+                 plural=_plural(lang, added))
+        elif not dropped:
+            note("tools_nothing_new", tool=tool, q=shown)
         if dropped and not added:
             # Worth saying out loud: the person is watching a "nothing found"
             # and should know material was set aside, not lost.
-            notes.append("Skipped %d passage%s that is not enacted law (a Bill "
-                         "or a draft). It cannot be applied by a court."
-                         % (dropped, "" if dropped == 1 else "s"))
-        if added and act:
-            notes.append('%s "%s" → %d section%s from %s.'
-                         % (tool, shown, added, "" if added == 1 else "s", act))
-        elif added:
-            notes.append('%s "%s" → %d section%s.'
-                         % (tool, shown, added, "" if added == 1 else "s"))
-        elif not dropped:
-            notes.append('%s "%s" → nothing new.' % (tool, shown))
+            note("tools_skipped_bill", n=dropped,
+                 plural=_plural(lang, dropped))
 
     state["evidence"] = evidence[:8]
     if wants_timing_correction(state.get("query_en") or state.get("query", "")):
@@ -1976,10 +2354,9 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
             state["evidence"].append(notice)
         if any(_AMENDMENT_LABEL in _section_of(h)
                for h in state["evidence"]):
-            notes.append("Added the amendment notice for this Act, because "
-                         "the consolidated text is out of date.")
+            note("tools_amendment")
     if not evidence:
-        notes.append("No evidence from any tool — the verifier will decide.")
+        note("tools_no_evidence")
     _add_trace(state, "tools", " ".join(notes))
     state.pop("next_queries", None)
     return state
@@ -2190,52 +2567,45 @@ def node_verifier(state: Dict[str, Any],
     if verdict and verdict["verdict"] == "grounded":
         state["verified"] = True
         state["needs_retry"] = False
-        reason = verdict["reason"] or "every claim traces to a passage"
-        _add_trace(state, "verifier",
-                   "Checked the draft against the passages — %s. Confidence %.2f."
-                   % (reason, confidence))
+        reason = verdict["reason"] or trace_text(
+            state.get("lang", "en"), "verifier_default_reason")
+        _add_trace(state, "verifier", "verifier_grounded", reason=reason,
+                   conf="%.2f" % confidence)
         return state
 
     if verdict:
         # A model saw something the score threshold could not see.
         state["verified"] = False
-        reason = verdict["reason"] or "not supported by the passages"
+        reason = verdict["reason"] or trace_text(
+            state.get("lang", "en"), "verifier_default_reason")
         if retries < MAX_RETRIES:
             state["retries"] = retries + 1
             state["needs_retry"] = True
             if verdict["next_queries"]:
                 state["next_queries"] = verdict["next_queries"]
-            _add_trace(state, "verifier",
-                       "Rejected the draft — %s Searching again with better "
-                       "queries (retry %d/%d)." % (reason, retries + 1,
-                                                    MAX_RETRIES))
+            _add_trace(state, "verifier", "verifier_retry", reason=reason,
+                       n=retries + 1, max=MAX_RETRIES)
         else:
             state["needs_retry"] = False
-            _add_trace(state, "verifier",
-                       "Rejected the draft — %s Out of retries, so the answer "
-                       "carries a caution." % reason)
+            _add_trace(state, "verifier", "verifier_no_retries", reason=reason)
         return state
 
     # No judge: the old threshold behaviour, unchanged.
     if has_floor:
         state["verified"] = True
         state["needs_retry"] = False
-        _add_trace(state, "verifier",
-                   "Citations cover the answer — confidence %.2f."
-                   % confidence)
+        _add_trace(state, "verifier", "verifier_threshold_ok",
+                   conf="%.2f" % confidence)
     elif retries < MAX_RETRIES:
         state["verified"] = False
         state["retries"] = retries + 1
         state["needs_retry"] = True
-        _add_trace(state, "verifier",
-                   "Evidence too thin — broadening the search (retry %d/%d)."
-                   % (retries + 1, MAX_RETRIES))
+        _add_trace(state, "verifier", "verifier_thin",
+                   n=retries + 1, max=MAX_RETRIES)
     else:
         state["verified"] = False
         state["needs_retry"] = False
-        _add_trace(state, "verifier",
-                   "Still thin after %d retries — answering with a caution."
-                   % MAX_RETRIES)
+        _add_trace(state, "verifier", "verifier_thin_out", n=MAX_RETRIES)
     return state
 
 
@@ -2259,6 +2629,37 @@ LOW_CONFIDENCE_DISCLAIMER = {
     "en": "Caution: this answer has lower verification confidence. Please consult a lawyer for your specific situation before acting.",
     "hi": "सावधानी: इस उत्तर का सत्यापन विश्वास कम है। कृपया कार्य करने से पहले अपनी स्थिति के लिए वकील से सलाह लें।",
     "kn": "ಎಚ್ಚರಿಕೆ: ಈ ಉತ್ತರದ ಪರಿಶೀಲನೆಯ ವಿಶ್ವಾಸ ಕಡಿಮೆ. ಕ್ರಮವಿರುವ ಮೊದಲು ನಿಮ್ಮ ನಿರ್ದಿಷ್ಟ ಪರಿಸ್ಥಿತಿಗೆ ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
+}
+
+# What the reader is told when the retrieval produced nothing usable. This is
+# the answer they get when the Acts have no answer and the web came back empty,
+# and it was written in English for every language — so a Hindi reader got a
+# Hindi disclaimer attached to three English sentences they could not read.
+# Three sentences, all localised, same order.
+NO_EVIDENCE = {
+    "en": "I could not confirm this with the family-law acts I have.",
+    "hi": "मेरे पास कानूनों की किताबें हैं, लेकिन इस सवाल का उत्तर मैं उनसे पक्का नहीं बना सका।",
+    "kn": "ನನ್ನ ಬಳಿ ಕಾನೂನಿನ ಪುಸ್ತಕಗಳಿವೆ, ಆದರೆ ಈ ಪ್ರಶ್ನೆಯ ಉತ್ತರವನ್ನು ಅವುಗಳಿಂದ ಖಚಿತಪಡಿಸಲು ಸಾಧ್ಯವಾಗಿಲ್ಲ.",
+}
+
+DIVORCE_ACT_LIST = {
+    "en": "Divorce in India generally falls under the Hindu Marriage Act "
+          "(Section 13/13B), the Special Marriage Act, or the Indian Divorce "
+          "Act depending on religion and marriage type.",
+    "hi": "भारत में तलाक आमतौर पर हिंदू विवाह अधिनियम (धारा 13/13B), विशेष विवाह अधिनियम, "
+          "या भारतीय तलाक अधिनियम के अंतर्गत आता है — यह आपके धर्म और विवाह के प्रकार पर निर्भर करता है।",
+    "kn": "ಭಾರತದಲ್ಲಿ ವಿಚ್ಛೇದನೆಯು ಸಾಮಾನ್ಯವಾಗಿ ಹಿಂದೂ ವಿವಾಹ ಕಾಯ್ದೆ (ವಿಭಾಗ 13/13B), ವಿಶೇಷ "
+          "ವಿವಾಹ ಕಾಯ್ದೆ, ಅಥವಾ ಭಾರತೀಯ ವಿಚ್ಛೇದನ ಕಾಯ್ದೆಯಡಿ ಬರುತ್ತದೆ — ಇದು ನಿಮ್ಮ ಧರ್ಮ "
+          "ಮತ್ತು ಮದುವೆಯ ರೀತಿಯನ್ನು ಅವಲಂಬಿಸಿರುತ್ತದೆ.",
+}
+
+NO_EVIDENCE_ASK = {
+    "en": "Please tell me the exact Act or section if you know it, or speak to "
+          "a family-law lawyer about your situation.",
+    "hi": "अगर आपको कोई अधिनियम या धारा का नाम पता है तो बताएँ, या अपनी स्थिति के लिए "
+          "पारिवारिक कानून के वकील से बात करें।",
+    "kn": "ನಿಮಗೆ ಯಾವುದೇ ಕಾಯ್ದೆ ಅಥವಾ ವಿಭಾಗದ ಹೆಸರು ತಿಳಿದಿದ್ದರೆ ಹೇಳಿ, ಅಥವಾ ನಿಮ್ಮ "
+          "ಪರಿಸ್ಥಿತಿಗಾಗಿ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
 
 NOT_FULLY_VERIFIED = {
@@ -2568,12 +2969,10 @@ def compose_answer(state: Dict[str, Any],
     # Unverified / no-citation block: never return an uncited answer
     if not evidence_sufficient(evidence) and not state.get("verified"):
         # Strong redirect when verifier failed after retries
-        base = ("I could not verify this with the family-law acts I have. ")
+        base = NO_EVIDENCE.get(lang, NO_EVIDENCE["en"])
         if state.get("slots", {}).get("topic") == "divorce":
-            base += ("Divorce in India generally falls under the Hindu Marriage "
-                     "Act (Section 13/13B), the Special Marriage Act, or the "
-                     "Indian Divorce Act depending on religion and marriage type. ")
-        base += "Please share the exact section/act name so I can verify, or consult a lawyer for personalized advice."
+            base += (" " + DIVORCE_ACT_LIST.get(lang, DIVORCE_ACT_LIST["en"]))
+        base += (" " + NO_EVIDENCE_ASK.get(lang, NO_EVIDENCE_ASK["en"]))
         return base + "\n\n" + DISCLAIMER.get(lang, DISCLAIMER["en"]) + "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"]), [], []
     citations = [format_citation((h.get("payload") or {}) if isinstance(h, dict)
                                  else {}) for h in evidence[:5]]
@@ -2665,6 +3064,66 @@ TONE_GUIDE = {
                 "in ordinary words. Bullets under a heading are welcome here.",
 }
 
+# How long the answer should be, decided by the question rather than by a
+# setting. A tone switch cannot tell "what is the minimum age to marry?" from a
+# paragraph describing a marriage, a child and a beating — and those two want
+# opposite lengths. Padding a one-line question is what made it unreadable;
+# starving a described situation is what made it useless.
+#
+# Signals, in order of how much they matter:
+#   - a short question with no situation in it  -> one fact -> brief
+#   - a long question, or one describing people and events -> full
+#   - everything else -> normal
+_SITUATION_RE = re.compile(
+    r"\b(my|our|his|her|their)\b|,|;|\b(and|but|after|since|because|while)\b|"
+    r"\b(19|20)\d{2}\b|\b(day|days|week|weeks|month|months|year|years)\b",
+    re.IGNORECASE)
+
+
+def answer_length(query_en: str) -> str:
+    """'brief', 'normal' or 'full' — how much this question deserves."""
+    text = (query_en or "").strip()
+    words = text.split()
+    if not words:
+        return "normal"
+    situation = bool(_SITUATION_RE.search(text))
+    if len(words) <= 8 and not situation:
+        return "brief"
+    if len(words) >= 25 or situation:
+        return "full"
+    return "normal"
+
+
+ANSWER_LENGTH_RULES = {
+    "brief": (
+        "Length: SHORT. The reader asked for one fact. Two or three sentences "
+        "answer it, with the section in brackets. No background, no options they "
+        "did not ask for, no padding. One step under 'what to do next' is "
+        "enough."),
+    "normal": (
+        "Length: MEDIUM. Three to five short paragraphs. Answer the question, "
+        "say what the rule means for this person, then two or three concrete "
+        "steps. Stop when you have said it."),
+    "full": (
+        "Length: FULL, but still plain. Four to seven short paragraphs. The "
+        "reader described a situation with several facts, so cover each one that "
+        "the passages support: what the law says, how it applies to them, and "
+        "what to do next. Use a short heading with bullets when there is a real "
+        "list — conditions, grounds, documents — and flowing prose when there "
+        "is not. Never pad a point you have already made."),
+}
+
+
+# A follow-up in a conversation that is already going. Without this the model
+# restated the previous answer, which is the first thing a reader notices in a
+# chat — and it doubled the reading for someone asking one narrow thing.
+FOLLOW_UP_RULES = (
+    "- This is a FOLLOW-UP in a conversation already going. Answer only what "
+    "was just asked, using what came before. Do not restate the earlier answer "
+    "and do not open with 'as mentioned above'. One short line showing you "
+    "remember the situation is enough, then answer this question.\n"
+)
+
 
 # What the writing model was getting wrong, as a short list it can be held to.
 # Screenshot evidence, each line: a real answer the user read and could not use.
@@ -2720,7 +3179,11 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         passages.append("[%d] %s — %s" % (i, format_citation(payload), body))
     if not passages:
         return ""
-    topic = (state.get("slots") or {}).get("topic", "general")
+    length = ANSWER_LENGTH_RULES[answer_length(
+        state.get("query_en") or state.get("query", ""))]
+    # A follow-up is a continuation, not a fresh question: the model must not
+    # repeat what was already said two turns ago.
+    follow_up = FOLLOW_UP_RULES if state.get("history") else ""
     system = (
         "You are LawSaathi, a patient family-law advisor speaking to a normal "
         "person in India — not a lawyer. Explain the law below the way a good "
@@ -2754,15 +3217,17 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "markdown just to fill space, and never repeat the same heading "
         "template every time.\n"
         "- Never repeat a sentence or phrase. Every sentence must be new.\n"
-        "- 2 to 4 short paragraphs. Output ONLY the explanation.\n"
+        "%s"
+        "%s"
         "- End with a '### What to do next' heading and 2 or 3 short bullets of "
         "concrete steps that fit THIS person's situation. These must be specific "
         "to the question just asked — for a maintenance arrears question, the "
         "documents to gather and where to file; for a custody question, what the "
         "court weighs. Never write generic advice like 'consult a lawyer' on its "
         "own, and never repeat the same list twice in a row.\n"
+        "Output ONLY the explanation.\n"
         "%s"
-        "%s" % (PLAIN_LANGUAGE_RULES,
+        "%s" % (PLAIN_LANGUAGE_RULES, follow_up, length,
                 TONE_GUIDE.get(tone, TONE_GUIDE["simple"]))
     )
     user = ("Question: %s\n\nPassages:\n%s"
@@ -2810,11 +3275,25 @@ LANG_PLAIN_RULES = {
         "- judicial separation = अलग रहना\n"
         "- restitution of conjugal rights = पति-पत्नी को साथ रहने का हक़\n"
         "- custody of the child = बच्चे के साथ किसे रहना है\n"
+        "- guardianship = अभिभावकता\n"
+        "- court / magistrate = अदालत / कोर्ट / मजिस्ट्रेट\n"
+        "- family court = परिवार अदालत\n"
+        "- petition / application / proceedings = आवेदन / अर्ज़ी / कानूनी कार्रवाई\n"
+        "- order / judgment = आदेश / फ़ैसला\n"
+        "- protection order = सुरक्षा आदेश\n"
+        "- residence order = घर में रहने का आदेश\n"
+        "- monetary relief = पैसे की मदद\n"
+        "- shared household = वह घर जहाँ आप रहती हैं\n"
+        "- police / FIR = पुलिस / प्रथम सूचना (एफआईआर)\n"
+        "- lawyer / advocate = वकील\n"
+        "- case = मामला / केस\n"
+        "- proof / evidence = सबूत\n"
+        "- dowry = दहेज\n"
         "- respondent / applicant = पति / पत्नी / वो / आप\n"
         "- petition / proceedings = आवेदन / कानूनी कार्रवाई\n"
         "- section / Act / amendment = धारा / अधिनियम / बदलाव\n"
         "- joint family / partition = संयुक्त परिवार / बँटवारा\n"
-        "- 'the court may' = 'आप court से कह सकते हैं कि…' — जो कर सकते हैं वो लिखो\n"
+        "- 'the court may' = 'आप अदालत से कह सकती हैं कि…' — जो कर सकती हैं वो लिखो\n"
         "सीधे 'आप' (आपको, आपसे, आप कर सकती हैं) इस्तेमाल करो, 'एक व्यक्ति' या "
         "'पक्षकार' जैसे औपचारिक शब्द नहीं।"
     ),
@@ -2831,8 +3310,21 @@ LANG_PLAIN_RULES = {
         "- respondent / applicant = ಗಂಡ / ಹೆಂಡತಿ / ಅವರು / ನೀವು\n"
         "- petition / proceedings = ಅರ್ಜಿ / ಕಾನೂನು ಪ್ರಕ್ರಿಯೆ\n"
         "- section / Act = ವಿಭಾಗ / ಕಾಯಿದೆ\n"
+        "- guardianship = ಪಾಲಕತ್ವ\n"
+        "- court / magistrate = ನ್ಯಾಯಾಲಯ / ಕೋರ್ಟ್ / ಮಜಿಸ್ಟ್ರೇಟ್\n"
+        "- family court = ಕುಟುಂಬ ನ್ಯಾಯಾಲಯ\n"
+        "- order / judgment = ಆದೇಶ / ತೀರ್ಪು\n"
+        "- protection order = ರಕ್ಷಣಾ ಆದೇಶ\n"
+        "- residence order = ಮನೆಯಲ್ಲಿ ಇರುವ ಆದೇಶ\n"
+        "- monetary relief = ಹಣದ ಸಹಾಯ\n"
+        "- shared household = ನೀವು ಬದುಕುವ ಮನೆ\n"
+        "- police / FIR = ಪೊಲೀಸ್ / ಪ್ರಥಮ ಸೂಚನೆ (ಎಫ್ಐಆರ್)\n"
+        "- lawyer / advocate = ವಕೀಲ\n"
+        "- case = ಪ್ರಕರಣ\n"
+        "- proof / evidence = ಸಾಕ್ಷಿ\n"
+        "- dowry = ಸಂಪತ್ತು ಕೋಲಿಕೆ\n"
         "- joint family / partition = ಉಮ್ಮ / ವಿಂಗಡಣೆ\n"
-        "- 'the court may' = 'ನೀವು ನಿಲ್ಲವಾಗಿ ಕೋರಿಬಹುದು…' — ನೀವು ಮಾಡಬಹುದಾದದ್ದನ್ನು "
+        "- 'the court may' = 'ನೀವು ನ್ಯಾಯಾಲಯದಿಂದ ಕೋರಿಬಹುದು…' — ನೀವು ಮಾಡಬಹುದಾದದ್ದನ್ನು "
         "ಬರೆ\n"
         "ನೀವು/ನಿಮ್ಮ (you) ಬಳಸಿ, 'ಒಂದು ವ್ಯಕ್ತಿ' ಅಥವಾ 'ಪಕ್ಷಿ' ಹಾಗಿ "
         "ಔಪಚಾರಿಕ ಪದಗಳನ್ನು ಬಳಸಬೇಡಿ."
@@ -2852,11 +3344,20 @@ NATIVE_SIMPLICITY_RULES = (
     "sentence, in the everyday words.\n"
     "- Speak to the reader as 'you'. Warm, direct, calm. No formality, no "
     "passive voice hiding who must act.\n"
-    "- Never repeat a sentence or a phrase. Every sentence must be new.\n"
-    "- Leave no English words in the text. The only English allowed is an "
-    "Act name, a section number, and a place name the reader would say the "
-    "same way. If a word has a word in the reader's language, use that one.\n"
+    "- Never repeat a sentence or phrase. Every sentence must be new.\n"
+    "- Write in the reader's SCRIPT. Every ordinary word goes in Devanagari "
+    "or Kannada, never in Latin letters. A loanword people really use is "
+    "fine - write it in the reader's script. Latin letters are allowed only "
+    "inside an Act name and a section number.\n"
+    "- The only English words allowed are an Act name, a section number, and "
+    "a place name the reader would say the same way. If a word has a word "
+    "in the reader's language, use that one.\n"
     "- Never stop mid-sentence. Every sentence you start, you finish.\n"
+    "- Do NOT follow the English sentence order. Say each point the way you "
+    "would say it out loud, in the order that sounds natural in the "
+    "reader's language. Two English sentences may become one; one may "
+    "become two. What must not change is the facts, the numbers and the "
+    "[1] [2] markers.\n"
 )
 
 # "What to do next" in the reader's language, and the other half of that
@@ -2942,11 +3443,30 @@ def rewrite_in_language(state: Dict[str, Any], english: str,
         "- Keep the [1], [2], [3] citation markers, attached to the same "
         "claims they are attached to now. Keep every Act name and section "
         "number in English (for example 'Hindu Marriage Act, Section 5').\n"
-        "- Keep the structure: the same headings, and the same 'what to do "
-        "next' steps at the end.\n"
+        "- Keep the same headings, and the same 'what to do next' steps at the "
+        "end.\n"
         "- The final heading must read exactly '### %s'. Do not translate "
         "that heading differently, and do not add a second one.\n"
         "- Keep the same length or shorter. Never pad.\n\n"
+        "How to write it:\n"
+        "- Say it the way a person would say it out loud to someone they know. "
+        "A rule that is a sentence in English may become a shorter, warmer "
+        "sentence here; a clause may move. Holding the English sentence order "
+        "is what makes a rewrite read as a translation, and that is the one "
+        "thing this must not do.\n"
+        "- Read the whole draft first, then write. Do not work through it "
+        "line by line.\n\n"
+        "Example of the difference (Hindi):\n"
+        "  English:  'You may apply to the Magistrate for a protection order, "
+        "and the Magistrate may direct the respondent to stay away from the "
+        "shared household.'\n"
+        "  Word-for-word: 'आप मजिस्ट्रेट के पास एक प्रोटेक्शन ऑर्डर के लिए आवेदन कर "
+        "सकती हैं, और मजिस्ट्रेट रिस्पॉन्डेंट को शेयर्ड हाउसहोल्ड से दूर रहने का "
+        "निर्देश दे सकता है।'\n"
+        "  Written for the reader: 'आप अदालत में जाकर कह सकती हैं कि वह आपके घर के "
+        "पास न आए। अदालत ऐसा आदेश दे सकती है, और इसके लिए वकील की ज़रूरत नहीं।'\n"
+        "  Notice: the same two facts, the same meaning, in the reader's own "
+        "words — and Act names and section numbers still in English.\n\n"
         "%s\n\n"
         "%s\n\n"
         "Output ONLY the rewritten answer in %s. No preamble, no explanation "
@@ -3027,15 +3547,12 @@ def node_reason(state: Dict[str, Any],
         draft = write_plain_answer(state, llm)
     state["draft"] = draft
     if draft:
-        _add_trace(state, "reason",
-                   "Drafted a %d-character explanation of %d passage%s, ready "
-                   "to be checked against them."
-                   % (len(draft), len(state.get("evidence", [])),
-                      "" if len(state.get("evidence", [])) == 1 else "s"))
+        lang = state.get("lang", "en")
+        n_passages = len(state.get("evidence", []))
+        _add_trace(state, "reason", "reason_drafted", n=len(draft),
+                   m=n_passages, plural=_plural(lang, n_passages))
     else:
-        _add_trace(state, "reason",
-                   "No draft to check — nothing readable came back from the "
-                   "retrieval.")
+        _add_trace(state, "reason", "reason_none")
     return state
 
 
@@ -3120,9 +3637,11 @@ def node_response(state: Dict[str, Any],
         state["citations"] = []
         state["citation_sources"] = []
         missing = state.get("missing_slots", [])
-        _add_trace(state, "response",
-                   "Asked you for: %s." % ", ".join(missing) if missing
-                   else "Asked you a follow-up question.")
+        if missing:
+            _add_trace(state, "response", "response_clarify_missing",
+                       missing=", ".join(missing))
+        else:
+            _add_trace(state, "response", "response_clarify_plain")
         return state
     # The draft was written and checked in node_reason; this node assembles
     # the user-facing answer. Re-writing here would throw away the judge's work.
@@ -3148,10 +3667,7 @@ def node_response(state: Dict[str, Any],
     final = strip_reasoning_leak(answer_en)
     guarded = apply_amendment_guard(state, final)
     if guarded != final:
-        _add_trace(state, "response",
-                   "The passages carried an amendment notice and the draft "
-                   "quoted a duration, so the answer now carries the amending "
-                   "Act rather than the pre-amendment figure.")
+        _add_trace(state, "response", "response_amendment")
         final = guarded
     # Append the disambiguating question the planner held back, so the user got
     # an answer *and* the chance to narrow it down.
@@ -3161,20 +3677,30 @@ def node_response(state: Dict[str, Any],
     state["answer"] = final
     state["citations"] = citations
     state["citation_sources"] = citation_sources
-    how = ("wrote a plain-language answer" if written
-           else "used the template answer (no model)")
-    if rewritten:
-        how += " in everyday %s, not translated word for word" % (
-            LANG_NAMES.get(lang, lang))
-    elif written and lang != "en":
-        how += " (kept in English — the %s rewrite came back unusable)" % (
-            LANG_NAMES.get(lang, lang))
-    _add_trace(state, "response",
-               "%s with %d citation%s%s."
-               % (how[0].upper() + how[1:], len(citations),
-                  "" if len(citations) == 1 else "s",
-                  " in " + LANG_NAMES[lang]
-                  if lang != "en" and lang in LANG_NAMES else ""))
+    # The reader's name for their own language, and the preposition the sentence
+    # needs in it. Both are per-language because "in Hindi" is not "हिंदी में"
+    # read backwards — the case ending goes on the noun.
+    lang_name = LANGUAGE_NAMES.get(lang, {}).get(lang,
+                                                 LANG_NAMES.get(lang, lang))
+    if not written:
+        how = trace_text(lang, "response_how_template")
+    elif rewritten:
+        how = trace_text(lang, "response_how_written") + trace_text(
+            lang, "response_how_native", langname=lang_name)
+    elif lang != "en":
+        how = trace_text(lang, "response_how_written") + trace_text(
+            lang, "response_how_english_fallback", langname=lang_name)
+    else:
+        how = trace_text(lang, "response_how_written")
+    if lang != "en" and lang in LANG_NAMES:
+        extra = " " + _phrase({"en": "in %s" % lang_name,
+                               "hi": "%s में" % lang_name,
+                               "kn": "%sನಲ್ಲಿ" % lang_name}, lang)
+    else:
+        extra = ""
+    _add_trace(state, "response", "response_final", how=how,
+               n=len(citations), plural=_plural(lang, len(citations)),
+               extra=extra)
     return state
 
 

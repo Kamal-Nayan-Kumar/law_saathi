@@ -44,27 +44,92 @@ const SUGGESTIONS = [
   "ಮಗುವಿನ ಕಸ್ಟಡಿ ಯಾರಿಗೆ ಸಿಗುತ್ತದೆ?",
 ];
 
+// The chat's own chrome, in the language of the answer. The agent already
+// writes the answer, the step log and the trace in the reader's language; this
+// is the last piece that was English — a Hindi reader was being told "How
+// Saathi worked this out" and "Sources (5)" in a script they had not used.
+//
+// The answer's language is authoritative (`msg.lang`, which the server reports
+// from the script of the question), so a stored answer stays in its own
+// language forever, even if the user switches to English afterwards.
+type UiKey =
+  | "warmup1" | "warmup2" | "warmup3" | "warmup4" | "warmup5"
+  | "thinking" | "steps" | "sources" | "readAloud" | "stop"
+  | "working" | "starting" | "newChat" | "noChats" | "signOut"
+  | "history" | "deleteChat" | "confirmDelete" | "askPlaceholder"
+  | "recording" | "transcribing" | "emptyTitle" | "emptyHint" | "checking"
+  | "srcAct" | "srcWeb" | "srcDoc" | "srcOther";
+
+const UI: Record<UiKey, { en: string; hi: string; kn: string }> = {
+  warmup1: { en: "Understanding your question…", hi: "आपका प्रश्न समझ रहे हैं…", kn: "ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳುತ್ತಿದೆ…" },
+  warmup2: { en: "Choosing which law applies…", hi: "कौन सा कानून लागू है, चुन रहे हैं…", kn: "ಯಾವ ಕಾನೂನು ಅನ್ವಯಿಸುತ್ತದೆ ಎಂದು ಆಯ್ಕೆ ಮಾಡುತ್ತಿದೆ…" },
+  warmup3: { en: "Reading the bare acts…", hi: "कानूनों को पढ़ रहे हैं…", kn: "ಕಾಯ್ದೆಗಳನ್ನು ಓದುತ್ತಿದೆ…" },
+  warmup4: { en: "Checking every claim…", hi: "हर बात जाँच रहे हैं…", kn: "ಪ್ರತಿ ಹೇಳಿಕೆ ಪರಿಶೀಲಿಸುತ್ತಿದೆ…" },
+  warmup5: { en: "Writing the answer…", hi: "उत्तर लिभ रहे हैं…", kn: "ಉತ್ತರ ಬರೆಯುತ್ತಿದೆ…" },
+  thinking: { en: "How Saathi worked this out", hi: "साथी ने यह कैसे निकाला", kn: "ಸಾಥಿ ಇದನ್ನು ಹೇಗೆ ಕಂಡುಕೊಂಡಿತ್ತು" },
+  steps: { en: "steps", hi: "चरण", kn: "ಹಂತಗಳು" },
+  sources: { en: "Sources", hi: "स्रोत", kn: "ಮೂಲಗಳು" },
+  readAloud: { en: "Read aloud", hi: "पढ़कर सुनाएँ", kn: "ಓದಿ ಕೇಳಿಸಿ" },
+  stop: { en: "Stop", hi: "रोकें", kn: "ನಿಲ್ಲಿಸಿ" },
+  working: { en: "Working on it…", hi: "काम चल रहा है…", kn: "ಕೆಲಸ ನಡೆಯುತ್ತಿದೆ…" },
+  starting: { en: "Getting to your question…", hi: "आपके प्रश्न तक पहुँच रहे हैं…", kn: "ನಿಮ್ಮ ಪ್ರಶ್ನೆಗೆ ತಲುಪುತ್ತಿದೆ…" },
+  newChat: { en: "New chat", hi: "नई बातचीत", kn: "ಹೊಸ ಸಂಭಾಷಣೆ" },
+  noChats: { en: "No chats yet — ask something to start.", hi: "अभी कोई बातचीत नहीं — कुछ पूछकर शुरू करें।", kn: "ಇನ್ನೂ ಸಂಭಾಷಣೆ ಇಲ್ಲ — ಏನಾದರೂ ಕೇಳಿ ಪ್ರಾರಂಭಿಸಿ." },
+  signOut: { en: "Sign out", hi: "साइन आउट", kn: "ಸೈನ್ ಔಟ್" },
+  history: { en: "Chat history", hi: "बातचीत का इतिहास", kn: "ಸಂಭಾಷಣೆ ಇತಿಹಾಸ" },
+  deleteChat: { en: "Delete this chat?", hi: "यह बातचीत हटाएँ?", kn: "ಈ ಸಂಭಾಷಣೆಯನ್ನು ಅಳಿಸಬೇಕೆ?" },
+  confirmDelete: { en: "Delete", hi: "हटाएँ", kn: "ಅಳಿಸಿ" },
+  askPlaceholder: { en: "Ask a question about family law…", hi: "पारिवारिक कानून के बारे में पूछें…", kn: "ಕುಟುಂಬ ಕಾನೂನು ಬಗ್ಗೆ ಕೇಳಿ…" },
+  recording: { en: "Recording — tap the mic to send it. Stops by itself at", hi: "रिकॉर्डिंग — भेजने के लिए माइक दबाएँ। खुद बंद होगी", kn: "ರೆಕಾರ್ಡಿಂಗ್ — ಕಳಿಸಲು ಮೈಕ್ ಒತ್ತಿ. ತಾನೇ ನಿಂತುಬಿಡುತ್ತದೆ" },
+  transcribing: { en: "Turning your speech into text…", hi: "आपकी आवाज़ को लिखित बना रहे हैं…", kn: "ನಿಮ್ಮ ಧ್ವನಿಯನ್ನು ಪಠ್ಯವಾಗಿಸುತ್ತಿದೆ…" },
+  emptyTitle: { en: "Ask about family law, in any language.", hi: "पारिवारिक कानून के बारे में पूछें, किसी भी भाषा में।", kn: "ಕುಟುಂಬ ಕಾನೂನು ಬಗ್ಗೆ ಕೇಳಿ, ಯಾವ ಭಾಷೆಯಲ್ಲಿಯೂ." },
+  emptyHint: { en: "Try one of these to start:", hi: "शुरू करने के लिए एक कोशिश करें:", kn: "ಪ್ರಾರಂಭಿಸಲು ಇವುಗಳಲ್ಲಿ ಒಂದನ್ನು ಪ್ರಯತ್ನಿಸಿ:" },
+  checking: { en: "Checking your sign-in…", hi: "आपके साइन-इन जाँच रहे हैं…", kn: "ನಿಮ್ಮ ಸೈನ್-ಇನ್ ಪರಿಶೀಲಿಸುತ್ತಿದೆ…" },
+  srcAct: { en: "bare act", hi: "कानून", kn: "ಕಾಯ್ದೆ" },
+  srcWeb: { en: "web source", hi: "वेब स्रोत", kn: "ಜಾಲ ಮೂಲ" },
+  srcDoc: { en: "document", hi: "दस्तावेज़", kn: "ದಾಖಲೆ" },
+  srcOther: { en: "source", hi: "स्रोत", kn: "ಮೂಲ" },
+};
+
+function t(lang: string, key: UiKey): string {
+  const bank = UI[key];
+  if (lang === "hi" || lang === "kn") return bank[lang];
+  return bank.en;
+}
+
 // Shown before the first step arrives. The real steps replace this list as the
 // agent reports them, so the user always sees what Saathi is actually doing
 // rather than a fixed animation that could disagree with it.
-const WARMUP = [
-  "Understanding your question…",
-  "Choosing which law applies…",
-  "Reading the bare acts…",
-  "Checking every claim…",
-  "Writing the answer…",
-];
+const WARMUP_KEYS: UiKey[] = ["warmup1", "warmup2", "warmup3", "warmup4", "warmup5"];
 
 /** Friendlier name for a node, matching what the step detail says. */
-const NODE_LABEL: Record<string, string> = {
-  contextualize: "Reading the conversation",
-  intent: "Understanding the question",
-  planner: "Choosing the law",
-  tools: "Searching the bare acts",
-  reason: "Writing an explanation",
-  verifier: "Checking the citations",
-  response: "Preparing your answer",
+const NODE_LABEL: Record<string, Record<string, string>> = {
+  contextualize: { en: "Reading the conversation", hi: "बातचीत पढ़ रहे हैं", kn: "ಸಂಭಾಷಣೆ ಓದುತ್ತಿದೆ" },
+  intent: { en: "Understanding the question", hi: "प्रश्न समझ रहे हैं", kn: "ಪ್ರಶ್ನೆ ಅರ್ಥಮಾಡಿಕೊಳ್ಳುತ್ತಿದೆ" },
+  planner: { en: "Choosing the law", hi: "कानून चुन रहे हैं", kn: "ಕಾನೂನು ಆಯ್ಕೆ ಮಾಡುತ್ತಿದೆ" },
+  tools: { en: "Searching the bare acts", hi: "कानूनों में खोज", kn: "ಕಾಯ್ದೆಗಳಲ್ಲಿ ಹುಡುಕುತ್ತಿದೆ" },
+  reason: { en: "Writing an explanation", hi: "समझाना लिख रहे हैं", kn: "ವಿವರಣೆ ಬರೆಯುತ್ತಿದೆ" },
+  verifier: { en: "Checking the citations", hi: "संदर्भ जाँच रहे हैं", kn: "ಉಲ್ಲೇಖ ಪರಿಶೀಲಿಸುತ್ತಿದೆ" },
+  response: { en: "Preparing your answer", hi: "उत्तर तैयार कर रहे हैं", kn: "ಉತ್ತರ ಸಿದ್ಧಪಡಿಸುತ್ತಿದೆ" },
 };
+
+function nodeLabel(node: string, lang: string): string {
+  const bank = NODE_LABEL[node];
+  if (!bank) return node;
+  if (lang === "hi" || lang === "kn") return bank[lang];
+  return bank.en;
+}
+
+/** The one sentence in the composer whose numbers sit mid-sentence. */
+function recordingText(lang: string, maxSeconds: number, soFar: number): string {
+  if (lang === "hi") {
+    return `रिकॉर्डिंग चल रही है — भेजने के लिए माइक दबाएँ। यह ${maxSeconds} सेकंड पर खुद बंद हो जाएगी (अभी ${soFar} सेकंड)।`;
+  }
+  if (lang === "kn") {
+    return `ರೆಕಾರ್ಡಿಂಗ್ ನಡೆಯುತ್ತಿದೆ — ಕಳಿಸಲು ಮೈಕ್ ಒತ್ತಿ. ಇದು ${maxSeconds} ಸೆಕೆಂಡ್‌ನಲ್ಲಿ ತಾನೇ ನಿಂತುಬಿಡುತ್ತದೆ (ಈಗ ${soFar} ಸೆಕೆಂಡ್).`;
+  }
+  return `Recording — tap the mic to send it. Stops by itself at ${maxSeconds} seconds (${soFar}s so far).`;
+}
 
 // No "answer language" setting any more. The language of the answer is decided
 // by the language of the question, so there is nothing for the user to choose
@@ -104,8 +169,13 @@ const SOURCE_TAGS: Record<string, { label: string; kind: string }> = {
   doc: { label: "document", kind: "doc" },
 };
 
-function sourceTag(type: string): { label: string; kind: string } {
-  return SOURCE_TAGS[type] || { label: "source", kind: "other" };
+function sourceTag(type: string, lang: string): { label: string; kind: string } {
+  const fallback: Record<string, UiKey> = {
+    bare_act: "srcAct", web: "srcWeb", doc: "srcDoc",
+  };
+  const key = fallback[type];
+  if (key) return { label: t(lang, key), kind: type };
+  return { label: t(lang, "srcOther"), kind: "other" };
 }
 
 // Turn each citation marker in the answer — [1] or [1,2,3] — into a small
@@ -124,6 +194,7 @@ function linkCitationMarkers(text: string, citations: string[], msgId: number): 
 function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
   const [showThink, setShowThink] = useState(false);
   const tts = useSpeechSynthesis(msg.lang || "en");
+  const ulang = msg.lang || "en";
   const text =
     m && m.citations.length ? linkCitationMarkers(msg.content, m.citations, msg.id) : msg.content;
   const speaking = tts.speakingId === msg.id;
@@ -150,14 +221,14 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
             aria-expanded={showThink}
           >
             <Icon name="chevronDown" size={15} className="think-caret" />
-            How Saathi worked this out
-            <span className="think-count">{m.steps.length} steps</span>
+            {t(ulang, "thinking")}
+            <span className="think-count">{m.steps.length} {t(ulang, "steps")}</span>
           </button>
           {showThink && (
             <ol className="think-steps">
               {m.steps.map((s, i) => (
                 <li key={`${s.node}-${i}`}>
-                  <strong>{NODE_LABEL[s.node] || s.node}</strong>
+                  <strong>{nodeLabel(s.node, ulang)}</strong>
                   <span className="step-detail">{s.detail}</span>
                 </li>
               ))}
@@ -175,15 +246,15 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
             type="button"
             className={`ans-play${speaking ? " on" : ""}`}
             onClick={() => (speaking ? tts.stop() : tts.speak(msg.content, msg.id))}
-            aria-label={speaking ? "Stop reading this answer" : "Read this answer aloud"}
+            aria-label={speaking ? t(ulang, "stop") : t(ulang, "readAloud")}
           >
             <Icon name={speaking ? "close" : "volume"} size={16} />
-            {speaking ? "Stop" : "Read aloud"}
+            {speaking ? t(ulang, "stop") : t(ulang, "readAloud")}
           </button>
         )}
         {m && m.citations.length > 0 && (
           <span className="ans-foot-note">
-            {m.citations.length} source{m.citations.length === 1 ? "" : "s"}
+            {m.citations.length} {t(ulang, "sources").toLowerCase()}
           </span>
         )}
       </div>
@@ -192,11 +263,11 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
         <div className="src">
           <p className="src-head">
             <Icon name="book" size={14} />
-            Sources ({m.citations.length})
+            {t(ulang, "sources")} ({m.citations.length})
           </p>
           <ol className="src-list">
             {m.citations.map((c, i) => {
-              const tag = m.sources[i] ? sourceTag(m.sources[i]) : null;
+              const tag = m.sources[i] ? sourceTag(m.sources[i], ulang) : null;
               return (
                 <li key={i} id={`src-${msg.id}-${i + 1}`} className="src-item">
                   <span className="src-n">{i + 1}</span>
@@ -340,7 +411,7 @@ function toggleSide() {
   }
 
   async function deleteSession(id: number) {
-    if (!window.confirm("Delete this chat?")) return;
+    if (!window.confirm(t(lang, "deleteChat"))) return;
     try {
       await api(`/sessions/${id}`, { method: "DELETE" });
       if (id === sessionId) newChat();
@@ -442,7 +513,7 @@ function toggleSide() {
   if (authPending || !authSession) {
     return (
       <div className="chat-layout">
-        <div className="chat-gate">Checking your sign-in…</div>
+        <div className="chat-gate">{t(lang, "checking")}</div>
       </div>
     );
   }
@@ -460,11 +531,11 @@ function toggleSide() {
     <div className={`chat-layout${collapsed ? " side-hidden" : ""}`}>
       {sideOpen && <div className="side-backdrop" onClick={() => setSideOpen(false)} />}
 
-      <aside className={`sidebar${sideOpen ? " open" : ""}`} aria-label="Chat history">
+      <aside className={`sidebar${sideOpen ? " open" : ""}`} aria-label={t(lang, "history")}>
         <div className="side-toprow">
           <button type="button" className="side-new" onClick={newChat}>
             <Icon name="plus" size={17} />
-            New chat
+            {t(lang, "newChat")}
           </button>
           <button
             type="button"
@@ -487,12 +558,12 @@ function toggleSide() {
                 title={s.title}
               >
                 <Icon name="chat" size={15} />
-                <span>{s.title || "New chat"}</span>
+                <span>{s.title || t(lang, "newChat")}</span>
               </button>
               <button
                 type="button"
                 className="side-del"
-                aria-label={`Delete ${s.title}`}
+                aria-label={t(lang, "confirmDelete")}
                 onClick={() => deleteSession(s.id)}
               >
                 <Icon name="close" size={15} />
@@ -500,7 +571,7 @@ function toggleSide() {
             </div>
           ))}
           {sessions.length === 0 && (
-            <p className="side-empty">No chats yet — ask something to start.</p>
+            <p className="side-empty">{t(lang, "noChats")}</p>
           )}
         </div>
 
@@ -541,7 +612,7 @@ function toggleSide() {
                 onClick={signOut}
               >
                 <Icon name="logout" size={15} />
-                Sign out
+                {t(lang, "signOut")}
               </button>
             </div>
           )}
@@ -555,8 +626,8 @@ function toggleSide() {
               type="button"
               className="side-toggle"
               onClick={toggleSide}
-              aria-label="Toggle chat history"
-              title="Chat history"
+              aria-label={t(lang, "history")}
+              title={t(lang, "history")}
             >
               <Icon name="list" size={20} />
             </button>
@@ -575,8 +646,8 @@ function toggleSide() {
                 width={1254}
                 height={1254}
               />
-              <h2>Ask about family law, in any language.</h2>
-              <p className="chat-empty-hint">Try one of these to start:</p>
+              <h2>{t(lang, "emptyTitle")}</h2>
+              <p className="chat-empty-hint">{t(lang, "emptyHint")}</p>
               <div className="chips">
                 {SUGGESTIONS.map((s) => (
                   <button
@@ -607,8 +678,8 @@ function toggleSide() {
                   <div className="live-head">
                     <span className="pulse" />
                     {liveSteps.length
-                      ? "Working on it…"
-                      : "Getting to your question…"}
+                      ? t(lang, "working")
+                      : t(lang, "starting")}
                   </div>
                   {/* Real steps once they arrive; the warm-up list only covers
                       the first moment, before the agent has reported anything. */}
@@ -619,16 +690,16 @@ function toggleSide() {
                           key={`${s.node}-${i}`}
                           className={i === liveSteps.length - 1 ? "live-on" : ""}
                         >
-                          <strong>{NODE_LABEL[s.node] || s.node}</strong>
+                          <strong>{nodeLabel(s.node, lang)}</strong>
                           <span className="step-detail">{s.detail}</span>
                         </li>
                       ))}
                     </ol>
                   ) : (
                     <ol className="live-steps">
-                      {WARMUP.map((s, i) => (
-                        <li key={s} className={i === 0 ? "live-on" : ""}>
-                          {s}
+                      {WARMUP_KEYS.map((k, i) => (
+                        <li key={k} className={i === 0 ? "live-on" : ""}>
+                          {t(lang, k)}
                         </li>
                       ))}
                     </ol>
@@ -649,7 +720,7 @@ function toggleSide() {
               placeholder={
                 stt.state === "recording"
                   ? "Listening… tap the mic when you are done"
-                  : "Ask a question about family law…"
+                  : t(lang, "askPlaceholder")
               }
               aria-label="Question"
             />
@@ -683,7 +754,7 @@ function toggleSide() {
                   stt.state === "recording"
                     ? "Stop recording"
                     : stt.state === "transcribing"
-                      ? "Turning your speech into text…"
+                      ? t(lang, "transcribing")
                       : "Ask by voice"
                 }
               >
@@ -715,13 +786,16 @@ function toggleSide() {
           {stt.state === "recording" && (
             <p className="composer-transcript" aria-live="polite">
               <span className="rec-dot" aria-hidden="true" />
-              Recording — tap the mic to send it. Stops by itself at{" "}
-              {MAX_RECORDING_SECONDS} seconds ({stt.seconds}s so far).
+              {/* The number in the middle of the sentence does not move, but the
+                  word order around it does: Hindi puts the verb last, Kannada
+                  wants its postposition attached. So the whole sentence is
+                  localised, not just the verb. */}
+              {recordingText(lang, MAX_RECORDING_SECONDS, stt.seconds)}
             </p>
           )}
           {stt.state === "transcribing" && (
             <p className="composer-transcript" aria-live="polite">
-              Turning your speech into text…
+              {t(lang, "transcribing")}
             </p>
           )}
           {stt.error && (
