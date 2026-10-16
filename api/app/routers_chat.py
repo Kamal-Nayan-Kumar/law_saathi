@@ -250,11 +250,12 @@ def ask_stream(session_id: int, body: AskIn,
                db: Session = Depends(db_module.get_session)):
     """Server-sent events version of ``ask``.
 
-    A full run takes 10-20s. This reports each agent step the moment it happens,
-    so the user sees Saathi working instead of a spinner for the whole time.
+    A full run takes 10-20s. This reports each agent step the moment it happens
+    and then the verified answer in pieces, so the user sees Saathi working and
+    then watches the reply arrive, instead of a spinner for the whole time.
 
-    Events: ``step`` (a trace line), ``done`` (the same AskOut payload the JSON
-    endpoint returns) or ``error``.
+    Events: ``step`` (a trace line), ``answer`` (a verified slice of the reply),
+    ``done`` (the same AskOut payload the JSON endpoint returns) or ``error``.
     """
     from app import agent as agent_module
     from app import stream as stream_module
@@ -280,6 +281,14 @@ def ask_stream(session_id: int, body: AskIn,
         # The agent state has already been streamed; only persistence is left.
         # It opens its own session because the request's one is long closed by
         # the time the answer is ready.
+        #
+        # The verified answer goes out first, in pieces, while this function is
+        # still writing rows. The verifier has already passed by the time we get
+        # here, so nothing that could still be retracted reaches the reader, and
+        # the last few hundred milliseconds of database work happen behind text
+        # the user is already reading instead of in front of it.
+        publisher.stream_answer(str(state.get("answer", "")))
+
         from app.models import User as UserModel
 
         obs_module.record_run(recorder, state)

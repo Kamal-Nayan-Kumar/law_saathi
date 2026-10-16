@@ -2,12 +2,14 @@
  * Read the agent's SSE stream.
  *
  * The API reports each agent step as it happens, so the chat page can show real
- * progress instead of a spinner for 15 seconds. If the stream cannot be used
- * (an old server, a proxy that buffers, no `fetch` streaming) the caller gets
- * the plain JSON answer instead — the chat must never break because streaming
- * failed.
+ * progress instead of a spinner for 15 seconds, and then streams the verified
+ * answer in pieces so it fills the reply card instead of appearing in one frame.
+ * If the stream cannot be used (an old server, a proxy that buffers, no `fetch`
+ * streaming) the caller gets the plain JSON answer instead — the chat must never
+ * break because streaming failed.
  *
- * Events: `step` {node, detail}, `done` {answer, citations, ...}, `error`.
+ * Events: `step` {node, detail}, `answer` {text, index, final}, `done`
+ * {answer, citations, ...}, `error`.
  */
 export type StreamStep = { node: string; detail: string };
 
@@ -29,6 +31,11 @@ export type AskResult = {
 export type StreamHandlers = {
   /** Called as each agent step completes. */
   onStep?: (step: StreamStep) => void;
+  /**
+   * Called for each slice of the verified answer, as it is sent. Only ever
+   * called with text the verifier has already approved.
+   */
+  onAnswerText?: (chunk: string) => void;
   /** Called once with the final answer. */
   onDone?: (result: AskResult) => void;
   /** Called when the run failed outright. */
@@ -148,6 +155,15 @@ export async function askStream(
         if (event === "step") {
           sawStep = true;
           handlers.onStep?.(JSON.parse(data) as StreamStep);
+        } else if (event === "answer") {
+          // A slice of text that has already passed the verifier. A listener
+          // that throws must not end the run, so it is isolated: the answer is
+          // still in `done` and the card would fill from there.
+          try {
+            handlers.onAnswerText?.((JSON.parse(data) as { text: string }).text);
+          } catch {
+            /* a broken preview is not a failed answer */
+          }
         } else if (event === "done") {
           result = JSON.parse(data) as AskResult;
         } else if (event === "error") {
