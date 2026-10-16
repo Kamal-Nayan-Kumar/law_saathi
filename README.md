@@ -122,11 +122,40 @@ they are the citation, and a translated citation cannot be checked.
 ### Streaming and latency
 
 - **Step-level SSE streaming is active:** Every intermediate agent step ("How Saathi worked this out" / "Working on it…", intent detection, tool searches, verification) streams live over Server-Sent Events as it happens so the user sees live progress instead of a blank spinner.
-- **Answer text arrives as a complete verified block:** ChatGPT-style word-by-word token streaming is intentionally held back. LawSaathi runs a strict **legal verifier** and a **native-language rewriter** after drafting; streaming tokens before the verifier approves could display legal hallucination or unverified text that would later be rejected and retracted.
+- **The verified answer streams too:** once the verifier has passed, the answer goes out as `answer` events and fills the card as it arrives. Measured: first step ~1.4 s, first answer text ~11.4 s, complete ~12.4 s.
+- **Model tokens are deliberately *not* streamed during drafting.** LawSaathi runs a strict **legal verifier** and a **native-language rewriter** after drafting; streaming tokens before the verifier approves could display legal hallucination or unverified text that would later be rejected and retracted. Nothing reaches the browser until the verifier has passed.
+- The answer pacing (`LAWSAATHI_ANSWER_CHUNK_DELAY_MS`, default 22 ms per chunk) is presentation only. Set it to `0` for the whole answer at once.
 
 Full decisions: [ADR-0009](docs/adr/0009-english-pivot-language-pipeline.md),
 [ADR-0011](docs/adr/0011-pivot-stays-native-rewrite.md),
-[ADR-0012](docs/adr/0012-readers-language-and-a-talking-answer.md).
+[ADR-0012](docs/adr/0012-readers-language-and-a-talking-answer.md),
+[ADR-0013](docs/adr/0013-stream-the-verified-answer.md).
+
+## Page weight
+
+The illustrations are exported at 2x the size the layout draws them, as WebP, by
+`scripts/export_web_assets.py` (the second half of `prep_assets.py`, which
+crops and alpha-keys the raw art). Re-run it after changing any image.
+
+Measured cold, median of 5 runs, compressed bytes on the wire in a production
+build:
+
+| Route | Before | After |
+| --- | --- | --- |
+| `/` | 863 KB | 757 KB |
+| `/admin` | 819 KB | 706 KB |
+
+Almost all of it was the favicon: `metadata.icons` pointed at the 512 px mark,
+so every page load fetched 121 KB for a 16 px square in the tab. It is now a
+quantised 32 px PNG at 917 bytes.
+
+On the dev server, which has no image optimiser and therefore serves the source
+files as they are, the difference is much larger — 1338 KB -> 1071 KB per page
+on average, and `/chat` 1937 KB -> 1299 KB.
+
+What is left is framework: ~950 KB of React and Next runtime on every route,
+and ~86 KB of fonts. The fonts are three variable woff2 files; that is already
+the floor.
 
 ## Run locally (T1 scaffold)
 
