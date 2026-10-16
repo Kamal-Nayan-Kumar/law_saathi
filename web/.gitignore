@@ -1,2 +1,6 @@
 .vercel
 .env*
+
+# A second build output, used to serve a "before" and an "after" of the same app
+# at the same time when measuring. See DIST_DIR in next.config.ts.
+.next-build/

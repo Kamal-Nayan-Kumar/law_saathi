@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The Law Saathi icon set.
  *
@@ -9,7 +7,12 @@
  * a mixed-weight set (or raster icons) is what made the old ones look forced.
  *
  * Do not add an icon here with a different grid, stroke or cap style. Do not
- * pull icons from a generated image — they cannot be recoloured or scaled.
+ * pull icons from a generated image, they cannot be recoloured or scaled.
+ *
+ * This is deliberately not a client component. It holds no state and takes no
+ * handlers, so marking it `"use client"` put the whole icon set, and every page
+ * that draws one, behind a hydration boundary for nothing. It stays a server
+ * component until an icon grows a real `onClick`.
  *
  * Usage:  <Icon name="scales" size={28} />   or   <Icon name="scales" />
  */
