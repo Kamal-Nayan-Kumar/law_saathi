@@ -293,33 +293,39 @@
 .chat-empty {
   margin: auto;
   text-align: center;
-  padding: var(--s5);
-  max-width: 560px;
+  padding: clamp(8px, 1.5vh, 20px) var(--s4);
+  max-width: 580px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .chat-empty img {
-  width: 260px;
-  height: 260px;
+  width: clamp(100px, 16vh, 200px);
+  height: clamp(100px, 16vh, 200px);
   object-fit: contain;
-  margin: 0 auto var(--s5);
+  margin: 0 auto clamp(8px, 1.5vh, 16px);
 }
 
 .chat-empty h2 {
-  font-size: 1.6rem;
-  margin-bottom: var(--s3);
+  font-size: clamp(1.2rem, 2.2vw, 1.55rem);
+  margin-bottom: clamp(4px, 1vh, 8px);
 }
 
 .chat-empty-hint {
   color: var(--muted);
-  font-size: 0.95rem;
-  margin-bottom: var(--s4);
+  font-size: clamp(0.82rem, 1.1vw, 0.92rem);
+  margin-bottom: clamp(10px, 1.8vh, 18px);
 }
 
 .chips {
   display: flex;
-  gap: var(--s2);
+  gap: clamp(6px, 1.2vw, 10px);
   justify-content: center;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .chip {
@@ -336,6 +342,61 @@
 .chip:hover:not(:disabled) {
   border-color: var(--gold);
   background: var(--gold-soft);
+}
+
+/* A phone held sideways.
+ *
+ * This is the one shape where the first screen of the chat did not fit in one
+ * frame: about 250px sits between the header and the composer, and the
+ * illustration plus the heading plus three chips is taller than that. The chips
+ * ended up below the composer, so the suggested questions — the only thing on
+ * that screen you can tap — were somewhere you could not see them.
+ *
+ * The width media query below cannot catch this, because a landscape phone is
+ * wide. So this is keyed on height: the illustration goes first, the heading
+ * shrinks, and the chips go on one line that scrolls sideways. Three stacked
+ * chips become one row you can swipe, and the screen is whole again. */
+@media (max-height: 560px) and (orientation: landscape) {
+  .chat-empty {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .chat-empty img {
+    width: clamp(52px, 13vh, 88px);
+    height: clamp(52px, 13vh, 88px);
+    margin-bottom: 6px;
+  }
+
+  .chat-empty h2 {
+    font-size: 1.05rem;
+    margin-bottom: 2px;
+  }
+
+  .chat-empty-hint {
+    font-size: 0.78rem;
+    margin-bottom: 8px;
+  }
+
+  .chip {
+    padding: 7px 13px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  /* One row, swiped rather than wrapped. Wrapping is what made the block
+     taller than the frame in the first place. */
+  .chips {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chips::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .chip:disabled {
@@ -364,6 +425,43 @@
   border-radius: var(--r-md);
   padding: var(--s5);
   scroll-margin-top: 90px;
+}
+
+/* The answer while it is still arriving. Identical to a finished card so the
+   text does not jump when the real one replaces it; the Sources block and the
+   controls only appear with the completed answer. */
+.ans-card-live {
+  border-color: var(--line-2);
+}
+
+/* A caret at the end of the streaming text, so a short answer that is merely
+   unfinished does not read as a short answer. */
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--maroon);
+  animation: caretBlink 1s steps(2, start) infinite;
+}
+
+@keyframes caretBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Someone who has asked the OS to stop animations still needs to see where the
+   text stops. */
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
 }
 
 /* ---------- markdown ---------- */
@@ -1216,16 +1314,19 @@
   }
 
   .chat-empty img {
-    width: 190px;
-    height: 190px;
+    width: clamp(90px, 14vh, 140px);
+    height: clamp(90px, 14vh, 140px);
   }
 
   .chat-empty h2 {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
   }
 
   .chip {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
+    padding: 8px 14px;
+    font-size: 0.82rem;
   }
 
   .composer-row {

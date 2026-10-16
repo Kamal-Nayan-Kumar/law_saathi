@@ -18,10 +18,9 @@ export default function Nav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // /chat and /admin draw their own full-height header. Rendering this one as
-  // well gave a phone two bars before any content and pushed the composer off
-  // the bottom of the screen.
-  const hidden = ["/chat", "/admin"].some((p) => pathname.startsWith(p));
+  // /chat, /login and /admin draw their own header or layout. Rendering this one
+  // on /login pushed the form below the fold and prevented full single-frame centering.
+  const hidden = ["/chat", "/login", "/admin"].some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     setOpen(false);

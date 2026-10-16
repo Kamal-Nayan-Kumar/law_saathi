@@ -24,3 +24,5 @@ api/tests/test_debug_tmp.py
 
 # Local browser-automation artefacts.
 .playwright-mcp/
+.vercel
+.env*

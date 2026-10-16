@@ -29,7 +29,7 @@ function Social({ label, children }: { label: string; children: React.ReactNode 
 
 export default function Footer() {
   const pathname = usePathname();
-  const hidden = ["/chat", "/admin"].some((p) => pathname.startsWith(p));
+  const hidden = ["/chat", "/login", "/admin"].some((p) => pathname.startsWith(p));
   if (hidden) return null;
 
   return (
