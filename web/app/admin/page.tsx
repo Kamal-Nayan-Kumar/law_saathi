@@ -30,12 +30,18 @@ export default function AdminPortal() {
   }
 
   return (
-    <main style={{ maxWidth: 800, margin: "40px auto", padding: 24, fontFamily: "var(--font-body)" }}>
+    /* A <div>, not a <main>: the root layout already renders <main id="main">,
+       and main cannot nest inside main. */
+    <div style={{ maxWidth: 800, margin: "40px auto", padding: 24, fontFamily: "var(--font-body)" }}>
       <h1 style={{ fontFamily: "var(--font-display)", color: "var(--maroon-deep)" }}>Admin Portal — Document Ingestion</h1>
       <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>T13: upload PDFs, view chunk counts, manage ingestion (MVP minimal).</p>
+      {/* Both inputs are `min-width: 0` and `max-width: 100%` on purpose. A file
+          input has a large intrinsic width (~415px in Chrome) that flexbox
+          cannot shrink, so on a 360px phone it pushed the whole page 80px wider
+          than the screen and gave every page a sideways scroll. */}
       <form onSubmit={upload} style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input type="text" placeholder="Document title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ padding: 8, flex: 1, minWidth: 200 }} />
-        <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ padding: 8 }} />
+        <input type="text" placeholder="Document title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
+        <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
         <button type="submit" disabled={!file} style={{ padding: "8px 14px", background: "var(--maroon)", color: "white", border: "none", borderRadius: 6, fontWeight: 700 }}>Upload PDF</button>
       </form>
       {message && <p style={{ marginTop: 12, fontSize: "0.85rem", color: message.includes("Uploaded") ? "green" : "red" }}>{message}</p>}
@@ -48,6 +54,6 @@ export default function AdminPortal() {
           <tr><td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>Sample Judgment</td><td>12</td><td>upload</td></tr>
         </tbody>
       </table>
-    </main>
+    </div>
   );
 }
