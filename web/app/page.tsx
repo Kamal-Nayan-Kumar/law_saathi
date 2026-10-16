@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import Image from "next/image";
 import Icon from "@/components/Icon";
@@ -156,11 +154,12 @@ export default function Landing() {
 
           <div className="hero-art">
             <Image
-              src="/images/hero-scene.png"
+              src="/images/hero-scene.webp"
               alt="A woman asking a family law question by voice and getting an answer with citations"
-              width={1000}
-              height={1250}
+              width={900}
+              height={1125}
               priority
+              fetchPriority="high"
               sizes="(max-width: 900px) 92vw, 44vw"
             />
           </div>
@@ -168,10 +167,11 @@ export default function Landing() {
 
         <div className="skyline" aria-hidden="true">
           <Image
-            src="/images/skyline.png"
+            src="/images/skyline.webp"
             alt=""
             width={1400}
             height={318}
+            loading="lazy"
             sizes="100vw"
           />
         </div>
@@ -201,10 +201,11 @@ export default function Landing() {
                 drop into normal flow on a phone without being clipped. */}
             <div className="why-clip">
               <Image
-                src="/images/family-scales.png"
+                src="/images/family-scales.webp"
                 alt="A family standing together in front of scales of justice"
-                width={1254}
-                height={1254}
+                width={900}
+                height={900}
+                loading="lazy"
                 sizes="(max-width: 900px) 88vw, 44vw"
               />
               {CHIPS.map((c) => (

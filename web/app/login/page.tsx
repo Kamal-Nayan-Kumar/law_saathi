@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { authClient } from "@/lib/auth/client";
 import Icon from "@/components/Icon";
+import Logo from "@/components/Logo";
 import "./auth.css";
 
 const PERKS = [
@@ -65,11 +66,16 @@ function LoginForm() {
     <div className="auth-card">
       <div className="auth-art">
         <Image
-          src="/images/auth-scene.png"
+          src="/images/auth-scene.webp"
           alt="A woman asking a family law question from her phone"
           fill
-          // Below 900px this is a short banner, above it the full art panel.
-          sizes="(max-width: 900px) 100vw, 46vw"
+          // The art column is `display: none` below 900px so the form keeps one
+          // frame on a phone. A hidden `<img>` with an eager `src` is still
+          // fetched, so the size hint collapses to 1px there: `sizes` is what
+          // makes the browser pick the smallest candidate rather than the 46vw
+          // one, and an image nobody will see is not worth 55 KB of a phone's
+          // first screenful.
+          sizes="(max-width: 900px) 1px, 46vw"
           priority
         />
         <ul className="auth-perks">
@@ -83,10 +89,15 @@ function LoginForm() {
       </div>
 
       <div className="auth-panel">
-        <Link href="/" className="auth-back">
-          <Icon name="arrowRight" size={16} className="auth-back-icon" />
-          Back to home
-        </Link>
+        <div className="auth-panel-top">
+          <Link href="/" className="auth-logo-link" aria-label="Law Saathi home">
+            <Logo size={36} />
+          </Link>
+          <Link href="/" className="auth-back">
+            <Icon name="arrowRight" size={16} className="auth-back-icon" />
+            Back to home
+          </Link>
+        </div>
 
         <h1>{isRegister ? "Create your account." : "Welcome back."}</h1>
         <p className="auth-sub">

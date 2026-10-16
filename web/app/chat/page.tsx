@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -283,6 +284,27 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
   );
 }
 
+/**
+ * The answer as it is still arriving.
+ *
+ * Same card as a finished answer, minus the parts that only exist once the run
+ * is over: no Sources block, no Read aloud, no Thinking toggle. Those arrive
+ * with the `done` event and replace this card in one go, so the reader never
+ * sees a source list for an answer that is not finished being written.
+ */
+function StreamingAnswer({ text }: { text: string }) {
+  return (
+    <div className="ans-card ans-card-live">
+      <div className="md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        {/* A caret, so it is obvious the reply is still coming rather than
+            simply short. */}
+        <span className="caret" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
 export default function Chat() {
   const router = useRouter();
   const { data: authSession, isPending: authPending } = authClient.useSession();
@@ -297,6 +319,10 @@ export default function Chat() {
   // The agent's real steps as they stream in, not a fixed animation. Empty
   // until the first one lands, and the warm-up list shows meanwhile.
   const [liveSteps, setLiveSteps] = useState<StreamStep[]>([]);
+  // The verified answer, as it streams in. Null until the first piece arrives.
+  // The steps and this are never both showing: once the text starts moving, the
+  // step log has finished its job and would only compete for the same space.
+  const [streaming, setStreaming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
@@ -381,6 +407,7 @@ export default function Chat() {
 // what the agent actually did.
 useEffect(() => {
   if (!loading) setLiveSteps([]);
+  if (!loading) setStreaming(null);
 }, [loading]);
 
 function toggleSide() {
@@ -450,7 +477,16 @@ function toggleSide() {
       const answerObj = await askStream(
         `/sessions/${sid}/ask/stream`,
         { query, lang: sendLang, tone },
-        { onStep: (s) => setLiveSteps((prev) => [...prev, s]) },
+        {
+          onStep: (s) => setLiveSteps((prev) => [...prev, s]),
+          // Text the verifier has already approved. The steps stop here: from
+          // this moment the useful thing on screen is the answer itself, not the
+          // list of what produced it.
+          onAnswerText: (chunk) => {
+            setStreaming((cur) => (cur === null ? chunk : cur + chunk));
+            setLiveSteps([]);
+          },
+        },
       );
       // The server reports the language it actually wrote in, which is not
       // always the guess we sent. Trust the server: it decides from the
@@ -639,12 +675,16 @@ function toggleSide() {
         <div className="chat-main">
           {isEmpty ? (
             <div className="chat-empty">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/images/chat-empty.png"
+              <Image
+                src="/images/chat-empty.webp"
                 alt="Scales of justice with two speech bubbles"
-                width={1254}
-                height={1254}
+                width={400}
+                height={400}
+                // Drawn at up to 200px, so the browser is told to fetch half
+                // that on a 1x screen. A plain `<img>` here was shipping the
+                // 522 KB full-size PNG on every visit to an empty chat.
+                sizes="(max-width: 640px) 140px, 200px"
+                priority
               />
               <h2>{t(lang, "emptyTitle")}</h2>
               <p className="chat-empty-hint">{t(lang, "emptyHint")}</p>
@@ -673,7 +713,11 @@ function toggleSide() {
                   <AssistantBlock key={m.id} msg={m} m={meta[m.id]} />
                 ),
               )}
-              {loading && (
+              {streaming !== null && <StreamingAnswer text={streaming} />}
+              {/* The step log is hidden the moment the answer starts arriving:
+                  the two together would push the text the user came for below
+                  the fold, and by then the steps have nothing left to say. */}
+              {loading && streaming === null && (
                 <div className="thinking-live" aria-live="polite">
                   <div className="live-head">
                     <span className="pulse" />

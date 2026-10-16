@@ -30,7 +30,7 @@ export default function Logo({
       }}
     >
       <Image
-        src="/images/logo-mark.png"
+        src="/images/logo-mark.webp"
         alt=""
         width={size}
         height={size}
