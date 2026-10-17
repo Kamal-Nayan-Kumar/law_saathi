@@ -130,7 +130,9 @@ def test_a_bare_divorce_question_is_answered_and_asks_too():
 def test_verifier_retries_on_empty_evidence_then_answers():
     retriever = SeqRetriever([[], [dict(HIT)]])
     out = run_agent("What is the maintenance amount for wife under HAMA section?",
-                    lang="en", llm=None, retriever=retriever)
+                    lang="en", llm=None, retriever=retriever,
+                    web_search=lambda q, **k: [])
+
     assert out["retries"] == 1
     assert out["trace"].count("tools") == 2
     assert out["trace"].count("verifier") == 2
@@ -141,7 +143,9 @@ def test_verifier_retries_on_empty_evidence_then_answers():
 
 def test_verifier_gives_up_after_max_retries():
     out = run_agent("Explain the custody rights of a mother for her minor child",
-                    lang="en", llm=None, retriever=StubRetriever())
+                    lang="en", llm=None, retriever=StubRetriever(),
+                    web_search=lambda q, **k: [])
+
     assert out["retries"] == agent_module.MAX_RETRIES
     assert out["trace"].count("tools") == 1 + agent_module.MAX_RETRIES
     assert out["answer"], "must still answer (unverified) after retries"

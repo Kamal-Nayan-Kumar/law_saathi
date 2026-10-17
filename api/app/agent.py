@@ -2343,6 +2343,28 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
             note("tools_skipped_bill", n=dropped,
                  plural=_plural(lang, dropped))
 
+    rag_empty = (not evidence) or (not any(
+        _evidence_source_type(h) in ("bare_act", "doc") for h in evidence))
+    if rag_empty and not state.get("web_search_done"):
+        state["web_search_done"] = True
+        ws = web_search or stub_web_search
+        shown = (state.get("query_en") or state.get("query", ""))[:80]
+        try:
+            web_hits = list(ws(state.get("query_en") or state.get("query", ""), top_k=3) or [])
+        except Exception as e:  # noqa: BLE001 — web is best-effort
+            logger.warning("agent web_search fallback failed (%r)", e)
+            note("tools_web_fail", q=shown,
+                 err=(str(e) or e.__class__.__name__)[:60])
+            web_hits = []
+        if web_hits:
+            n_web += len(web_hits)
+            for h in web_hits:
+                k = _hit_key(h)
+                if k not in seen:
+                    seen.add(k)
+                    evidence.append(h)
+            note("tools_web", q=shown, n=len(web_hits),
+                 plural=_plural(lang, len(web_hits)))
     state["evidence"] = evidence[:8]
     if wants_timing_correction(state.get("query_en") or state.get("query", "")):
         # Attach by act, not by relevance — see the note on the constant.

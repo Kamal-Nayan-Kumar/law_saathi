@@ -12,14 +12,11 @@ in this repo needs it, because the browser never talks to the API directly.
 
 | Source | Link | What we take from it | Size |
 | ------ | ---- | ---- | ---- |
-| `vaquill/open-india-law` (gated, HF token) | https://huggingface.co/datasets/vaquill/open-india-law | Only `in_central_legislation.parquet`, **streamed row by row** (never the ~54GB full dump). Per row we keep `text` / `title` / `section` / `lang` / `page` / `chunk_id` / `source_url` / `act_status`, for rows whose title matches a family-act alias and whose status is not `repealed` | 424 in-force section rows → `data/corpus/open-india-law-family-acts.jsonl` (729KB, gitignored) |
-| `enerscript/MARRIAGEACT` | https://huggingface.co/datasets/enerscript/MARRIAGEACT | The 4 bare-act `.txt` files (HMA 1955, SMA 1954, Indian Christian Marriage Act 1872, Prohibition of Child Marriage (Amendment) Bill 2021). Plain full-Act text, no section column — we recover sections ourselves | 3,915 rows / 246KB → `data/corpus/marriageact_raw/` (gitignored) |
-| India Code | https://www.indiacode.nic.in | **Not bulk-downloaded.** Used as the citation of record: the row's `source_url` and the act-PDF `mirror_url` are copied into every chunk payload. Act PDFs (`--pdf "path:Act Name"`) and scraped pages (`--url "url:Act Name"`, Firecrawl) are ingested on demand |
-| `corpus/amendments.jsonl` (hand-written) | this repo | Two editorial `kind: amendment_notice` chunks for SMA s.28 and HMA s.13B. India Code still publishes the **pre-2018** "living separately for one year" text, so no dataset swap can fix it | 2 chunks |
+| `vaquill/open-india-law` (gated, HF token) | https://huggingface.co/datasets/vaquill/open-india-law | Only `in_central_legislation.parquet`, streamed or downloaded directly (never the full ~54GB dump). Extracted for enacted central family law acts and in-force provisions | ~26.5MB parquet → indexed into Qdrant |
+| `corpus/amendments.jsonl` (hand-curated) | this repo | Two editorial `kind: amendment_notice` chunks for SMA s.28 and HMA s.13B. Raw scraped central acts still publish the **pre-2018** "living separately for one year" text for mutual-consent divorce, so these notices alert retrieval and trigger legal guards | 2 chunks |
 
-Act PDF handles currently referenced in payloads, e.g.
-https://www.indiacode.nic.in/handle/123456789/17272 (HMA),
-https://www.indiacode.nic.in/handle/123456789/1387 (SMA).
+*Note on India Code:* India Code is not ingested as a raw dataset. India Code URLs and act PDF handles (e.g. `https://www.indiacode.nic.in/handle/123456789/17272` for HMA) are referenced in chunk metadata as citations of record.
+
 
 ### Nothing goes into Qdrant raw
 
@@ -70,7 +67,7 @@ is never ingested into Qdrant.
 
 Vectors live in Qdrant Cloud collection `law_saathi` (e5-small, 384 dims);
 Neon `ingested_chunks` mirrors every point ID (ADR-0004). Re-ingest:
-`api/scripts/download_corpus.py` then `api/scripts/ingest.py --jsonl ... --text-dir ...`.
+`.venv/bin/python api/scripts/ingest_family_law.py` (automatically uses `data/corpus/in_central_legislation.parquet` and includes `corpus/amendments.jsonl`).
 
 ## Languages (EN/HI/KN)
 
