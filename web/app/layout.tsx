@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Playfair_Display, Plus_Jakarta_Sans } from "next/font/google";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import ScrollManager from "@/components/ScrollManager";
 import "./globals.css";
 
 // The reference pairs a transitional serif for headings with a humanist
@@ -49,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body>
+        <ScrollManager />
         <a href="#main" className="skip-link">
           Skip to content
         </a>

@@ -26,6 +26,9 @@ async function proxy(req: NextRequest, path: string[]) {
     },
     body: hasBody ? await req.arrayBuffer() : undefined,
   });
+  if (upstream.status === 204 || upstream.status === 205 || upstream.status === 304) {
+    return new NextResponse(null, { status: upstream.status });
+  }
   return new NextResponse(await upstream.arrayBuffer(), {
     status: upstream.status,
     headers: { "Content-Type": "application/json" },

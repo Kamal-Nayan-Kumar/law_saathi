@@ -35,19 +35,34 @@ export default function Nav() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
+  const onHomeClick = (e: React.MouseEvent) => {
+    if (pathname === "/") {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    }
+  };
+
   if (hidden) return null;
 
   return (
     <header>
       <nav className="nav" aria-label="Main">
         <div className="nav-inner">
-          <Link href="/" className="brand" aria-label="Law Saathi home">
+          <Link
+            href="/"
+            className="brand"
+            aria-label="Law Saathi home"
+            onClick={onHomeClick}
+          >
             <Logo size={40} />
           </Link>
 
           <div className="nav-links">
             {LINKS.map((l) => (
-              <Link key={l.href} href={l.href}>
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={l.href === "/" ? onHomeClick : undefined}
+              >
                 {l.label}
               </Link>
             ))}
@@ -79,7 +94,14 @@ export default function Nav() {
       {open && (
         <div className="nav-sheet" id="nav-sheet">
           {LINKS.map((l) => (
-            <Link key={l.href} href={l.href}>
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={(e) => {
+                setOpen(false);
+                if (l.href === "/") onHomeClick(e);
+              }}
+            >
               {l.label}
             </Link>
           ))}
