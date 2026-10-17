@@ -97,7 +97,7 @@ def test_full_run_clarification_path_has_all_six_nodes():
     """A query with no topic at all must clarify rather than guess."""
     out = run_agent("I want help with something", lang="en", llm=None,
                     retriever=StubRetriever())
-    assert out["clarification"], "a topicless query must clarify, not guess"
+    assert not out["clarification"], "a topicless query is out of scope, not a clarification"
     assert out["trace"] == ["intent", "planner", "response"]
     assert set(NODES) == {"intent", "planner", "tools", "reason",
                           "verifier", "response"}
@@ -274,7 +274,7 @@ def test_ask_endpoint_clarification_path(client):
                        headers=h)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["clarification"] is True
+    assert not body["clarification"]
     assert body["answer"]
     assert body["trace"] == ["intent", "planner", "response"]
     history = client.get("/sessions/%d/messages" % sid, headers=h).json()

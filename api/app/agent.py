@@ -1493,25 +1493,31 @@ def node_intent(state: Dict[str, Any],
         # measurably worse than the pivot, but far better than nothing.
     state["query_en"] = query_en.strip() or query
     slots = extract_slots(state["query_en"])
-    carried = carry_slots_from_history(slots, history)
-    if carried != slots:
-        added = ", ".join("%s=%r" % (k, v) for k, v in carried.items()
-                          if slots.get(k) != v)
-        logger.info("agent carried slots from history: %s", added)
-    slots = carried
-    # Long-term memory, across sessions. Session history only helps inside one
-    # conversation; a user who asked about custody yesterday and says "what
-    # about maintenance?" today should not be asked the topic all over again.
+    # Carry-over from earlier turns only makes sense for a follow-up. A
+    # standalone question must not inherit the previous topic, otherwise
+    # "what can you do?" gets answered as a divorce question.
+    is_followup = bool(history) or len(state["query_en"].split()) < 4
+    if is_followup:
+        carried = carry_slots_from_history(slots, history)
+        if carried != slots:
+            added = ", ".join("%s=%r" % (k, v) for k, v in carried.items()
+                              if slots.get(k) != v)
+            logger.info("agent carried slots from history: %s", added)
+        slots = carried
+    # Long-term memory (across sessions) only fills a slot when the current
+    # question is a follow-up or very short; otherwise a new question would
+    # silently inherit last session's topic.
+    if is_followup:
+        if not slots.get("topic") and memory.get("last_topic"):
+            slots["topic"] = str(memory["last_topic"])
+            _add_trace(state, "intent", "mem_topic",
+                       topic=_local(TOPIC_LOCAL, slots["topic"], lang))
+        if not slots.get("self_side") and memory.get("last_party_role"):
+            slots["self_side"] = str(memory["last_party_role"])
+            _add_trace(state, "intent", "mem_side")
+    # Long-term memory, across sessions. Only update memory; do not carry the
+    # old topic into a standalone question (handled above).
     updates: Dict[str, str] = {}
-    if not slots.get("topic") and memory.get("last_topic"):
-        slots["topic"] = str(memory["last_topic"])
-        _add_trace(state, "intent", "mem_topic",
-                   topic=_local(TOPIC_LOCAL, slots["topic"], lang))
-    if not slots.get("self_side") and memory.get("last_party_role"):
-        # Someone who asked about maintenance as a wife should not be answered
-        # as though they were the husband on their next question.
-        slots["self_side"] = str(memory["last_party_role"])
-        _add_trace(state, "intent", "mem_side")
     if slots.get("topic"):
         updates["last_topic"] = str(slots["topic"])
     # Which side they are on matters for the next question: "what about my
@@ -2485,20 +2491,28 @@ def is_oos(query_en: str) -> bool:
     # adoption question, which is a far worse failure than missing an out-of-
     # scope topic that happens to include one of these words.
     has_oos = any(_oos_match(k, low) for k in OOS_KEYWORDS)
-    if not has_oos:
-        return False
     # A dispute over land *between a living father and his son* is tenancy or
     # property law and we must not answer it. But land that changed hands
     # because someone died is succession, and that we can and must answer.
     if any(h in low for h in _SUCCESSION_HINTS):
-        return False
+        has_oos = False
     has_family = any(k in low for k in (
         "marriage", "married", "divorce", "divorced", "custody",
         "maintenance", "adoption", "adopted", "guardians",
         "domestic violence", "succession", "inheritance", "inherit",
         "heir", "adoption", "adopt", "residence order", "protection order",
-            "maintenance", "custody", "guardian", "domestic violence"))
-    return has_oos and not has_family
+        "maintenance", "custody", "guardian", "domestic violence",
+        "husband", "wife", "spouse", "child", "children", "son", "daughter",
+        "father", "mother", "parent", "family", "married"))
+    has_section_or_act = bool(re.search(r"section\s*\d|\bact\b", low))
+    # Out of scope if an explicit out-of-scope topic is named, OR if the
+    # question names no family-law concept at all.
+    if has_oos and not has_family:
+        return True
+    if not has_oos and not has_family and not has_section_or_act:
+        return True
+    return False
+    return False
 
 
 VERIFY_SYSTEM = (
@@ -2671,7 +2685,7 @@ DISCLAIMER = {
 
 
 OOS_REDIRECT = {
-    "en": "This question is outside my family-law scope (land, property, criminal, tax, etc.). I only assist with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please consult a specialist for this topic.",
+    "en": "I'm a family-law assistant, so I can only help with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please ask a family-law question.",
     "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभिरक्षा, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृपया इस विषय के लिए विशेषज्ञ से परामर्श करें।",
     "kn": "ಈ ಪ್ರಶ್ನೆಯು ನನ್ನ ಕುಟುಂಬ ಕಾನೂನಿನ ವ್ಯಾಪ್ತಿಯಿಂದ ಹೊರಗಿದೆ (ಭೂಮಿ, ಆಸ್ತಿ, ಕ್ರಿಮಿನಲ್, ತೆರಿಗೆ ಇತ್ಯಾದಿ). ನಾನು ವಿವಾಹ, ವಿಚ್ಛೇದನ, ಪಾಲನೆ, ಜೀವನಾಂಶ, ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಮತ್ತು ಕೌಟುಂಬಿಕ ಹಿಂಸೆಯಲ್ಲಿ ಮಾತ್ರ ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ದಯವಿಟ್ಟು ಈ ವಿಷಯಕ್ಕಾಗಿ ತಜ್ಞರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
 }
