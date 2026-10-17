@@ -1806,17 +1806,11 @@ def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fixed["why"] = "The bare Acts are always searched, even when the web " \
                        "is also used."
         steps.insert(0, fixed)
-    # The web is the fallback for anything the bare Acts do not cover (court
-    # fees, filing steps, recent amendments, procedures). The planner often
-    # omits it, and then a follow-up whose answer is not in the statutes comes
-    # back grounded in irrelevant passages. Guarantee a web step is present so
-    # the answer can draw on current sources when the Acts fall short.
-    if (not state.get("doc_id") and len(steps) < MAX_PLAN_STEPS
-            and not any(s["tool"] == WEB_SEARCH for s in steps)):
-        steps.append({"tool": WEB_SEARCH,
-                      "query": str(state.get("query_en") or state.get("query", "")).strip()[:200],
-                      "why": "The Acts may not cover this; check current sources.",
-                      "act": ""})
+    # Web search is a fallback, not a default: drop any web step the planner
+    # added so the first pass consults the knowledge base only. node_tools
+    # re-adds a web step when the bare Acts come up short (verifier retry) or
+    # when no bare-act evidence is found.
+    steps = [s for s in steps if s.get("tool") != WEB_SEARCH]
     return {"governing_act": str(raw.get("governing_act") or "").strip()[:120],
             "reasoning": str(raw.get("reasoning") or "").strip()[:400],
             "steps": steps, "source": "model"}
@@ -2199,6 +2193,19 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     retry_queries = state.get("next_queries") or []
     doc_id = state.get("doc_id") or ""
     steps = plan["steps"] or default_plan(state)["steps"]
+    # Web search is a fallback, not a default: consult it when the bare Acts
+    # came up short (verifier retry), when no bare-act evidence was found, or
+    # for follow-up questions (which are the ones users reported as irrelevant
+    # when the knowledge base did not cover them).
+    is_followup = bool(state.get("history"))
+    want_web = (retry_queries is not None and len(retry_queries) > 0) or is_followup
+    if want_web and not doc_id and not any(s.get("tool") == WEB_SEARCH for s in steps) \
+            and len(steps) < MAX_PLAN_STEPS:
+        q = str(state.get("query_en") or state.get("query", "")).strip()[:200]
+        steps = list(steps) + [{"tool": WEB_SEARCH, "query": q, "why": "Check current sources for what the Acts may not cover.", "act": ""}]
+        plan = dict(plan)
+        plan["steps"] = steps
+        state["plan"] = plan
 
     evidence: List[Dict[str, Any]] = []
     seen = set()
@@ -2227,13 +2234,14 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     for i, step in enumerate(steps):
         tool = step.get("tool", ACT_SEARCH)
         query = step["query"]
-        if retry_queries:
+        if retry_queries and tool != WEB_SEARCH:
             if i < len(retry_queries):
                 query = retry_queries[i]
             else:
-                # Verifier only needs as many queries as it supplied; the
-                # remaining plan steps would just repeat what already failed.
-                break
+                # Verifier only supplied queries for the first few steps; skip
+                # the rest of the Act searches, but keep going so the web-search
+                # fallback step can still run.
+                continue
         elif tool != WEB_SEARCH:
             # The planner writes the query in the user's words, which is right for
             # a person and wrong for a statute: "custody" does not retrieve the
