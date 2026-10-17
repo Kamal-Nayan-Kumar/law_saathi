@@ -1806,6 +1806,17 @@ def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fixed["why"] = "The bare Acts are always searched, even when the web " \
                        "is also used."
         steps.insert(0, fixed)
+    # The web is the fallback for anything the bare Acts do not cover (court
+    # fees, filing steps, recent amendments, procedures). The planner often
+    # omits it, and then a follow-up whose answer is not in the statutes comes
+    # back grounded in irrelevant passages. Guarantee a web step is present so
+    # the answer can draw on current sources when the Acts fall short.
+    if (not state.get("doc_id") and len(steps) < MAX_PLAN_STEPS
+            and not any(s["tool"] == WEB_SEARCH for s in steps)):
+        steps.append({"tool": WEB_SEARCH,
+                      "query": str(state.get("query_en") or state.get("query", "")).strip()[:200],
+                      "why": "The Acts may not cover this; check current sources.",
+                      "act": ""})
     return {"governing_act": str(raw.get("governing_act") or "").strip()[:120],
             "reasoning": str(raw.get("reasoning") or "").strip()[:400],
             "steps": steps, "source": "model"}

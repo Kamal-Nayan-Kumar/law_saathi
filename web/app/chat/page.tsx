@@ -451,11 +451,18 @@ function toggleSide() {
   async function sendText(text: string) {
     if (!text.trim() || loading) return;
     setError("");
-    setLoading(true);
     const query = text.trim();
     // The answer comes back in the language of the question. There is no
     // preference to consult and nothing for the user to have set wrong.
     const sendLang = detectLang(query);
+    // Show the question immediately, even while the session is being created
+    // on the first message of a chat. Otherwise loading starts (and the step
+    // list renders) before the user's message has been appended, so the first
+    // thing on screen is the process instead of the question.
+    const userMsg: Msg = { id: Date.now(), role: "user", content: query, lang: sendLang };
+    setMsgs((prev) => [...prev, userMsg]);
+    setDraft("");
+    setLoading(true);
     try {
       // Lazy-create the session on first message (keeps sidebar clean)
       let sid = sessionId;
@@ -467,9 +474,6 @@ function toggleSide() {
         sid = s.id;
         setSessionId(sid);
       }
-      const userMsg: Msg = { id: Date.now(), role: "user", content: query, lang: sendLang };
-      setMsgs((prev) => [...prev, userMsg]);
-      setDraft("");
       // Streamed: each agent step lands as it happens, so the page shows real
       // progress instead of a fixed animation. If the stream is cut, askStream
       // reads the saved answer back rather than asking again — one question
