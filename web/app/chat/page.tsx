@@ -509,6 +509,11 @@ function toggleSide() {
         content: answerObj.answer,
         lang: answerLang,
       };
+      // The streaming card has already shown this answer while it arrived. Drop
+      // it now, in the same update as the final card, so the reader never sees
+      // the reply twice (once live, once persisted).
+      setStreaming(null);
+      setLiveSteps([]);
       setMsgs((prev) => [...prev, botMsg]);
       setMeta((prev) => ({ ...prev, [botId]: tmeta }));
       // Re-read the thread so ids match the server. Guarded against a slow

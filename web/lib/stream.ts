@@ -189,10 +189,17 @@ export async function askStream(
     handlers.onDone?.(result);
     return result;
   }
-  if (sawStep) return recoverPersisted(path);
-  // Nothing streamed at all: the request never reached the agent, so JSON is
-  // safe and cannot duplicate anything.
-  return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
+  // The stream ended without a `done` event. The agent may have started and
+  // persisted an answer even if no step reached us (the first step can take a
+  // few seconds), so re-running it over JSON would write a second answer under
+  // the same question. Read back what was saved first; only fall back to JSON
+  // when nothing was persisted, which means the request never reached the
+  // agent and a fresh run is genuinely safe.
+  try {
+    return await recoverPersisted(path);
+  } catch {
+    return askJson(path.replace(/\/stream$/, ""), body, timeoutMs);
+  }
 }
 
 /** A bare status with no body is not something to show a person. */

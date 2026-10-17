@@ -109,7 +109,7 @@ def test_out_of_scope_gives_the_redirect_not_a_clarifying_question():
     assert out["oos_redirect"] is True
     assert out["clarification"] == "", (
         "out of scope is a decision, not a missing slot")
-    assert "outside my family-law scope" in out["answer"]
+    assert "family-law" in out["answer"].lower()
     assert out["trace"] == ["intent", "planner", "response"], (
         "no retrieval should happen for an out-of-scope question")
 

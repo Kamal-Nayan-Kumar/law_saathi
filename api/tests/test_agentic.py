@@ -171,7 +171,11 @@ def test_plan_steps_are_capped():
 def test_all_three_tools_are_reachable():
     assert set(TOOLS) == {ACT_SEARCH, WEB_SEARCH, SECTION_READ}
     steps = [{"tool": t, "query": "q"} for t in TOOLS]
-    assert len(normalise_plan({"steps": steps}, {})["steps"]) == 3
+    # normalise_plan filters out WEB_SEARCH on the first pass because web search
+    # is a fallback reserved for verifier retries, empty RAG, or follow-ups.
+    plan = normalise_plan({"steps": steps}, {})
+    assert len(plan["steps"]) == 2
+    assert {s["tool"] for s in plan["steps"]} == {ACT_SEARCH, SECTION_READ}
 
 
 # --------------------------------------------------------------------------
@@ -350,14 +354,11 @@ def test_the_happy_path_visits_every_node_in_order():
 
 
 def test_clarifying_short_circuits_before_any_tool_runs():
-    """With no topic, retrieval cannot be planned, so no tool runs at all.
-
-    Note the query has no topic on purpose. "I want divorce" does name one, and
-    is answered now rather than stalling on the mutual-vs-contested question.
-    """
+    """A topicless query is out of scope and redirects before tools run."""
     out = run_agent("I want help with something", lang="en", llm=None,
                     retriever=EchoRetriever([]))
-    assert out["clarification"]
+    assert not out["clarification"]
+    assert out["oos_redirect"] is True
     assert out["trace"] == ["intent", "planner", "response"]
     assert "tools" not in out["trace"]
 

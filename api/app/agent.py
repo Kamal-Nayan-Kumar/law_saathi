@@ -1496,7 +1496,10 @@ def node_intent(state: Dict[str, Any],
     # Carry-over from earlier turns only makes sense for a follow-up. A
     # standalone question must not inherit the previous topic, otherwise
     # "what can you do?" gets answered as a divorce question.
-    is_followup = bool(history) or len(state["query_en"].split()) < 4
+    q_low = state["query_en"].lower().strip()
+    is_followup = bool(history) or len(state["query_en"].split()) < 4 or any(
+        q_low.startswith(p) for p in ("and ", "what about", "and what about", "how about", "also ")
+    )
     if is_followup:
         carried = carry_slots_from_history(slots, history)
         if carried != slots:
@@ -2200,11 +2203,13 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     doc_id = state.get("doc_id") or ""
     steps = plan["steps"] or default_plan(state)["steps"]
     # Web search is a fallback, not a default: consult it when the bare Acts
-    # came up short (verifier retry), when no bare-act evidence was found, or
-    # for follow-up questions (which are the ones users reported as irrelevant
-    # when the knowledge base did not cover them).
+    # came up short (any verifier retry, even one with no replacement queries),
+    # when no bare-act evidence was found, or for follow-up questions (which
+    # are the ones users reported as irrelevant when the knowledge base did
+    # not cover them).
     is_followup = bool(state.get("history"))
-    want_web = (retry_queries is not None and len(retry_queries) > 0) or is_followup
+    is_retry = int(state.get("retries", 0)) > 0
+    want_web = is_retry or is_followup or (retry_queries is not None and len(retry_queries) > 0)
     if want_web and not doc_id and not any(s.get("tool") == WEB_SEARCH for s in steps) \
             and len(steps) < MAX_PLAN_STEPS:
         q = str(state.get("query_en") or state.get("query", "")).strip()[:200]
@@ -2272,6 +2277,9 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 if k not in seen:
                     seen.add(k)
                     evidence.append(h)
+            # A web search has now happened; do not run the rag_empty fallback's
+            # web search again on top of it.
+            state["web_search_done"] = True
             note("tools_web", q=shown, n=len(hits),
                  plural=_plural(lang, len(hits)))
             continue
@@ -2494,16 +2502,22 @@ def is_oos(query_en: str) -> bool:
     # A dispute over land *between a living father and his son* is tenancy or
     # property law and we must not answer it. But land that changed hands
     # because someone died is succession, and that we can and must answer.
-    if any(h in low for h in _SUCCESSION_HINTS):
-        has_oos = False
-    has_family = any(k in low for k in (
-        "marriage", "married", "divorce", "divorced", "custody",
-        "maintenance", "adoption", "adopted", "guardians",
-        "domestic violence", "succession", "inheritance", "inherit",
-        "heir", "adoption", "adopt", "residence order", "protection order",
-        "maintenance", "custody", "guardian", "domestic violence",
-        "husband", "wife", "spouse", "child", "children", "son", "daughter",
-        "father", "mother", "parent", "family", "married"))
+    is_succession = any(h in low for h in _SUCCESSION_HINTS)
+    if is_succession:
+        return False
+    # If a recognized family-law topic is extracted (e.g. domestic violence,
+    # marriage, divorce, maintenance, custody, succession), the question is in scope.
+    slots = extract_slots(query_en)
+    if slots.get("topic") or slots.get("section"):
+        has_family = True
+    else:
+        has_family = any(k in low for k in (
+            "marriage", "married", "divorce", "divorced", "custody",
+            "maintenance", "adoption", "adopted", "guardians",
+            "domestic violence", "succession", "inheritance", "inherit",
+            "heir", "adoption", "adopt", "residence order", "protection order",
+            "maintenance", "custody", "guardian", "domestic violence",
+            "husband", "wife", "spouse", "married"))
     has_section_or_act = bool(re.search(r"section\s*\d|\bact\b", low))
     # Out of scope if an explicit out-of-scope topic is named, OR if the
     # question names no family-law concept at all.
@@ -2511,7 +2525,6 @@ def is_oos(query_en: str) -> bool:
         return True
     if not has_oos and not has_family and not has_section_or_act:
         return True
-    return False
     return False
 
 
@@ -2523,13 +2536,17 @@ VERIFY_SYSTEM = (
     "and simplifies the passages. That is correct — never reject for it.\n\n"
     "NEVER reject the draft for any of these, all of which are correct "
     "behaviour:\n"
-    "- it says the passages do not cover part of the question\n"
+    "- it says the passages do not cover part of the question, as long as it "
+    "still answers the rest from them\n"
     "- it says it cannot verify something, or recommends a lawyer\n"
     "- it uses different words from the passage to say the same thing\n"
     "- it is shorter or longer than the passage\n\n"
     "Reject ONLY if the draft states a specific legal rule — a section "
     "number, a ground, a period, an amount, a court, a date — that the "
-    "passages do not support.\n\n"
+    "passages do not support.\n"
+    "Also reject if the draft's main answer is that the passages do not cover "
+    "the question at all, so a web search can be tried instead. next_queries "
+    "should then restate the question for the web.\n\n"
     "A section named in the passages' own text is supported even if the draft "
     "words it differently. A section that appears nowhere in the passages is "
     "the only kind of missing reference that counts.\n\n"
