@@ -2376,7 +2376,17 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                     evidence.append(h)
             note("tools_web", q=shown, n=len(web_hits),
                  plural=_plural(lang, len(web_hits)))
-    state["evidence"] = evidence[:8]
+    # Reserve room for web results. Act hits are collected first and can fill
+    # the whole budget, which silently dropped every Firecrawl result and made
+    # web_search look like it did nothing. Keep at most five Act passages and
+    # then append the web hits so they actually reach the reasoner and the
+    # citation list.
+    act_hits = [h for h in evidence
+                if _evidence_source_type(h) in ("bare_act", "doc")]
+    web_hits = [h for h in evidence
+                if _evidence_source_type(h) == "web"]
+    trimmed = act_hits[:5] + web_hits[:3]
+    state["evidence"] = trimmed[:8]
     if wants_timing_correction(state.get("query_en") or state.get("query", "")):
         # Attach by act, not by relevance — see the note on the constant.
         for notice in amendment_notices(state, store):
@@ -3007,12 +3017,18 @@ def compose_answer(state: Dict[str, Any],
             base += (" " + DIVORCE_ACT_LIST.get(lang, DIVORCE_ACT_LIST["en"]))
         base += (" " + NO_EVIDENCE_ASK.get(lang, NO_EVIDENCE_ASK["en"]))
         return base + "\n\n" + DISCLAIMER.get(lang, DISCLAIMER["en"]) + "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"]), [], []
+    # Keep web results visible in the citation list instead of letting the first
+    # five Act passages crowd them out (which made web_search look unused).
+    cite_hits = [h for h in evidence if _evidence_source_type(h) in ("bare_act", "doc")][:3] + \
+                [h for h in evidence if _evidence_source_type(h) == "web"][:2]
+    if not cite_hits:
+        cite_hits = evidence[:5]
     citations = [format_citation((h.get("payload") or {}) if isinstance(h, dict)
-                                 else {}) for h in evidence[:5]]
+                                 else {}) for h in cite_hits]
     citations = [c for c in citations if c]
     citation_sources = [
         _evidence_source_type(h) if isinstance(h, dict) else "bare_act"
-        for h in evidence[:5]
+        for h in cite_hits
     ]
     slots = state.get("slots", {})
     topic = slots.get("topic", "general")
