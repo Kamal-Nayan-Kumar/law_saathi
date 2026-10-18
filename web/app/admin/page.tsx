@@ -9,7 +9,7 @@ export default function AdminPortal() {
 
   useEffect(() => {
     // Minimal T13 admin view — list from upload router stub
-    fetch("/api/admin/docs").catch(() => {});
+    // fetch("/api/admin/docs").catch(() => {});
   }, []);
 
   async function upload(e: React.FormEvent) {
@@ -40,8 +40,8 @@ export default function AdminPortal() {
           cannot shrink, so on a 360px phone it pushed the whole page 80px wider
           than the screen and gave every page a sideways scroll. */}
       <form onSubmit={upload} style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input type="text" placeholder="Document title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
-        <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
+        <input type="text" placeholder="Document title" aria-label="Document title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
+        <input type="file" accept=".pdf" aria-label="Upload PDF file" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ padding: 8, flex: "1 1 180px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
         <button type="submit" disabled={!file} style={{ padding: "8px 14px", background: "var(--maroon)", color: "white", border: "none", borderRadius: 6, fontWeight: 700 }}>Upload PDF</button>
       </form>
       {message && <p style={{ marginTop: 12, fontSize: "0.85rem", color: message.includes("Uploaded") ? "green" : "red" }}>{message}</p>}

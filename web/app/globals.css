@@ -20,13 +20,13 @@
   --maroon-deep: #4a0e13;
   --maroon-mid: #8c2028;
   --maroon-soft: #f3e2e0;
-  --marigold: #d0792f;
-  --gold: #d0792f;
+  --marigold: #a04e06;
+  --gold: #a04e06;
   --gold-soft: #fbead3;
   --ink: #2f313f;
   --ink-2: #454957;
   --muted: #6c6765;
-  --muted-2: #8b857f;
+  --muted-2: #6c6762;
   --line: #eadfd2;
   --line-2: #f0e7db;
 
@@ -182,7 +182,7 @@ p {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--marigold);
+  color: #8a4a17;
 }
 
 .eyebrow-pill {

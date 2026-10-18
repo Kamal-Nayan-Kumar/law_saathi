@@ -184,7 +184,7 @@ export default function Landing() {
             {FEATURES.map((f) => (
               <article className="feature" key={f.title}>
                 <IconDisc name={f.icon} tint={f.tint} size={64} />
-                <h3>{f.title}</h3>
+                <h2>{f.title}</h2>
                 <p>{f.body}</p>
               </article>
             ))}
@@ -271,9 +271,9 @@ export default function Landing() {
                   {/* The connector is one line drawn on .steps, not per item. */}
                   <IconDisc name={s.icon} tint={s.tint} size={76} />
                 </div>
-                <h4>
+                <h3>
                   <span>{s.n}</span> {s.title}
-                </h4>
+                </h3>
                 <p>{s.body}</p>
               </li>
             ))}
