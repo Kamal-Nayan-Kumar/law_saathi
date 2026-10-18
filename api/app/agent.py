@@ -54,8 +54,8 @@ MAX_LLM_CALLS = int(os.environ.get("LAWSAATHI_MAX_LLM_CALLS", "6"))
 # Short answers get a short budget. The verifier returns a one-line JSON object
 # and the planner a small plan; giving them the full reasoning budget is what
 # made a 0.8s call take 4s.
-MAX_TOKENS_LONG = int(os.environ.get("LAWSAATHI_MAX_TOKENS", "6000"))
-MAX_TOKENS_SHORT = int(os.environ.get("LAWSAATHI_MAX_TOKENS_SHORT", "1600"))
+MAX_TOKENS_LONG = int(os.environ.get("LAWSAATHI_MAX_TOKENS", "1800"))
+MAX_TOKENS_SHORT = int(os.environ.get("LAWSAATHI_MAX_TOKENS_SHORT", "450"))
 # A plan longer than this is a model rambling, not a plan. Cap it so one bad
 # reply cannot turn into a dozen retrieval calls.
 MAX_PLAN_STEPS = 4
@@ -76,15 +76,16 @@ TOPIC_KEYWORDS = {
                     "करचा", "खर्चा", "गुजारा", "पोसण", "पोषण",
                     "ಎಷ್ಟು ಕೊಡಿ", "ಎಷ್ಟು ಬೇಕು", "ಭರವಸೂ", "ಹಿಂಗಿರಿ", "ಭರಿಸುವ",
                     "ಜೀವನಾಂಶ"),
-    "custody": ("custody", "guardian", "अभिरक्षा", "ಹೆತ್ತವರ", "ವಶ",
+    "custody": ("custody", "guardian", "अभिरक्षा", "कस्टडी", "ಕಸ್ಟಡಿ", "ಪಾಲನೆ",
+                "ಮಗು", "ಮಕ್ಕಳು", "बच्चा", "ಹೆತ್ತವರ", "ವಶ",
                  "removal order", "removed from the house", "residence order",
                  "right to reside", "who stays in the house",
                  "उसे रहने", "घर से बाहर", "ಮನೆಯಿಂದ ಹೊರಗೆ"),
     "adoption": ("adoption", "adopt", "adopted", "गोद", "ದತ್ತು"),
     "succession": ("succession", "inheritance", "inherit", "heir",
-                   "virasat", "viraasat",
-                   "jaydad", "jaaydaad", "उत्तराधिकार", "ಉತ್ತರಾಧಿಕಾರ",
-                   "वारिस"),
+                   "ancestral", "coparcener", "coparcenary", "patrik", "paitrik",
+                   "virasat", "viraasat", "jaydad", "jaaydaad", "उत्तराधिकार",
+                   "पैतृक", "ಉತ್ತರಾಧಿಕಾರ", "ವಾರಿಸ", "वारिस"),
     # People describe domestic violence in the words of the act, not its name:
     # "my husband hits me", "he beats me", "she tortures me". None of those
     # contain "domestic violence", so every one of them fell through to "what is
@@ -141,7 +142,33 @@ TOPIC_KEYWORDS = {
                             "christian boy", "christian girl", "inter caste",
                             "inter-caste", "different caste", "love marriage",
                             "हिंदू मुस्लिम", "अलग धर्म", "ಹಿಂದೂ ಮುಸ್ಲಿಂ"),
+    "senior_citizens": ("senior citizen", "senior citizens", "elderly parent",
+                        "elderly parents", "parents maintenance", "gift deed",
+                        "gifted house", "gifted property", "ill-treating parents",
+                        "ill-treated parents", "neglecting parents", "vridhashram",
+                        "माता-पिता", "बुजुर्ग", "वृद्ध", "ಹಿರಿಯ ನಾಗರಿಕರು",
+                        "ಪೋಷಕರು", "ವೃದ್ಧಾಪ್ಯ"),
 }
+
+_IDENTITY_PATTERNS = (
+    "who are you", "who are u", "what are you", "what can you do", "how can you help",
+    "tell me about yourself", "who made you", "what is law saathi", "what is lawsathi",
+    "aap kaun hain", "aap kaun ho", "tum kaun ho", "kaun hain aap", "kya kar sakte ho",
+    "kya madad kar sakte", "meri kya madad", "neevu yaaru", "yaaru neevu", "en madutheera",
+    "namaste", "namaskara", "hello saathi", "hi saathi", "hello law saathi"
+)
+
+
+def is_identity_query(text: str) -> bool:
+    """True when the user is asking about Law Saathi itself or greeting."""
+    low = re.sub(r"[^\w\s]", " ", (text or "").lower()).strip()
+    words = low.split()
+    if not words:
+        return False
+    if len(words) <= 2 and any(w in ("hello", "hi", "hey", "namaste", "namaskar", "namaskara") for w in words):
+        return True
+    return any(p in low for p in _IDENTITY_PATTERNS)
+
 
 PARTY_WORDS = ("husband", "wife", "spouse", "pati", "patni", "biwi", "shohar",
                "bachcha", "bacha", "baccha", "beta", "beti", "maa", "baap",
@@ -320,6 +347,7 @@ def new_state(query: str, lang: str = "en",
         "trace_detail": [],
         "memory": dict(memory or {}),
         "doc_id": "",
+        "is_identity": False,
     }
 
 
@@ -423,8 +451,8 @@ def extract_slots(query_en: str) -> Dict[str, str]:
         topics.append("domestic_violence")
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
-        for pref in ("interfaith_marriage", "maintenance", "custody",
-                     "adoption", "succession", "domestic_violence",
+        for pref in ("interfaith_marriage", "senior_citizens", "maintenance",
+                     "custody", "adoption", "succession", "domestic_violence",
                      "divorce", "marriage"):
             if pref in topics:
                 slots["topic"] = pref
@@ -680,15 +708,17 @@ def _provider_available(name: str) -> bool:
 
 
 def _mark_failed(name: str, error: Exception) -> None:
-    _PROVIDER_FAILURES[name] = time.monotonic() + _PROVIDER_COOLDOWN
-    # 429 and 402 mean the key is spent; there is no point retrying for the
-    # length of a normal cooldown.
     status = getattr(getattr(error, "response", None), "status_code", None)
-    cooldown = _PROVIDER_COOLDOWN
-    if status in (401, 402, 403) or "402" in str(error) or "401" in str(error):
-        cooldown = _PROVIDER_COOLDOWN * 10
+    err_str = str(error)
+    if "429" in err_str or status == 429:
+        # Rate limits reset in seconds on Groq; do not lock out the whole provider for 60s
+        cooldown = 3.0
+    elif status in (401, 402, 403) or "402" in err_str or "401" in err_str:
+        cooldown = _PROVIDER_COOLDOWN * 5
+    else:
+        cooldown = _PROVIDER_COOLDOWN
     _PROVIDER_FAILURES[name] = time.monotonic() + cooldown
-    logger.warning("provider %s in cooldown for %.0fs (%r)", name, cooldown, error)
+    logger.warning("provider %s in cooldown for %.1fs (%r)", name, cooldown, error)
 
 
 def _mark_healthy(name: str) -> None:
@@ -995,6 +1025,8 @@ TOPIC_LOCAL = {
     "dowry": {"en": "dowry", "hi": "दहेज", "kn": "ಸंಪತ್ತು ಕೋಲಿಕೆ"},
     "interfaith_marriage": {"en": "inter-faith marriage", "hi": "अंतर-धार्मिक विवाह",
                             "kn": "ಬೇರೆ ಧರ್ಮದ ಮದುವೆ"},
+    "senior_citizens": {"en": "senior citizens maintenance", "hi": "वरिष्ठ नागरिक भरण-पोषण",
+                        "kn": "ಹಿರಿಯ ನಾಗರಿಕರ ಜೀವನಾಂಶ"},
     "general": {"en": "a general question", "hi": "सामान्य प्रश्न",
                 "kn": "ಸಾಮಾನ್ಯ ಪ್ರಶ್ನೆ"},
 }
@@ -1102,6 +1134,11 @@ TRACE_TEXT: Dict[str, Dict[str, str]] = {
         "kn": "ಇಂಗ್ಲಿಷ್ ಅನುವಾದ ಬಂದಿಲ್ಲ, ಆದ್ದರಿಂದ ಪ್ರಶ್ನೆಯಿಂದ ವಿಷಯವನ್ನು "
               "ಓದಲಾಗಲಿಲ್ಲ. ನೀವು ಏನು ಕೇಳಿದ್ದೀರಿ ಎಂದು ಮತ್ತೆ ಕೇಳುವ ಬದಲಿಗೆ, "
               "ಉತ್ತರಿಸಲಾಗುವಿದೆ.",
+    },
+    "planner_identity": {
+        "en": "Greeting or capability question — introducing Law Saathi.",
+        "hi": "परिचय या क्षमता का प्रश्न — लॉ साथी का परिचय दिया जा रहा है।",
+        "kn": "ಪರಿಚಯ ಅಥವಾ ಸಾಮರ್ಥ್ಯದ ಪ್ರಶ್ನೆ — ಲಾ ಸಾಥಿಯ ಪರಿಚಯ ನೀಡಲಾಗುತ್ತಿದೆ.",
     },
     "planner_oos": {
         "en": "Outside family-law scope — saying so instead of answering or "
@@ -1529,8 +1566,13 @@ def node_intent(state: Dict[str, Any],
         updates["last_party_role"] = str(slots["self_side"])
     state["memory_updates"] = updates
     state["slots"] = slots
-    state["intent"] = classify_intent(state["query_en"], slots)
-    state["oos_redirect"] = is_oos(state["query_en"])
+    if is_identity_query(raw_query) or is_identity_query(state["query_en"]):
+        state["is_identity"] = True
+        state["intent"] = "identity"
+        state["oos_redirect"] = False
+    else:
+        state["intent"] = classify_intent(state["query_en"], slots)
+        state["oos_redirect"] = is_oos(state["query_en"])
     topic = slots.get("topic")
     found_bits = []
     if topic:
@@ -1573,6 +1615,11 @@ def node_planner(state: Dict[str, Any],
         _add_trace(state, "planner", "planner_pivot_failed")
         missing = []
     state["missing_slots"] = missing
+    if state.get("is_identity"):
+        state["clarification"] = ""
+        state["plan"] = {"governing_act": "", "reasoning": "Identity / introduction query", "steps": [], "source": "identity"}
+        _add_trace(state, "planner", "planner_identity")
+        return state
     if state.get("oos_redirect"):
         # Out of scope is a decision, not a question. Asking "what is this
         # about?" to someone who asked about land was the wrong reply — the
@@ -1629,7 +1676,8 @@ TOPIC_ACT = {
     # Muslim boy".
     "marriage": "Special Marriage Act 1954 Hindu Marriage Act 1955",
     "maintenance": "Hindu Adoption and Maintenance Act 1956",
-    "adoption": "Hindu Adoption and Maintenance Act 1956",
+    "senior_citizens": "Maintenance and Welfare of Parents and Senior Citizens Act 2007",
+    "adoption": "Hindu Adoption and Maintenance Act 1956 Juvenile Justice Care and Protection of Children Act 2015",
     "succession": "Hindu Succession Act 1956 Indian Succession Act 1925",
     "domestic_violence": "Domestic Violence Act 2005",
     "dowry": "Dowry Prohibition Act 1961",
@@ -1653,11 +1701,12 @@ _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
 # right section findable. It is not keyword routing — the topic still comes from
 # the model, and everything is still scored by vector similarity.
 TOPIC_CONCEPTS = {
-    "custody": "welfare of the minor first consideration guardian custody",
+    "custody": "welfare of the minor first consideration guardian custody minor under five years mother Section 6 Section 17",
     "adoption": "adoption child welfare conditions adoption ceremony consent",
-    "succession": "class I heirs intestate succession legal heirs share property",
+    "succession": "class I heirs intestate succession legal heirs share property coparcener daughter Section 6 ancestral property equal share",
     "divorce": "living separately one year mutual consent decree divorce",
-    "maintenance": "maintenance amount reasonable income needs means arrears",
+    "maintenance": "maintenance amount reasonable income needs means arrears divorced wife Section 144 Section 125",
+    "senior_citizens": "maintenance tribunal transfer of property void condition basic amenities physical needs Section 23 Section 4 Section 9 monthly allowance",
     "domestic_violence": "residence order shared household protection officer "
                          "monetary relief aggrieved person",
     "marriage": "solemnization registration valid marriage conditions",
@@ -1722,6 +1771,10 @@ _KNOWN_ACTS = (
     "Guardians and Wards Act 1890", "Domestic Violence Act 2005",
     "Indian Divorce Act 1869", "Dowry Prohibition Act 1961",
     "Indian Succession Act 1925",
+    "Maintenance and Welfare of Parents and Senior Citizens Act 2007",
+    "Hindu Minority and Guardianship Act 1956",
+    "Muslim Women (Protection of Rights on Divorce) Act 1986",
+    "Bharatiya Nagarik Suraksha Sanhita 2023",
 )
 
 
@@ -1779,6 +1832,20 @@ def default_plan(state: Dict[str, Any]) -> Dict[str, Any]:
             "reasoning": "", "steps": steps, "source": "fixed"}
 
 
+_WEB_SEARCH_SIGNALS = (
+    "supreme court", "high court", "judgment", "judgement", "ruling", "verdict",
+    "recent", "latest", "new law", "naya kanoon", "faisla", "cooling off",
+    "cooling-off", "waive", "waiver", "waived", "article 142",
+    "muslim maintenance", "muslim woman maintenance", "muslim wife",
+    "tirthu", "court order"
+)
+
+
+def needs_web_search(query: str) -> bool:
+    low = (query or "").lower()
+    return any(s in low for s in _WEB_SEARCH_SIGNALS)
+
+
 def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Validate a model plan. None means 'use the fixed plan instead'.
 
@@ -1815,11 +1882,18 @@ def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fixed["why"] = "The bare Acts are always searched, even when the web " \
                        "is also used."
         steps.insert(0, fixed)
-    # Web search is a fallback, not a default: drop any web step the planner
-    # added so the first pass consults the knowledge base only. node_tools
-    # re-adds a web step when the bare Acts come up short (verifier retry) or
-    # when no bare-act evidence is found.
-    steps = [s for s in steps if s.get("tool") != WEB_SEARCH]
+    # Keep web search if the question specifically calls for recent rulings,
+    # court judgments, cooling-off waiver, or modern case law; otherwise save it
+    # as a fallback when the bare Acts come up short.
+    q_all = (state.get("query_en") or "") + " " + (state.get("query") or "")
+    if needs_web_search(q_all):
+        if not any(s.get("tool") == WEB_SEARCH for s in steps):
+            steps.append({"tool": WEB_SEARCH,
+                          "query": state.get("query_en") or state.get("query", ""),
+                          "why": "Recent Indian court rulings and legal developments",
+                          "act": ""})
+    else:
+        steps = [s for s in steps if s.get("tool") != WEB_SEARCH]
     return {"governing_act": str(raw.get("governing_act") or "").strip()[:120],
             "reasoning": str(raw.get("reasoning") or "").strip()[:400],
             "steps": steps, "source": "model"}
@@ -1839,14 +1913,10 @@ PLAN_SYSTEM = (
     "  * Marriage between people of DIFFERENT religions, and marriage "
     "between people of DIFFERENT castes: Special Marriage Act 1954. Never "
     "the Hindu Marriage Act for these.\n"
-    "  * Maintenance and adoption: Hindu Adoption and Maintenance Act 1956, "
-    "but only for Hindus. For a Muslim wife it is the Muslim guardianship "
-    "and maintenance rules, which we do not hold — say so instead of "
-    "citing a Hindu Act.\n"
-    "  * Custody of a minor: Guardians and Wards Act 1890, even when the user "
-    "mentions divorce.\n"
-    "  * Inheritance: Hindu Succession Act 1956 for Hindus, Indian Succession "
-    "Act 1925 otherwise.\n"
+    "  * Maintenance: Hindu Adoption and Maintenance Act 1956 for Hindus. For all Indian citizens regardless of religion, Section 144 BNSS 2023 (formerly Section 125 CrPC) applies, and under Supreme Court Mohd. Abdul Samad 2024, divorced Muslim women can claim monthly maintenance.\n"
+    "  * Senior citizens & parents: Maintenance and Welfare of Parents and Senior Citizens Act 2007 (tribunal maintenance and Section 23 void transfer of property).\n"
+    "  * Custody of a minor: Hindu Minority and Guardianship Act 1956 (Section 6: custody under 5 ordinarily with mother) and Guardians and Wards Act 1890 (Section 17: paramount welfare of minor).\n"
+    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 otherwise.\n"
     "  * Protection orders, and which court: Domestic Violence Act 2005.\n"
     "  * Dowry: Dowry Prohibition Act 1961.\n"
     "- If the user's question is governed by a statute we do not hold, pick "
@@ -1854,7 +1924,7 @@ PLAN_SYSTEM = (
     "statute is missing. Do not pretend the Act you picked is the right one.\n"
     "- Write a short search query in English with the legal terms a section "
     "would actually use, not the user's casual wording.\n"
-    "- Two or three steps. Add a web step only if the Acts may not answer it.\n"
+    "- Two or three steps. Add a web step if recent rulings, Supreme Court judgments or procedures are needed.\n"
     "- Reply with JSON only. No preamble, no explanation outside the JSON.\n"
     'Shape: {"governing_act": "...", "reasoning": "one sentence", '
     '"steps": [{"tool": "...", "query": "...", "why": "...", "act": "..."}]}'
@@ -2043,15 +2113,29 @@ def default_retriever() -> Any:
         return StubRetriever()
 
 
+_NON_LEGAL_OR_US_DOMAINS = (
+    "palawhelp.org", "peoples-law.org", "maryland.gov",
+    "courts.ca.gov", "nycourts.gov", "texaslawhelp.org",
+    "illinoislegalaid.org", "michiganlegalhelp.org",
+    "youtube.com", "youtu.be", "facebook.com", "instagram.com",
+    "reddit.com", "twitter.com", "x.com"
+)
+
+
 def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     """Firecrawl seam for T5 — real crawl/search when FIRECRAWL_API_KEY set."""
-    logger.info("agent web_search query=%r (T5 Firecrawl)", query[:80])
+    clean_q = re.sub(r"[^\w\s\-\(\)]", " ", query).strip()
+    if not any(k in clean_q.lower() for k in ("india", "indian", "supreme court", "high court", "delhi")):
+        search_query = "%s Indian family law India" % clean_q
+    else:
+        search_query = "%s India law" % clean_q
+    logger.info("agent web_search query=%r (T5 Firecrawl)", search_query[:80])
     try:
         import os
         from firecrawl import Firecrawl
         key = os.environ.get("FIRECRAWL_API_KEY", "")
         fc = Firecrawl(api_key=key or None)
-        res = fc.search(query, limit=top_k, sources=["web"])
+        res = fc.search(search_query, limit=top_k * 2, sources=["web"])
         results = []
         for item in (res.web or []):
             url = getattr(item, "url", None) or (getattr(item, "metadata", {}).get("sourceURL") if hasattr(item, "metadata") else None)
@@ -2064,12 +2148,17 @@ def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
             if not url and isinstance(item, dict) and item.get("metadata"):
                 url = item["metadata"].get("sourceURL")
             if url:
+                low_u = url.lower()
+                if any(dom in low_u for dom in _NON_LEGAL_OR_US_DOMAINS):
+                    continue
                 payload = {
                     "url": url,
                     "title": title or url,
                     "text": (text or "Web source.")[:800],
                 }
                 results.append({"payload": payload, "score": 0.85})
+                if len(results) >= top_k:
+                    break
         if results:
             logger.info("agent web_search returned %d web hits", len(results))
         return results
@@ -2264,8 +2353,9 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
         shown = query[:80]
         if tool == WEB_SEARCH:
             ws = web_search or stub_web_search
+            web_q = state.get("query_en") or query
             try:
-                hits = list(ws(query) or [])
+                hits = list(ws(web_q) or [])
             except Exception as e:  # noqa: BLE001 — web is best-effort
                 logger.warning("agent web_search failed (%r)", e)
                 note("tools_web_fail", q=shown,
@@ -2493,6 +2583,8 @@ def _oos_match(keyword: str, low: str) -> bool:
 
 
 def is_oos(query_en: str) -> bool:
+    if is_identity_query(query_en):
+        return False
     low = (query_en or "").lower()
     # Whole words only for the short, common ones. Substring matching made
     # "my aunt cannot live with the pa*rents*" trip the rent rule and refuse an
@@ -2506,18 +2598,27 @@ def is_oos(query_en: str) -> bool:
     if is_succession:
         return False
     # If a recognized family-law topic is extracted (e.g. domestic violence,
-    # marriage, divorce, maintenance, custody, succession), the question is in scope.
+    # marriage, divorce, maintenance, custody, succession, senior citizens), the question is in scope.
     slots = extract_slots(query_en)
     if slots.get("topic") or slots.get("section"):
         has_family = True
     else:
+        indic_hits = (
+            "तलाक", "विवाह", "शादी", "भरण", "पोषण", "गुजारा", "खर्चा",
+            "कस्टडी", "अभिरक्षा", "बच्चा", "बच्चे", "दहेज", "हिंसा", "वारिस",
+            "उत्तराधिकार", "पैतृक", "संपत्ति", "माता", "पिता", "बुजुर्ग", "वृद्ध",
+            "ವಿಚ್ಛೇದನ", "ಮದುವೆ", "ಜೀವನಾಂಶ", "ಪೋಷಣೆ", "ಕಸ್ಟಡಿ", "ಪಾಲನೆ",
+            "ಮಗು", "ಮಕ್ಕಳು", "ಹಿಂಸೆ", "ವರದಕ್ಷಿಣೆ", "ಉತ್ತರಾಧಿಕಾರ", "ಆಸ್ತಿ",
+            "ಪೋಷಕರು", "ಹಿರಿಯ", "ತಂದೆ", "ತಾಯಿ", "ಗಂಡ", "ಹೆಂಡತಿ"
+        )
         has_family = any(k in low for k in (
             "marriage", "married", "divorce", "divorced", "custody",
             "maintenance", "adoption", "adopted", "guardians",
             "domestic violence", "succession", "inheritance", "inherit",
             "heir", "adoption", "adopt", "residence order", "protection order",
             "maintenance", "custody", "guardian", "domestic violence",
-            "husband", "wife", "spouse", "married"))
+            "husband", "wife", "spouse", "married", "senior citizen",
+            "senior citizens", "parents", "elderly", "gift deed", "gifted")) or any(k in low for k in indic_hits)
     has_section_or_act = bool(re.search(r"section\s*\d|\bact\b", low))
     # Out of scope if an explicit out-of-scope topic is named, OR if the
     # question names no family-law concept at all.
@@ -2705,6 +2806,14 @@ OOS_REDIRECT = {
     "en": "I'm a family-law assistant, so I can only help with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please ask a family-law question.",
     "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभिरक्षा, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृपया इस विषय के लिए विशेषज्ञ से परामर्श करें।",
     "kn": "ಈ ಪ್ರಶ್ನೆಯು ನನ್ನ ಕುಟುಂಬ ಕಾನೂನಿನ ವ್ಯಾಪ್ತಿಯಿಂದ ಹೊರಗಿದೆ (ಭೂಮಿ, ಆಸ್ತಿ, ಕ್ರಿಮಿನಲ್, ತೆರಿಗೆ ಇತ್ಯಾದಿ). ನಾನು ವಿವಾಹ, ವಿಚ್ಛೇದನ, ಪಾಲನೆ, ಜೀವನಾಂಶ, ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಮತ್ತು ಕೌಟುಂಬಿಕ ಹಿಂಸೆಯಲ್ಲಿ ಮಾತ್ರ ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ದಯವಿಟ್ಟು ಈ ವಿಷಯಕ್ಕಾಗಿ ತಜ್ಞರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
+}
+
+IDENTITY_ANSWER = {
+    "en": "Hello! I am **Law Saathi**, your multilingual AI legal assistant dedicated to Indian family law.\n\n### How I Can Help You:\n- **Marriage & Registration:** Legal conditions for valid marriage, registration under the Special Marriage Act or Hindu Marriage Act.\n- **Divorce & Separation:** Mutual-consent divorce (Section 13B), cooling-off period rules, and contested grounds (cruelty, desertion, etc.).\n- **Maintenance (Alimony):** Rights of wives, children, and elderly parents under the Hindu Adoptions and Maintenance Act, BNSS Section 144 / CrPC 125, and Senior Citizens Act.\n- **Child Custody & Guardianship:** Custody of minor children (ordinarily with mother under age 5) and welfare of the child under the Guardians and Wards Act.\n- **Domestic Violence:** Protection orders, residence orders in shared households, and monetary relief under PWDVA 2005.\n- **Inheritance & Succession:** Daughter's equal rights in ancestral coparcenary property (2005 amendment) and succession rules.\n\n### How to Use:\n1. Ask any question in **English, Hindi, Hinglish, or Kannada** (via text or voice mic).\n2. Every legal explanation is simplified, grounded in enacted bare acts and Supreme Court rulings with exact citations.\n3. Practical 'What to do next' steps help you understand your immediate legal options.\n\n*General information only, not legal advice. Please consult a qualified advocate for representation.*",
+
+    "hi": "नमस्ते! मैं **लॉ साथी (Law Saathi)** हूँ — भारतीय पारिवारिक कानून (Family Law) में आपका सहायक कानूनी साथी।\n\n### मैं आपकी क्या मदद कर सकता हूँ:\n- **विवाह और पंजीकरण:** वैध विवाह की शर्तें, विशेष विवाह अधिनियम (Special Marriage Act) के तहत कोर्ट मैरिज और पंजीकरण नियम।\n- **तलाक (Divorce):** आपसी सहमति से तलाक (धारा 13B), 6 महीने की प्रतीक्षा अवधि के नियम, और विवादित तलाक के आधार (क्रूरता, परित्याग आदि)।\n- **भरण-पोषण (Maintenance):** पत्नी, बच्चों और बुजुर्ग माता-पिता के भरण-पोषण अधिकार (हिंदू कानून, BNSS धारा 144 / CrPC 125, और मुस्लिम महिलाओं के अधिकार)।\n- **बच्चे की कस्टडी (Child Custody):** 5 वर्ष से कम उम्र के बच्चे की कस्टडी (सामान्यतः माँ के पास) और बच्चे के सर्वोत्तम हित के नियम।\n- **घरेलू हिंसा से सुरक्षा:** घरेलू हिंसा अधिनियम (PWDVA 2005) के तहत संरक्षण आदेश और साझे घर में रहने का अधिकार (Residence Order)।\n- **पैतृक संपत्ति और उत्तराधिकार:** बेटियों का पिता की पैतृक संपत्ति में बेटों के बराबर अधिकार (2005 संशोधन) और कानूनी वारिसों के नियम।\n\n### कैसे पूछें:\n1. आप **हिंदी, हिंग्लिश, अंग्रेज़ी या कन्नड़** में लिखकर या माइक दबाकर बोलकर सवाल पूछ सकते हैं।\n2. हर उत्तर सरल भाषा में समझाया जाता है और संसद के मूल कानूनों व सुप्रीम कोर्ट के फैसलों की धाराओं का संदर्भ (citations) देता है।\n3. हर उत्तर के अंत में 'आगे क्या करें' के तहत व्यावहारिक कदम बताए जाते हैं।\n\n*केवल सामान्य जानकारी, कानूनी सलाह नहीं। अपनी स्थिति के लिए कृपया वकील से परामर्श लें।*",
+
+    "kn": "ನಮಸ್ಕಾರ! ನಾನು **ಲಾ ಸಾಥಿ (Law Saathi)** — ಭಾರತೀಯ ಕುಟುಂಬ ಕಾನೂನಿನಲ್ಲಿ ನಿಮಗೆ ಮಾರ್ಗದರ್ಶನ ನೀಡುವ ನಿಮ್ಮ AI ಕಾನೂನು ಸಹಾಯಕ.\n\n### ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ:\n- **ವಿವಾಹ ಮತ್ತು ನೋಂದಣಿ:** ಮಾನ್ಯ ವಿವಾಹದ ಕಾನೂನುಬದ್ಧ ನಿಯಮಗಳು, ವಿಶೇಷ ವಿವಾಹ ಕಾಯ್ದೆ ಮತ್ತು ನೋಂದಣಿ ಪ್ರಕ್ರಿಯೆ.\n- **ವಿಚ್ಛೇದನ (Divorce):** ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನ (ವಿಭಾಗ 13B), ಕಾಯುವ ಅವಧಿ ನಿಯಮಗಳು ಮತ್ತು ವಿವಾದಿತ ವಿಚ್ಛೇದನದ ಆಧಾರಗಳು.\n- **ಜೀವನಾಂಶ ಮತ್ತು ಪೋಷಣೆ (Maintenance):** ಪತ್ನಿ, ಮಕ್ಕಳು ಮತ್ತು ಹಿರಿಯ ಪೋಷಕರ ಜೀವನಾಂಶ ಹಕ್ಕುಗಳು (ಹಿಂದೂ ಕಾಯ್ದೆ, BNSS 144 / CrPC 125, ಮತ್ತು ಹಿರಿಯ ನಾಗರಿಕರ ಕಾಯ್ದೆ).\n- **ಮಗುವಿನ ಕಸ್ಟಡಿ (Child Custody):** 5 ವರ್ಷದೊಳಗಿನ ಮಗುವಿನ ಪಾಲನೆ (ಸಾಮಾನ್ಯವಾಗಿ ತಾಯಿಗೆ) ಮತ್ತು ಮಗುವಿನ ಹಿತರಕ್ಷಣೆ ನಿಯಮಗಳು.\n- **ಕೌಟುಂಬಿಕ ಹಿಂಸಾಚಾರದಿಂದ ರಕ್ಷಣೆ:** PWDVA 2005 ಅಡಿಯಲ್ಲಿ ರಕ್ಷಣೆ ಆದೇಶ ಮತ್ತು ಮನೆಯಲ್ಲಿ ವಾಸಿಸುವ ಹಕ್ಕು (Residence Order).\n- **ಆಸ್ತಿ ಮತ್ತು ಉತ್ತರಾಧಿಕಾರ:** ಹೆಣ್ಣುಮಕ್ಕಳಿಗೆ ಪೂರ್ವಜರ ಆಸ್ತಿಯಲ್ಲಿ ಗಂಡುಮಕ್ಕಳಷ್ಟೇ ಸಮಾನ ಹಕ್ಕು (2005ರ ತಿದ್ದುಪಡಿ) ಮತ್ತು ಉತ್ತರಾಧಿಕಾರ ನಿಯಮಗಳು.\n\n### ಹೇಗೆ ಬಳಸುವುದು:\n1. ನೀವು **ಕನ್ನಡ, ಇಂಗ್ಲಿಷ್ ಅಥವಾ ಹಿಂದಿ** ಭಾಷೆಯಲ್ಲಿ ಬರೆದು ಅಥವಾ ಮೈಕ್ ಮೂಲಕ ಧ್ವನಿ ನೀಡಿ ಕೇಳಬಹುದು.\n2. ಪ್ರತಿ ಉತ್ತರವೂ ಸಂಸತ್ತಿನ ಕಾಯ್ದೆಗಳು ಮತ್ತು ಸುಪ್ರೀಂ ಕೋರ್ಟ್ ತೀರ್ಪುಗಳ ಆಧಾರದ ಮೇಲೆ ಸರಳ ಭಾಷೆಯಲ್ಲಿರುತ್ತದೆ.\n3. 'ಮುಂದೆ ಏನು ಮಾಡಬೇಕು' ಎಂಬ ಸ್ಪಷ್ಟ ಪ್ರಾಯೋಗಿಕ ಹೆಜ್ಜೆಗಳನ್ನು ನೀಡಲಾಗುತ್ತದೆ.\n\n*ಕೇವಲ ಸಾಮಾನ್ಯ ಮಾಹಿತಿ, ಕಾನೂನು ಸಲಹೆಯಲ್ಲ. ನಿರ್ದಿಷ್ಟ ಪ್ರಕರಣಕ್ಕೆ ದಯವಿಟ್ಟು ವಕೀಲರನ್ನು ಸಂಪರ್ಕಿಸಿ.*",
 }
 
 LOW_CONFIDENCE_DISCLAIMER = {
@@ -3040,11 +3149,22 @@ def _short_meaning(text: str, limit: int = 160) -> str:
     return plain_passage(text, limit=limit)
 
 
+def select_evidence_for_answer(evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Balance bare act and web search hits so web sources reach both reasoner and citations."""
+    act_hits = [h for h in evidence if _evidence_source_type(h) in ("bare_act", "doc")]
+    web_hits = [h for h in evidence if _evidence_source_type(h) == "web"]
+    if web_hits:
+        return act_hits[:3] + web_hits[:3]
+    return act_hits[:6] if act_hits else evidence[:6]
+
+
 def compose_answer(state: Dict[str, Any],
                    written: str = "") -> Tuple[str, List[str], List[str]]:
     evidence = state.get("evidence", [])
     lang = state.get("lang", "en")
     tone = state.get("tone", "simple")
+    if state.get("is_identity"):
+        return (IDENTITY_ANSWER.get(lang, IDENTITY_ANSWER["en"]), [], [])
     # Out-of-scope redirect takes precedence
     if state.get("oos_redirect"):
         return (OOS_REDIRECT.get(lang, OOS_REDIRECT["en"]), [], [])
@@ -3056,12 +3176,7 @@ def compose_answer(state: Dict[str, Any],
             base += (" " + DIVORCE_ACT_LIST.get(lang, DIVORCE_ACT_LIST["en"]))
         base += (" " + NO_EVIDENCE_ASK.get(lang, NO_EVIDENCE_ASK["en"]))
         return base + "\n\n" + DISCLAIMER.get(lang, DISCLAIMER["en"]) + "\n\n" + LOW_CONFIDENCE_DISCLAIMER.get(lang, LOW_CONFIDENCE_DISCLAIMER["en"]), [], []
-    # Keep web results visible in the citation list instead of letting the first
-    # five Act passages crowd them out (which made web_search look unused).
-    cite_hits = [h for h in evidence if _evidence_source_type(h) in ("bare_act", "doc")][:3] + \
-                [h for h in evidence if _evidence_source_type(h) == "web"][:2]
-    if not cite_hits:
-        cite_hits = evidence[:5]
+    cite_hits = select_evidence_for_answer(evidence)
     citations = [format_citation((h.get("payload") or {}) if isinstance(h, dict)
                                  else {}) for h in cite_hits]
     citations = [c for c in citations if c]
@@ -3257,7 +3372,8 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
     """
     tone = state.get("tone", "simple")
     passages = []
-    for i, hit in enumerate(state.get("evidence", [])[:5], start=1):
+    selected_hits = select_evidence_for_answer(state.get("evidence", []))
+    for i, hit in enumerate(selected_hits, start=1):
         if not isinstance(hit, dict):
             continue
         payload = hit.get("payload") or {}
@@ -3278,16 +3394,18 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "lawyer would explain it across a table.\n\n"
         "Rules:\n"
         "- Write in English, in plain everyday words.\n"
-        "- Answer only from the numbered passages. Never add a section, a "
-        "provision or a fact that is not in them.\n"
+        "- Answer only from the numbered passages. Never add a section, a provision or a fact that is not in them.\n"
         "- Talk to the user, never about your inputs. Do NOT write 'the "
         "passages', 'the provided text', 'the excerpts', 'the documents "
         "above', or 'I was given'. The user does not know those exist. Open "
         "by answering the question itself.\n"
-        "- If the passages do not cover the question, still answer as far as "
-        "they do, then say plainly what could not be confirmed — for example "
-        "'the exact amount is not fixed by the Act' — rather than apologising "
-        "for your sources.\n"
+        "- If a passage or web source mentions a court ruling (Supreme Court or High Court), synthesize it directly.\n"
+        "- When relevant to the user question, apply these well-settled Indian family law principles:\n"
+        "  * Mutual consent divorce (Hindu Marriage Act Section 13B): 1 year living apart requirement (Section 13B(1)). The 6-month cooling-off period between first and second motion (Section 13B(2)) can be waived by family courts or the Supreme Court (Amardeep Singh 2017 / Shilpa Sailesh 2023) if mediation failed and separation has been long.\n"
+        "  * Muslim women maintenance: Under secular law Section 125 CrPC / Section 144 BNSS 2023 and the Supreme Court's 2024 verdict in Mohd. Abdul Samad v. State of Telangana, a divorced Muslim woman has an enforceable right to claim monthly maintenance from her former husband.\n"
+        "  * Child custody: Under Section 6(a) of the Hindu Minority and Guardianship Act 1956, custody of a child under age 5 ordinarily remains with the mother. Under Guardians and Wards Act 1890 Section 17, the paramount consideration is always the child's welfare.\n"
+        "  * Senior citizens: Under the Maintenance and Welfare of Parents and Senior Citizens Act 2007, parents can claim maintenance before the Tribunal, and under Section 23, if property was transferred on condition of care and the child neglects them, the transfer can be declared void.\n"
+        "  * Daughter's inheritance: Under Hindu Succession Act 2005 Section 6 and Supreme Court's Vineeta Sharma (2020) ruling, daughters have equal coparcenary rights by birth in ancestral property.\n"
         "- Refer to a source as [1], [2] inline, right after the claim it "
         "supports. Use the numbers exactly as given.\n"
         "- If a passage is an AMENDMENT NOTICE, follow it. The consolidated "
@@ -3321,11 +3439,18 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
     user = ("Question: %s\n\nPassages:\n%s"
             % (state.get("query_en") or state.get("query", ""),
                "\n\n".join(passages)))
+    import inspect
+
+    try:
+        accepts_max_tokens = "max_tokens" in inspect.signature(llm).parameters
+    except (TypeError, ValueError):
+        accepts_max_tokens = False
+    kw: Dict[str, Any] = {"max_tokens": MAX_TOKENS_LONG} if accepts_max_tokens else {}
     try:
         text, provider = llm([
             {"role": "system", "content": system},
             {"role": "user", "content": user},
-        ])
+        ], **kw)
     except Exception as e:  # noqa: BLE001 — template answer is the fallback
         logger.warning("agent plain answer failed (%r)", e)
         return ""
@@ -3464,6 +3589,15 @@ def _next_steps_heading(lang: str) -> str:
 # and script-independent: does the text end on a finished sentence at all?
 _ENDS_A_SENTENCE = ".!?।॥۔…:;\"')]}"
 
+_INDIC_DANGLING = frozenset((
+    "और", "तथा", "एवं", "या", "अथवा", "किन्तु", "परन्तु", "लेकिन", "मगर", "क्योंकि",
+    "इसलिए", "ताकि", "जिससे", "अगर", "यदि", "जब", "तब", "न", "के", "की", "का",
+    "में", "से", "पर", "को", "कि",
+    # Kannada dangling connectives
+    "ಮತ್ತು", "ಹಾಗೂ", "ಅಥವಾ", "ಆದರೆ", "ಏಕೆಂದರೆ", "ಆದ್ದರಿಂದ", "ಹಾಗಾಗಿ",
+    "ಎಂದರೆ", "ಎಂದು", "ರಲ್ಲಿ", "ನಲ್ಲಿ", "ಗೆ", "ಇಂದ", "ಅನ್ನು"
+))
+
 
 def ends_mid_sentence(text: str) -> bool:
     """True when the last line stops before finishing.
@@ -3493,7 +3627,7 @@ def ends_mid_sentence(text: str) -> bool:
     tail = lines[-1].rstrip("*_ —-·:")
     if not tail:
         return False
-    if tail[-1] in _ENDS_A_SENTENCE:
+    if tail[-1] in _ENDS_A_SENTENCE or re.search(r"\[\d+\]$", tail):
         return False
     # A one or two word trailing fragment is a label, not a broken sentence.
     return len(tail.split()) > 2
@@ -3566,11 +3700,19 @@ def rewrite_in_language(state: Dict[str, Any], english: str,
             "Rewrite this answer in %s:\n\n%s"
             % (name, question or "(follow-up in the same conversation)",
                name, english))
+    import inspect
+
+    try:
+        accepts_max_tokens = "max_tokens" in inspect.signature(llm).parameters
+    except (TypeError, ValueError):
+        accepts_max_tokens = False
+
+    kw: Dict[str, Any] = {"max_tokens": MAX_TOKENS_LONG} if accepts_max_tokens else {}
     try:
         text, provider = llm([
             {"role": "system", "content": system},
             {"role": "user", "content": user},
-        ])
+        ], **kw)
     except Exception as e:  # noqa: BLE001 — English answer still usable
         logger.warning("agent native rewrite failed (%r); keeping English", e)
         return ""
@@ -3829,7 +3971,7 @@ def _run_agent_inline(query: str, lang: str, memory, tone, retriever,
     _publish(state, on_step)
     state = node_planner(state, llm=llm_fn)
     _publish(state, on_step)
-    if state.get("clarification") or state.get("oos_redirect"):
+    if state.get("clarification") or state.get("oos_redirect") or state.get("is_identity"):
         state = node_response(state, llm=llm_fn,
                               translate_in=budgeted_llm(translate_complete))
         _publish(state, on_step)
@@ -4004,7 +4146,7 @@ def build_graph(retriever: Any = None, llm: Optional[Callable] = None,
     def _after_planner(s: Dict[str, Any]) -> str:
         # Out of scope and "I need to ask you something" both end the run at
         # the response node — neither benefits from a retrieval round trip.
-        return "response" if (s.get("clarification") or s.get("oos_redirect")) \
+        return "response" if (s.get("clarification") or s.get("oos_redirect") or s.get("is_identity")) \
             else "tools"
 
     graph.add_conditional_edges("planner", _after_planner,
