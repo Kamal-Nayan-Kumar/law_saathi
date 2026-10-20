@@ -30,8 +30,13 @@ India Law corpus. Nothing else is quoted as law.
 | **Indian Divorce Act, 1869** | divorce for Christians | 10, 13 |
 | **Indian Christian Marriage Act, 1872** | marriage and divorce for Christians | 7, 10, 16, 22 |
 
-424 in-force sections. Repealed provisions are dropped at ingestion, so a
-section in an answer is a section in force.
+The vector index currently holds **52 acts** and **3,981 in-force sections**
+(8,852 chunks). Repealed provisions are dropped at ingestion, so a
+section in an answer is a section in force. The table above lists the acts
+people ask about most; the rest are the procedure, registration, inheritance
+and protection statutes a family-law answer has to lean on (Bharatiya Nagarik
+Suraksha Sanhita for maintenance claims, Limitation for appeals, Registration
+for marriage registration, and so on).
 
 **One entry needs a decision.** The Indian Christian Marriage Act, 1872 was
 always in the corpus — 223 chunks, the second-largest source after the Special

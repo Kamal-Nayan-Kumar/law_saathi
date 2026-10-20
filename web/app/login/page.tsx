@@ -100,11 +100,6 @@ function LoginForm() {
         </div>
 
         <h1>{isRegister ? "Create your account." : "Welcome back."}</h1>
-        <p className="auth-sub">
-          {isRegister
-            ? "One minute to set up. Then ask anything about family law."
-            : "Pick up where you left off."}
-        </p>
 
         <form onSubmit={submit} noValidate>
           {isRegister && (
