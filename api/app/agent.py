@@ -2350,7 +2350,7 @@ def replan_after_empty(state: Dict[str, Any],
 # A safety rule cannot depend on vector similarity, so the notice is fetched
 # by act and label rather than by relevance. It is a real corpus point, so it
 # is citable like any other passage.
-_AMENDMENT_LABEL = "Amendment notice"
+_AMENDMENT_LABEL = "the position in force"
 
 # Material that is not law. A Bill is a proposal; a Bill *passed* is still not
 # in force until notified. Quoting one as "BARE ACT" tells a person seeking

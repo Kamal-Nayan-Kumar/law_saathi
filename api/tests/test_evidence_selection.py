@@ -37,7 +37,7 @@ def _hit(act, section, text, url="", kind=""):
 
 NOTICE = _hit(
     "Hindu Marriage Act, 1955",
-    "Section 13B: Amendment notice — divorce by mutual consent",
+    "Section 13B: Divorce by mutual consent — the position in force",
     "The six-month period is directory, not mandatory (Amardeep Singh v. "
     "Harveen Kaur (2017) 8 SCC 746).",
     kind="amendment_notice",

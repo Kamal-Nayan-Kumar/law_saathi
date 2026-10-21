@@ -27,7 +27,7 @@ def hit(act, section, text="Some section text that is long enough to use.",
 
 
 NOTICE = hit("Hindu Marriage Act, 1955",
-             "Section 13B: Amendment notice — divorce by mutual consent",
+             "Section 13B: Divorce by mutual consent — the position in force",
              "Section 13B was inserted by the Marriage Laws (Amendment) Act, "
              "1976 (Act 68 of 1976), section 7, in force from 27 May 1976, "
              "with these periods as enacted. No later amendment has changed "
@@ -304,7 +304,7 @@ def test_the_notice_is_fetched_by_act_not_by_relevance():
                     lang="en", llm=None, retriever=ret,
                     web_search=lambda q, **k: [])
     sections = [str(h["payload"].get("section")) for h in out["evidence"]]
-    assert any("Amendment notice" in s for s in sections), (
+    assert any("the position in force" in s for s in sections), (
         "the notice never made it into the evidence: %r" % sections)
     said = " ".join(d["detail"] for d in out["trace_detail"])
     assert "amendment notice" in said.lower()
@@ -316,4 +316,4 @@ def test_an_unrelated_question_gets_no_notice():
                     lang="en", llm=None, retriever=ret,
                     web_search=lambda q, **k: [])
     sections = [str(h["payload"].get("section")) for h in out["evidence"]]
-    assert not any("Amendment notice" in s for s in sections)
+    assert not any("the position in force" in s for s in sections)

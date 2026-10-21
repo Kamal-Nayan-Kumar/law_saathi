@@ -9,10 +9,17 @@ knowledge base.
 
 ## amendments.jsonl
 
-Two notices for the mutual-consent divorce provisions:
+Two notes on the mutual-consent divorce provisions:
 
 - `Section 28, Special Marriage Act 1954`
 - `Section 13B, Hindu Marriage Act 1955`
+
+The file is called `amendments.jsonl` and the payload marker is `kind:
+amendment_notice`, because that is what these were when they were written and
+the marker is internal. The section label they carry in the Sources list is
+"the position in force", because that is what they now are: the periods the
+statute actually carries, plus the case-law rule on waiving the six-month
+wait. They were never amendments.
 
 ### What these notices are for
 

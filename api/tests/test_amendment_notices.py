@@ -86,7 +86,7 @@ def test_jsonl_shape_is_unchanged():
         assert obj["row"]["kind"] == "amendment_notice"
         assert obj["row"]["lang"] == "en"
         # agent.py finds a notice by this label, not by similarity.
-        assert "Amendment notice" in obj["row"]["section"]
+        assert "the position in force" in obj["row"]["section"]
 
 
 @pytest.mark.parametrize("text", _texts(), ids=EXPECTED_CHUNK_IDS)
