@@ -677,3 +677,51 @@
     font-size: 1.6rem;
   }
 }
+
+/* A phone held sideways.
+ *
+ * The frame is 360px tall, and the hero as it stood — a big heading, a 460px
+ * artwork and a 170px skyline band — was twice that. The visitor landed on a
+ * heading with no button in sight. Here the artwork is short and wide, the
+ * heading is smaller, and the decorative band is dropped: it is a picture of
+ * a skyline, and on a screen this short the picture is the content. */
+@media (max-height: 560px) and (orientation: landscape) {
+  .hero {
+    padding-top: var(--s5);
+  }
+
+  .hero-grid {
+    /* Two columns again. The narrow-screen rule stacks them, but a phone held
+       sideways is 740px wide, and a stack would push the artwork off the
+       bottom of a 360px-tall frame. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--s5);
+    padding-bottom: var(--s5);
+  }
+
+  .hero-copy h1 {
+    font-size: 1.75rem;
+    margin: var(--s3) 0 var(--s4);
+  }
+
+  .hero-copy .lede {
+    font-size: 0.95rem;
+  }
+
+  .hero-art {
+    aspect-ratio: 4 / 3;
+    max-height: 260px;
+  }
+
+  .skyline {
+    display: none;
+  }
+
+  .lang-pills {
+    margin-top: var(--s4);
+  }
+
+  .hero-ctas {
+    margin-top: var(--s4);
+  }
+}

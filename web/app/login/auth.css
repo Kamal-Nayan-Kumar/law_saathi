@@ -21,8 +21,13 @@
 }
 
 .auth-card {
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  /* Flex, not grid. The card has a maximum height, and the form has to be
+     the thing that gives way when the frame is too short — a grid row sized
+     by its content overflowed the card and the bottom of the form was cut off
+     on a phone held sideways. With flex, the form panel shrinks and scrolls
+     inside the card, and the card stays inside the screen. */
+  display: flex;
+  flex-direction: row;
   width: 100%;
   max-width: 1040px;
   max-height: calc(100dvh - 32px);
@@ -34,15 +39,16 @@
 }
 
 .auth-card-skeleton {
-  min-height: 520px;
+  min-height: min(520px, 70dvh);
 }
 
 /* Art column */
 .auth-art {
   position: relative;
+  flex: 0 0 46%;
+  min-width: 0;
   background: var(--surface-2);
   overflow: hidden;
-  min-height: 100%;
 }
 
 .auth-art img {
@@ -88,8 +94,18 @@
 .auth-panel {
   padding: clamp(18px, 3vh, 36px) clamp(20px, 3.5vw, 44px);
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  /* `min-height: 0` lets this shrink below the height of its content, which
+     is what turns the overflow into a scroll inside the panel. */
+  min-height: 0;
+  min-width: 0;
   justify-content: center;
+  /* `safe` keeps the top of the form reachable when the content is taller
+     than the panel. Without it, centring pushes the first field out of the
+     scroll area and it cannot be scrolled back into view. The plain `center`
+     above it is the fallback for a browser that does not know `safe`. */
+  justify-content: safe center;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -188,7 +204,7 @@
   }
 
   .auth-card {
-    grid-template-columns: minmax(0, 1fr);
+    flex-direction: column;
     max-width: 520px;
     max-height: calc(100dvh - 20px);
   }
@@ -229,5 +245,40 @@
     margin-top: 8px;
     padding-top: 6px;
     font-size: 0.7rem;
+  }
+
+  /* Text links that are the whole control have to be as easy to hit as a
+     button. "Back to home" and "Create an account" were 17px tall. */
+  .auth-back,
+  .auth-toggle button {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .auth-toggle button {
+    padding: 0 4px;
+  }
+}
+
+/* A phone held sideways: the frame is 360px tall, and the card is capped at
+   the height of the screen. The form scrolls inside it rather than running
+   off the bottom. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .auth-card {
+    max-height: calc(100dvh - 12px);
+  }
+
+  .auth-panel {
+    padding: 14px 18px;
+  }
+
+  .auth-panel h1 {
+    font-size: 1.2rem;
+    margin-bottom: 8px;
+  }
+
+  .auth-panel .field {
+    margin-bottom: 7px;
   }
 }

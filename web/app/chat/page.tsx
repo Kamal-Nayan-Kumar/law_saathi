@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
@@ -38,6 +38,23 @@ type ChatSession = {
 };
 
 type TraceStep = StreamStep;
+
+/**
+ * A table inside an answer gets its own sideways scroll.
+ *
+ * The agent writes comparison tables — "one year or two", "which court",
+ * "what each section says". On a phone the table was squeezed into the card
+ * width instead, so a three-column table turned into one word per line and the
+ * headings wrapped into a ladder. The table now keeps its shape and the reader
+ * swipes it, which is the one gesture that still works on a 320px screen.
+ */
+const MD_COMPONENTS: Components = {
+  table: ({ node: _node, ...props }) => (
+    <div className="md-table">
+      <table {...props} />
+    </div>
+  ),
+};
 
 const SUGGESTIONS = [
   "How do I get a mutual-consent divorce?",
@@ -244,7 +261,9 @@ function AssistantBlock({ msg, m }: { msg: Msg; m?: Meta }) {
         </div>
       )}
       <div className="md" onClick={onCite}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+          {text}
+        </ReactMarkdown>
       </div>
 
       <div className="ans-foot">
@@ -302,7 +321,9 @@ function StreamingAnswer({ text }: { text: string }) {
   return (
     <div className="ans-card ans-card-live">
       <div className="md">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+          {text}
+        </ReactMarkdown>
         {/* A caret, so it is obvious the reply is still coming rather than
             simply short. */}
         <span className="caret" aria-hidden="true" />

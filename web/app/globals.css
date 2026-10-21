@@ -70,6 +70,9 @@
   /* layout ------------------------------------------------------------ */
   --page: 1180px;
   --nav-h: 72px;
+  /* The gutter every page uses. One token, so the nav, the content column and
+     the footer line up on the same edge at every width. */
+  --pad-x: var(--s5);
 }
 
 * {
@@ -297,7 +300,7 @@ p {
   width: 100%;
   max-width: var(--page);
   margin: 0 auto;
-  padding: 0 var(--s5);
+  padding: 0 var(--pad-x);
 }
 
 .shell-wide {
@@ -356,7 +359,7 @@ p {
 .nav-inner {
   max-width: var(--page);
   margin: 0 auto;
-  padding: 0 var(--s5);
+  padding: 0 var(--pad-x);
   height: var(--nav-h);
   display: flex;
   align-items: center;
@@ -435,10 +438,14 @@ p {
   display: none;
   border-bottom: 1px solid var(--line-2);
   background: var(--bg-warm);
-  padding: var(--s4) var(--s5) var(--s5);
+  padding: var(--s4) var(--pad-x) var(--s5);
 }
 
-.nav-sheet a {
+/* Only the plain links get the list treatment. The two buttons in the sheet
+   are `.btn` as well, and a blanket `.nav-sheet a` rule was overriding their
+   display, padding and colour — the primary button came out with dark text
+   on the maroon and its label clipped. */
+.nav-sheet a:not(.btn) {
   display: block;
   padding: 13px 0;
   border-bottom: 1px solid var(--line-2);
@@ -447,8 +454,16 @@ p {
 }
 
 .nav-sheet .btn {
+  display: flex;
   width: 100%;
   margin-top: var(--s4);
+  /* The sheet's buttons are the whole width of the sheet, so the label has to
+     be centred on it the way it is everywhere else. */
+  justify-content: center;
+}
+
+.nav-sheet .btn + .btn {
+  margin-top: var(--s2);
 }
 
 /* ==========================================================================
@@ -464,7 +479,7 @@ p {
 .footer-main {
   max-width: var(--page);
   margin: 0 auto;
-  padding: var(--s7) var(--s5) var(--s6);
+  padding: var(--s7) var(--pad-x) var(--s6);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -532,7 +547,7 @@ p {
 .footer-bottom-inner {
   max-width: var(--page);
   margin: 0 auto;
-  padding: var(--s4) var(--s5);
+  padding: var(--s4) var(--pad-x);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -742,6 +757,7 @@ p {
 @media (max-width: 900px) {
   :root {
     --nav-h: 64px;
+    --pad-x: var(--s4);
   }
 
   .nav-links,
@@ -755,10 +771,6 @@ p {
     margin-left: auto;
   }
 
-  .nav-inner {
-    padding: 0 var(--s4);
-  }
-
   .nav-sheet {
     display: block;
   }
@@ -767,17 +779,13 @@ p {
     padding: var(--s7) 0;
   }
 
-  .shell {
-    padding: 0 var(--s4);
-  }
-
   .footer-main {
-    padding: var(--s6) var(--s4) var(--s5);
+    padding: var(--s6) var(--pad-x) var(--s5);
     gap: var(--s5);
   }
 
   .footer-bottom-inner {
-    padding: var(--s4);
+    padding: var(--s4) var(--pad-x);
   }
 }
 
@@ -815,8 +823,8 @@ p {
 }
 
 @media (max-width: 380px) {
-  .shell {
-    padding: 0 14px;
+  :root {
+    --pad-x: 14px;
   }
 
   .brand-word {
