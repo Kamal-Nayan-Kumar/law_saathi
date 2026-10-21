@@ -152,6 +152,7 @@ def collect(rows: dict, mapping: dict):
     ids, texts, payloads = [], [], []
     per_act: Counter = Counter()
     per_cat: Counter = Counter()
+    rejected = 0
     titles = rows["title"]
     for i, title in enumerate(titles):
         entry = mapping.get(title)
@@ -160,6 +161,13 @@ def collect(rows: dict, mapping: dict):
         row = {k: rows[k][i] for k in NEEDED_COLS}
         raw = str(row.get("text") or "").strip()
         if not raw:
+            continue
+        # Section allowlist: a partial-scope Act may contribute only the
+        # sections the registry names. Checked here, before chunking, so a
+        # registry decision cannot be outvoted by whatever the dataset row
+        # says it is.
+        if not entry.allows_row(row.get("section_number"), raw):
+            rejected += 1
             continue
         section = section_label(row.get("section_number"), row.get("section_type"))
         pieces = chunk_text(raw, max_chars=MAX_CHARS, overlap=OVERLAP)
@@ -172,6 +180,8 @@ def collect(rows: dict, mapping: dict):
                                           len(pieces)))
         per_act[entry.act] += len(pieces)
         per_cat[entry.category] += len(pieces)
+    if rejected:
+        print("section allowlists rejected %d rows" % rejected)
     return ids, texts, payloads, per_act, per_cat
 
 
