@@ -25,9 +25,15 @@ class EchoRetriever:
     def __init__(self, hits):
         self.hits = hits
         self.queries = []
+        self.filters = []
 
     def search_text(self, text, top_k=5, filter_payload=None):
         self.queries.append(text)
+        self.filters.append(filter_payload)
+        if filter_payload:
+            return [dict(h) for h in self.hits
+                    if all((h.get("payload") or {}).get(k) == v
+                           for k, v in filter_payload.items())]
         return [dict(h) for h in self.hits]
 
 
@@ -89,16 +95,23 @@ def test_christian_divorce_routes_to_divorce_act_not_hma():
     hit = {"id": "p1", "score": 0.9, "payload": {
         "act": "Indian Divorce Act, 1869", "section": "Section 10: Grounds",
         "text": "Grounds for dissolution of marriage."}}
+    ret = EchoRetriever([hit])
     out = run_agent("I am a Christian man, how do I get a divorce?",
-                    lang="en", llm=None,
-                    retriever=EchoRetriever([hit]),
+                    lang="en", llm=None, retriever=ret,
                     web_search=lambda q, **k: [])
     assert out["slots"].get("personal_law") == "christian"
-    assert out["plan"]["governing_act"] == "Indian Divorce Act 1869"
-    # The Act anchor must reach retrieval, not HMA.
-    queries = " ".join(out.get("_queries") or [])
-    # retriever queries include the anchor via broaden_query; just ensure no HMA anchor
+    assert out["plan"]["governing_act"] == "Divorce Act 1869"
+    # The Act anchor must reach retrieval, not HMA. The retriever records the
+    # queries it was given, so this is a real assertion about the query that
+    # was sent, not about a key that never existed.
+    queries = " ".join(ret.queries)
+    assert "Divorce Act 1869" in queries
     assert "Hindu Marriage Act" not in queries
+    # And the governing Act's own sections are fetched by payload filter, so
+    # the answer cannot be built out of the Hindu Marriage Act just because
+    # those words sit closer to the question.
+    assert any(f and f.get("act") == "Divorce Act, 1869" for f in ret.filters), \
+        "the governing Act has to be fetched by filter, not just mentioned"
     # No Hindu Marriage Act anywhere in the plan's act anchor.
     assert "Hindu Marriage Act" not in (out["plan"].get("governing_act") or "")
     assert "Hindu Marriage Act" not in " ".join(

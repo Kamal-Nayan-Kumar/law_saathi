@@ -408,9 +408,10 @@ def test_the_thinking_panel_shows_the_models_actual_decision():
 
 def test_each_topic_maps_to_its_own_acts():
     assert acts_for_topic("custody") == ["Guardians and Wards Act 1890"]
-    assert acts_for_topic("domestic_violence") == ["Domestic Violence Act 2005"]
+    assert acts_for_topic("domestic_violence") == [
+        "Protection of Women from Domestic Violence Act 2005"]
     assert acts_for_topic("maintenance") == [
-        "Hindu Adoption and Maintenance Act 1956"]
+        "Hindu Adoptions and Maintenance Act 1956"]
     # Succession carries the Hindu Act first (most users) and the general
     # Indian Succession Act second, for everyone else.
     assert acts_for_topic("succession")[0] == "Hindu Succession Act 1956"

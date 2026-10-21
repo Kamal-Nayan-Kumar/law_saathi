@@ -62,7 +62,7 @@ def test_christian_maintenance_reaches_the_secular_route():
     a Christian wife asking for maintenance needs the secular route too."""
     acts = acts_for_topic("maintenance", personal_law="christian")
     assert "Bharatiya Nagarik Suraksha Sanhita 2023" in acts
-    assert "Indian Divorce Act 1869" in acts
+    assert "Divorce Act 1869" in acts
 
 
 def test_personal_law_is_asked_on_its_own():

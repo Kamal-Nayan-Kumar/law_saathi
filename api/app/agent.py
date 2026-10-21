@@ -20,6 +20,8 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from app.family_law_acts import ACTS as _REGISTRY_ACTS
+
 logger = logging.getLogger(__name__)
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -439,59 +441,107 @@ def _fear_points_at_a_person(query_en: str) -> bool:
 # function so tests and callers can ask for it directly. Returns one of
 # "hindu", "christian", "muslim", "parsi", "interfaith", or "" when the
 # question does not say.
-_PERSONAL_LAW_PATTERNS = (
-    # inter-religious / inter-caste -> Special Marriage Act 1954
-    ("interfaith", (
-        "different religion", "different faith", "inter religious",
-        "inter-religious", "interfaith", "other religion", "inter caste",
-        "inter-caste", "different caste", "hindu and muslim",
-        "hindu muslim", "hindu and christian", "christian and muslim",
-        "अलग धर्म", "अंतर-धार्मिक", "अंतरधार्मिक", "हिंदू मुस्लिम",
-        "हिंदू ईसाई", "ಬೇರೆ ಧರ್ಮ", "ಅಂತರಧರ್ಮ", "ಹಿಂದೂ ಮುಸ್ಲಿಂ",
-        "ಹಿಂದೂ ಕ್ರಿಶ್ಚಿಯನ್", "special marriage act")),
-    ("christian", (
+#
+# "interfaith" means the Special Marriage Act 1954: the secular code that
+# governs an inter-religious or inter-caste marriage, and that anyone can
+# opt into for a court marriage.
+#
+# The Latin tokens are matched on word boundaries. "parsing" contains
+# "parsi", "Hindustan" contains "hindu" and "Islamabad" contains "islam",
+# and any of those used to route a question to the wrong statute. The native
+# scripts are matched as plain substrings, because Devanagari and Kannada do
+# not put spaces between words.
+_LATIN_PERSONAL_LAW = {
+    "interfaith": (
+        "different religion", "different faith", "other religion",
+        "another religion", "inter religious", "inter-religious", "interfaith",
+        "inter caste", "inter-caste", "different caste", "court marriage",
+        "special marriage act", "hindu and muslim", "hindu muslim",
+        "hindu and christian", "christian and muslim", "muslim and hindu",
+        "christian and hindu",
+    ),
+    "christian": (
         "christian", "roman catholic", "catholic", "protestant",
-        "ईसाई", "कैथोलिक", "प्रोटेस्टेंट", "ಕ್ರಿಸ್ತಿಯ", "ಕ್ರಿಶ್ಚಿಯ",
-        "ಕ್ಯಾಥಲಿಕ್", "protestant")),
-    ("muslim", (
-        "muslim", "islam", "islamic", "मुस्लिम", "इस्लाम", "मुसलमान",
-        "ಮುಸ್ಲಿಂ", "ಇಸ್ಲಾಂ", "ಮುಸ್ಲಿಮ್", "nikah", "nikaha", "talaq",
-        "talak", "khula", "mubaraat", "mubarat", "iddat", "mahr", "mehr",
-        "तलाक", "खुला", "ನಿಕಾಹ", "ತಲಾಕ್", "ಖುಲಾ")),
-    ("parsi", (
-        "parsi", "zoroastrian", "पारसी", "ಪಾರ್ಸಿ", "zoroastrianism")),
-    ("hindu", (
-        "hindu", "हिंदू", "ಹಿಂದೂ")),
-)
+        "indian divorce act", "indian christian marriage act",
+    ),
+    "muslim": (
+        "muslim", "islam", "islamic", "muslim personal law", "shariat",
+        "nikah", "nikaha", "talaq", "talak", "khula", "mubaraat", "mubarat",
+        "iddat", "mahr", "mehr",
+    ),
+    "parsi": ("parsi", "parsee", "zoroastrian", "zoroastrianism"),
+    "hindu": ("hindu",),
+}
+
+_NATIVE_PERSONAL_LAW = {
+    "interfaith": (
+        "अलग धर्म", "दूसरे धर्म", "अंतर-धार्मिक", "अंतरधार्मिक", "अंतर धर्म",
+        "हिंदू मुस्लिम", "हिंदू ईसाई", "कोर्ट मैरिज", "विशेष विवाह अधिनियम",
+        "ಬೇರೆ ಧರ್ಮ", "ಬೇರೆ ಜಾತಿ", "ಅಂತರಧರ್ಮ", "ಅಂತರ್ಧರ್ಮ",
+        "ಅಂತರ್ಧರ್ಮೀಯ", "ಅಂತರ್ಜಾತಿ", "ಕೋರ್ಟ್ ಮದುವೆ",
+        "ಹಿಂದೂ ಮುಸ್ಲಿಂ", "ಹಿಂದೂ ಕ್ರಿಸ್ತಿಯ", "ಹಿಂದೂ ಕ್ರಿಶ್ಚಿಯ",
+    ),
+    "christian": (
+        "ईसाई", "कैथोलिक", "कैथोलीक", "प्रोटेस्टेंट", "क्रिस्ति", "क्रिश्चि",
+        "ಕ್ರಿಸ್ತಿ", "ಕ್ರಿಶ್ಚಿ", "ಕ್ಯಾಥಲಿಕ್",
+    ),
+    # "तलाक" and "ತಲಾಕ್" are the ordinary words for divorce in Hindi and
+    # Kannada. Treating them as markers of Muslim law sent every Hindu
+    # asking in Hindi down the inter-faith route. The specific forms stay:
+    # खुला and ಖುಲಾ (khula), निकाह and ನಿಕಾಹ (nikah), and the aspirated
+    # ತಲಾಖ್.
+    "muslim": (
+        "मुस्लिम", "मुसलमान", "इस्लाम", "निकाह", "खुला", "मेहर",
+        "महर", "इद्दत", "ಮುಸ್ಲಿಂ", "ಮುಸ್ಲಿಮ್", "ಇಸ್ಲಾಂ", "ನಿಕಾಹ",
+        "ತಲಾಖ್", "ಖುಲಾ", "ಇದ್ದತ",
+    ),
+    "parsi": ("पारसी", "ಪಾರ್ಸಿ"),
+    "hindu": ("हिंदू", "ಹಿಂದೂ"),
+}
+
+# "Divorce Act, 1869" and "Divorce Act 1869" are both how it is written.
+_DIVORCE_ACT_RE = re.compile(r"divorce\s+act,?\s*1869", re.IGNORECASE)
+
+_LATIN_PERSONAL_LAW_RE = {
+    value: re.compile(r"\b(?:%s)\b" % "|".join(re.escape(t) for t in tokens),
+                      re.IGNORECASE)
+    for value, tokens in _LATIN_PERSONAL_LAW.items()
+}
+
+
+def _personal_law_hits(low: str) -> Dict[str, bool]:
+    """Which personal laws the question mentions, in either script."""
+    hits: Dict[str, bool] = {}
+    for value, pattern in _LATIN_PERSONAL_LAW_RE.items():
+        if pattern.search(low):
+            hits[value] = True
+    for value, tokens in _NATIVE_PERSONAL_LAW.items():
+        if any(t in low for t in tokens):
+            hits[value] = True
+    if _DIVORCE_ACT_RE.search(low):
+        # The Indian Divorce Act 1869 is the statute for Christian divorce.
+        hits["christian"] = True
+    return hits
 
 
 def detect_personal_law(text: str) -> str:
     """Return the personal law named or implied by ``text``.
 
-    Empty string when nothing is said. Inter-religious/inter-caste is
-    detected before any single religion so 'Hindu girl marrying a Muslim
-    boy' is not misread as Hindu law.
+    Empty string when nothing is said. The Special Marriage Act signals are
+    checked first: "Hindu marriage under the Special Marriage Act" is a
+    secular marriage, not a Hindu one, and a single religion word in the
+    question must not override that. After that, a question naming two
+    religions is inter-faith, and a question naming one is that one.
     """
     low = (text or "").lower()
-    # Implication: a question naming two different religions is inter-faith.
-    religion_hits = set()
-    if any(w in low for w in ("hindu", "हिंदू", "ಹಿಂದೂ")):
-        religion_hits.add("hindu")
-    if any(w in low for w in ("christian", "catholic", "protestant",
-                               "ईसाई", "ಕ್ರಿಸ್ತಿಯ", "ಕ್ರಿಶ್ಚಿಯ")):
-        religion_hits.add("christian")
-    if any(w in low for w in ("muslim", "islam", "मुस्लिम", "इस्लाम",
-                               "ಮುಸ್ಲಿಂ", "ಇಸ್ಲಾಂ")):
-        religion_hits.add("muslim")
-    if any(w in low for w in ("parsi", "पारसी", "ಪಾರ್ಸಿ")):
-        religion_hits.add("parsi")
-    if len(religion_hits) == 1:
-        return next(iter(religion_hits))
-    if len(religion_hits) >= 2:
+    hits = _personal_law_hits(low)
+    if hits.get("interfaith"):
         return "interfaith"
-    for value, patterns in _PERSONAL_LAW_PATTERNS:
-        if any(p in low for p in patterns):
-            return value
+    religions = {v for v, on in hits.items() if on and v != "interfaith"}
+    if len(religions) >= 2:
+        return "interfaith"
+    if len(religions) == 1:
+        return next(iter(religions))
     return ""
 
 
@@ -504,17 +554,28 @@ _PERSONAL_LAW_ACTS = {
         "marriage": "Hindu Marriage Act 1955",
         "divorce": "Hindu Marriage Act 1955",
         "succession": "Hindu Succession Act 1956",
-        "maintenance": "Hindu Adoption and Maintenance Act 1956",
+        "maintenance": "Hindu Adoptions and Maintenance Act 1956",
+        "adoption": "Hindu Adoptions and Maintenance Act 1956",
     },
     "christian": {
         "marriage": "Indian Christian Marriage Act 1872",
-        "divorce": "Indian Divorce Act 1869",
+        # "Divorce Act 1869", not "Indian Divorce Act 1869". The corpus writes
+        # it "Divorce Act, 1869" and the loose match in _matches_act compares
+        # the two without punctuation, so "Indian Divorce Act 1869" matched
+        # nothing at all: the Act was never reachable as a governing Act, and
+        # the 106 chunks of Christian divorce law in the index were dead.
+        "divorce": "Divorce Act 1869",
         "succession": "Indian Succession Act 1925",
         # CrPC 125 / BNSS 144 applies to every woman in India regardless of
         # religion (Sajjan Singh v. State of Punjab; Mohd. Abdul Samad 2024),
         # so the secular maintenance route belongs here too.
-        "maintenance": ("Indian Divorce Act 1869 "
+        "maintenance": ("Divorce Act 1869 "
                         "Bharatiya Nagarik Suraksha Sanhita 2023"),
+        # Section 2 of the Hindu Adoptions and Maintenance Act 1956 applies
+        # only to Hindus. A Muslim, Christian or Parsi adopting a child is
+        # under the secular Juvenile Justice Act 2015 (Shabnam Hashmi v.
+        # Union of India (2014) 4 SCC 1).
+        "adoption": "Juvenile Justice (Care and Protection of Children) Act 2015",
     },
     "muslim": {
         "marriage": "Muslim Personal Law (Shariat) Application Act 1937",
@@ -526,24 +587,30 @@ _PERSONAL_LAW_ACTS = {
         # sending a Muslim inheritance question there is the "Hindu vs Muslim
         # rules differ - never mix" failure CONTEXT.md warns about. The Act
         # that applies the Muslim law of succession is the Shariat Application
-        # Act 1937; the detailed statute (Muslim Inheritance (Succession to
-        # Property) Act 1926) is not in our corpus, and the answer has to say
-        # so rather than reach for a statute that does not apply.
+        # Act 1937. There is no Muslim Inheritance (Succession to Property)
+        # Act 1926 in India: Muslim succession is uncodified personal law, and
+        # the answer has to say the law is uncodified rather than reach for a
+        # statute that does not exist or for one that does not apply.
         "succession": "Muslim Personal Law (Shariat) Application Act 1937",
         "maintenance": ("Muslim Women (Protection of Rights on Divorce) Act 1986 "
                         "Bharatiya Nagarik Suraksha Sanhita 2023"),
+        # The Hindu Adoptions and Maintenance Act 1956 does not apply to a
+        # Muslim, so a Muslim adoption question goes to the secular Act.
+        "adoption": "Juvenile Justice (Care and Protection of Children) Act 2015",
     },
     "parsi": {
         "marriage": "Parsi Marriage and Divorce Act 1936",
         "divorce": "Parsi Marriage and Divorce Act 1936",
         "succession": "Indian Succession Act 1925",
         "maintenance": "Parsi Marriage and Divorce Act 1936",
+        "adoption": "Juvenile Justice (Care and Protection of Children) Act 2015",
     },
     "interfaith": {
         "marriage": "Special Marriage Act 1954",
         "divorce": "Special Marriage Act 1954",
         "succession": "Indian Succession Act 1925",
         "maintenance": "Special Marriage Act 1954",
+        "adoption": "Juvenile Justice (Care and Protection of Children) Act 2015",
     },
 }
 
@@ -737,23 +804,24 @@ CLARIFY_TEMPLATES = {
                     "adoption, succession, or domestic violence?",
            "divorce_type": "Is this a mutual-consent divorce or a contested one?",
            "parties": "Who is asking — husband, wife, or guardian?",
-           "personal_law": "Which personal law applies to you — Hindu, "
-                           "Christian, Muslim, Parsi, or an inter-faith "
-                           "marriage under the Special Marriage Act?"},
+           "personal_law": "Which religion or marriage type applies to your "
+                           "marriage — Hindu, Christian, Muslim, Parsi, or a "
+                           "court or inter-faith marriage under the Special "
+                           "Marriage Act?"},
     "hi": {"topic": "यह किस बारे में है — तलाक, भरण-पोषण, अभिरक्षा, "
                     "गोद लेना, उत्तराधिकार या घरेलू हिंसा?",
            "divorce_type": "क्या यह आपसी सहमति से तलाक है या विवादित तलाक?",
            "parties": "कौन पूछ रहा है — पति, पत्नी या अभिभावक?",
-           "personal_law": "आप पर कौन सा व्यक्तिगत कानून लागू होता है — "
-                           "हिंदू, ईसाई, मुस्लिम, पारसी, या विशेष विवाह "
-                           "अधिनियम के तहत अंतर-धार्मिक विवाह?"},
+           "personal_law": "आपकी शादी किस धर्म या रीति से हुई थी — हिंदू, "
+                           "ईसाई, मुस्लिम, पारसी, या कोर्ट मैरिज (विशेष "
+                           "विवाह अधिनियम)?"},
     "kn": {"topic": "ಇದು ಯಾವುದರ ಬಗ್ಗೆ — ವಿಚ್ಛೇದನ, ಜೀವನಾಂಶ, ಪಾಲನೆ, "
                     "ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಅಥವಾ ಕೌಟುಂಬಿಕ ಹಿಂಸೆ?",
            "divorce_type": "ಇದು ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನವೇ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನವೇ?",
            "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?",
-           "personal_law": "ನಿಮಗೆ ಯಾವ ವೈಯಕ್ತಿಕ ಕಾನೂನು ಅನ್ವಯ — ಹಿಂದೂ, "
-                           "ಕ್ರಿಶ್ಚಿಯನ್, ಮುಸ್ಲಿಂ, ಪಾರ್ಸಿ, ಅಥವಾ ವಿಶೇಷ "
-                           "ವಿವಾಹ ಕಾಯ್ದೆಯಡಿ ಅಂತರಧರ್ಮ ವಿವಾಹ?"},
+           "personal_law": "ನಿಮ್ಮ ಮದುವೆ ಯಾವ ಧರ್ಮ ಅಥವಾ ರೀತಿಯಲ್ಲಿ ನಡೆದಿದೆ — "
+                           "ಹಿಂದೂ, ಕ್ರಿಸ್ತಿಯನ್, ಮುಸ್ಲಿಂ, ಪಾರ್ಸಿ, ಅಥವಾ ಕೋರ್ಟ್ "
+                           "ಮದುವೆ (ವಿಶೇಷ ವಿವಾಹ ಕಾಯ್ದಿಯಡಿ)?"},
 }
 
 _CLARIFY_LEAD = {
@@ -1345,6 +1413,14 @@ TRACE_TEXT: Dict[str, Dict[str, str]] = {
         "hi": '{tool} "{q}" → {act} से {n} धारा।',
         "kn": '{tool} "{q}" → {act} ಇಂದ {n} ವಿಭಾಗ.',
     },
+    "tools_personal_law": {
+        "en": '{tool} "{q}" → {n} section{plural} from {act}, the Act that '
+              'governs this personal law.',
+        "hi": '{tool} "{q}" → {act} से {n} धारा, जो इस व्यक्तिगत कानून पर लागू '
+              'है।',
+        "kn": '{tool} "{q}" → {act} ಇಂದ {n} ವಿಭಾಗ, ಈ ವೈಯಕ್ತಿಕ ಕಾನೂನಿಗೆ '
+              'ಅನ್ವಯವಾಗುವುದು.',
+    },
     "tools_sections_no_act": {
         "en": '{tool} "{q}" → {n} section{plural}.',
         "hi": '{tool} "{q}" → {n} धारा।',
@@ -1812,23 +1888,23 @@ TOPIC_ACT = {
     # which is the wrong answer for these questions.
     "interfaith_marriage": "Special Marriage Act 1954",
     "custody": "Guardians and Wards Act 1890",
-    "divorce": "Hindu Marriage Act 1955 Indian Divorce Act 1869",
+    "divorce": "Hindu Marriage Act 1955 Divorce Act 1869",
     # Special Marriage Act first for inter-religious/inter-caste marriage:
     # it is the statute that actually governs those, and putting HMA first
     # made the assistant cite the wrong Act for "can a Hindu girl marry a
     # Muslim boy".
     "marriage": "Special Marriage Act 1954 Hindu Marriage Act 1955",
-    "maintenance": "Hindu Adoption and Maintenance Act 1956",
+    "maintenance": "Hindu Adoptions and Maintenance Act 1956",
     "senior_citizens": "Maintenance and Welfare of Parents and Senior Citizens Act 2007",
-    "adoption": "Hindu Adoption and Maintenance Act 1956 Juvenile Justice Care and Protection of Children Act 2015",
+    "adoption": "Hindu Adoptions and Maintenance Act 1956 Juvenile Justice Care and Protection of Children Act 2015",
     "succession": "Hindu Succession Act 1956 Indian Succession Act 1925",
-    "domestic_violence": "Domestic Violence Act 2005",
+    "domestic_violence": "Protection of Women from Domestic Violence Act 2005",
     "dowry": "Dowry Prohibition Act 1961",
 }
 
 _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
              "and Maintenance Act 1956 Hindu Succession Act 1956 Guardians and "
-             "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869 "
+             "Wards Act 1890 Protection of Women from Domestic Violence Act 2005 Divorce Act 1869 "
              "Indian Christian Marriage Act 1872 Parsi Marriage and Divorce Act "
              "1936 Dissolution of Muslim Marriages Act 1939 Muslim Personal Law "
              "(Shariat) Application Act 1937 Muslim Women (Protection of Rights "
@@ -1919,9 +1995,9 @@ TOOL_CATALOG = (
 
 _KNOWN_ACTS = (
     "Hindu Marriage Act 1955", "Special Marriage Act 1954",
-    "Hindu Adoption and Maintenance Act 1956", "Hindu Succession Act 1956",
-    "Guardians and Wards Act 1890", "Domestic Violence Act 2005",
-    "Indian Divorce Act 1869", "Dowry Prohibition Act 1961",
+    "Hindu Adoptions and Maintenance Act 1956", "Hindu Succession Act 1956",
+    "Guardians and Wards Act 1890", "Protection of Women from Domestic Violence Act 2005",
+    "Divorce Act 1869", "Dowry Prohibition Act 1961",
     "Indian Succession Act 1925",
     "Maintenance and Welfare of Parents and Senior Citizens Act 2007",
     "Hindu Minority and Guardianship Act 1956",
@@ -1931,6 +2007,9 @@ _KNOWN_ACTS = (
     "Parsi Marriage and Divorce Act 1936",
     "Dissolution of Muslim Marriages Act 1939",
     "Muslim Personal Law (Shariat) Application Act 1937",
+    # Secular adoption, for everyone who is not a Hindu. The Hindu
+    # Adoptions and Maintenance Act 1956 applies to Hindus only.
+    "Juvenile Justice (Care and Protection of Children) Act 2015",
 )
 
 
@@ -2078,12 +2157,12 @@ PLAN_SYSTEM = (
     "  * Marriage between people of DIFFERENT religions, and marriage "
     "between people of DIFFERENT castes: Special Marriage Act 1954. Never "
     "the Hindu Marriage Act for these.\n"
-    "  * Maintenance: Hindu Adoption and Maintenance Act 1956 for Hindus. For all Indian citizens regardless of religion, Section 144 BNSS 2023 (formerly Section 125 CrPC) applies, and under Supreme Court Mohd. Abdul Samad 2024, divorced Muslim women can claim monthly maintenance.\n"
+    "  * Maintenance: Hindu Adoptions and Maintenance Act 1956 for Hindus. For all Indian citizens regardless of religion, Section 144 BNSS 2023 (formerly Section 125 CrPC) applies, and under Supreme Court Mohd. Abdul Samad 2024, divorced Muslim women can claim monthly maintenance.\n"
     "  * Senior citizens & parents: Maintenance and Welfare of Parents and Senior Citizens Act 2007 (tribunal maintenance and Section 23 void transfer of property).\n"
     "  * Custody of a minor: Hindu Minority and Guardianship Act 1956 (Section 6: custody under 5 ordinarily with mother) and Guardians and Wards Act 1890 (Section 17: paramount welfare of minor).\n"
-    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 for Christians and Parsees. It does NOT apply to Muslims: Section 2(1)(a) excludes anyone subject to the Muslim personal law. A Muslim inheritance question is governed by the Muslim Personal Law (Shariat) Application Act 1937, and the detailed Muslim Inheritance (Succession to Property) Act 1926 is not in our corpus - say so and point to the Shariat Application Act rather than answering from the wrong statute.\n"
-    "  * Personal law by religion: Hindu -> Hindu Marriage Act 1955 / Hindu Succession Act 1956; Christian -> Indian Christian Marriage Act 1872 / Indian Divorce Act 1869; Muslim -> Dissolution of Muslim Marriages Act 1939 / Muslim Personal Law (Shariat) Application Act 1937 / Muslim Women (Protection of Rights on Divorce) Act 1986; Parsi -> Parsi Marriage and Divorce Act 1936; inter-faith or inter-caste -> Special Marriage Act 1954. Never answer a Christian, Muslim or Parsi question with the Hindu Marriage Act.\n"
-    "  * Protection orders, and which court: Domestic Violence Act 2005.\n"
+    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 for Christians and Parsees. It does NOT apply to Muslims: Section 2(1)(a) excludes anyone subject to the Muslim personal law. A Muslim inheritance question is governed by the Muslim Personal Law (Shariat) Application Act 1937, which applies an uncodified personal law rather than a written statute. Say that the law is uncodified and point to the Shariat Application Act. Do not name a written Muslim inheritance statute: there is none, the law is uncodified, and naming one is the same mistake as citing a Bill that was never passed.\n"
+    "  * Personal law by religion: Hindu -> Hindu Marriage Act 1955 / Hindu Succession Act 1956; Christian -> Indian Christian Marriage Act 1872 / Divorce Act 1869; Muslim -> Dissolution of Muslim Marriages Act 1939 / Muslim Personal Law (Shariat) Application Act 1937 / Muslim Women (Protection of Rights on Divorce) Act 1986; Parsi -> Parsi Marriage and Divorce Act 1936; inter-faith or inter-caste -> Special Marriage Act 1954. Never answer a Christian, Muslim or Parsi question with the Hindu Marriage Act.\n"
+    "  * Protection orders, and which court: Protection of Women from Domestic Violence Act 2005.\n"
     "  * Dowry: Dowry Prohibition Act 1961.\n"
     "- If the user's question is governed by a statute we do not hold, pick "
     "the closest Act we do hold and say in 'reasoning' that the governing "
@@ -2373,6 +2452,24 @@ def _act_of(hit: Dict[str, Any]) -> str:
     return str((hit.get("payload") or {}).get("act", "") or "")
 
 
+def _corpus_act_name(act: str) -> str:
+    """The Act name as the corpus writes it, for a payload filter.
+
+    The corpus writes "Divorce Act, 1869" and the agent says "Divorce Act
+    1869". A Qdrant filter is an exact match on the payload value, so the
+    filter needs the corpus spelling, and the registry is where that
+    spelling lives.
+    """
+    if not act:
+        return ""
+    want = re.sub(r"[^a-z0-9]", "", act.lower())
+    for entry in _REGISTRY_ACTS:
+        got = re.sub(r"[^a-z0-9]", "", entry.act.lower())
+        if got == want or got.startswith(want) or want.startswith(got):
+            return entry.act
+    return ""
+
+
 def _matches_act(hit: Dict[str, Any], act: str) -> bool:
     """Whether a hit really belongs to the act the planner chose.
 
@@ -2566,6 +2663,31 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                  err=(str(e) or e.__class__.__name__)[:60])
             continue
         act_for_filter = act
+        # A personal law is a hard constraint, not a hint. Vector search on
+        # "I am a Christian man, how do I get a divorce?" returns the Hindu
+        # Marriage Act, because that is what the words sit closest to, and the
+        # ranking can only reorder what came back. So the governing Act's own
+        # sections are fetched by payload filter as well, and go first.
+        personal_law = (state.get("slots") or {}).get("personal_law") or ""
+        if personal_law and tool == ACT_SEARCH:
+            topic_now = (state.get("slots") or {}).get("topic", "")
+            for gov in acts_for_personal_law(personal_law, topic_now):
+                corpus_act = _corpus_act_name(gov)
+                if not corpus_act:
+                    continue
+                try:
+                    extra = list(store.search_text(
+                        query, top_k=4,
+                        filter_payload={"act": corpus_act}) or [])
+                except Exception as e:  # noqa: BLE001 - best effort
+                    logger.warning("agent act filter search failed (%r)", e)
+                    continue
+                known = {_hit_key(h) for h in hits}
+                fresh = [h for h in extra if _hit_key(h) not in known]
+                if fresh:
+                    hits = fresh + hits
+                    note("tools_personal_law", q=shown, n=len(fresh),
+                         plural=_plural(lang, len(fresh)), act=corpus_act)
         # The second path runs before the ranking, on purpose: a section the
         # reader's own words found has to be able to outrank an off-Act hit the
         # anchored query produced, which is the whole point of running it.
