@@ -58,6 +58,7 @@ type UiKey =
   | "thinking" | "steps" | "sources" | "readAloud" | "stop"
   | "working" | "starting" | "newChat" | "noChats" | "signOut"
   | "history" | "deleteChat" | "confirmDelete" | "askPlaceholder"
+  | "sideLoading" | "sideError"
   | "recording" | "transcribing" | "emptyTitle" | "emptyHint" | "checking"
   | "srcAct" | "srcWeb" | "srcDoc" | "srcOther";
 
@@ -76,6 +77,11 @@ const UI: Record<UiKey, { en: string; hi: string; kn: string }> = {
   starting: { en: "Getting to your question…", hi: "आपके प्रश्न तक पहुँच रहे हैं…", kn: "ನಿಮ್ಮ ಪ್ರಶ್ನೆಗೆ ತಲುಪುತ್ತಿದೆ…" },
   newChat: { en: "New chat", hi: "नई बातचीत", kn: "ಹೊಸ ಸಂಭಾಷಣೆ" },
   noChats: { en: "No chats yet — ask something to start.", hi: "अभी कोई बातचीत नहीं — कुछ पूछकर शुरू करें।", kn: "ಇನ್ನೂ ಸಂಭಾಷಣೆ ಇಲ್ಲ — ಏನಾದರೂ ಕೇಳಿ ಪ್ರಾರಂಭಿಸಿ." },
+  // The sidebar used to say "no chats yet" for the whole time the list was on
+  // its way, which told a user with twelve chats that they had none. Loading
+  // and failed are their own states, and each says only what it knows.
+  sideLoading: { en: "Loading your chats…", hi: "आपकी बातचीतें लोड हो रही हैं…", kn: "ನಿಮ್ಮ ಸಂಭಾಷಣೆಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ…" },
+  sideError: { en: "Couldn't load your chats.", hi: "आपकी बातचीतें लोड नहीं हो सकीं।", kn: "ನಿಮ್ಮ ಸಂಭಾಷಣೆಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ." },
   signOut: { en: "Sign out", hi: "साइन आउट", kn: "ಸೈನ್ ಔಟ್" },
   history: { en: "Chat history", hi: "बातचीत का इतिहास", kn: "ಸಂಭಾಷಣೆ ಇತಿಹಾಸ" },
   deleteChat: { en: "Delete this chat?", hi: "यह बातचीत हटाएँ?", kn: "ಈ ಸಂಭಾಷಣೆಯನ್ನು ಅಳಿಸಬೇಕೆ?" },
@@ -308,7 +314,14 @@ function StreamingAnswer({ text }: { text: string }) {
 export default function Chat() {
   const router = useRouter();
   const { data: authSession, isPending: authPending } = authClient.useSession();
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  // `null` means the list has not arrived yet — it is not the same as an empty
+  // list. Starting at `[]` made the sidebar say "no chats yet" for the whole
+  // time the list was on its way, and for a user with a long history that is
+  // a false statement, not a loading state.
+  const [sessions, setSessions] = useState<ChatSession[] | null>(null);
+  // Set when the list could not be fetched at all. The sidebar then says
+  // that, rather than claiming there are no chats.
+  const [sessionsError, setSessionsError] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -369,12 +382,26 @@ export default function Chat() {
     try {
       const list = (await api("/sessions")) as ChatSession[];
       setSessions([...list].reverse());
+      setSessionsError(false);
     } catch {
-      // A failed sidebar refresh is not worth interrupting the user over.
+      // A failed sidebar refresh is not worth interrupting the user over, but
+      // the sidebar must not fall back to claiming there are no chats: "we
+      // could not load them" and "you have none" are different facts.
+      setSessionsError(true);
     }
   }, []);
 
-  // Load profile + sidebar history (no auto-create; new chat stays draft)
+  // The history is fetched on mount, in parallel with the session check
+  // rather than after it. The session lives in an httpOnly cookie that the
+  // browser sends with the request whether or not this code knows about the
+  // session yet, so waiting for useSession() only put a round trip in front
+  // of the list the user came to see.
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  // Load the profile (no auto-create; new chat stays draft). The history is
+  // not here: it is fetched on mount, above, so it is not waiting on this.
   useEffect(() => {
     if (authPending || !authSession) return;
     // Only tone is read. The saved language is deliberately ignored: the answer
@@ -390,8 +417,7 @@ export default function Chat() {
         if (mem.tone) setTone(mem.tone);
       })
       .catch(() => {});
-    refreshSessions();
-  }, [authPending, authSession, refreshSessions]);
+  }, [authPending, authSession]);
 
   // Keep the reading voice in the language being typed, so "Read aloud" on a
   // Kannada answer is spoken by a Kannada voice rather than an English one.
@@ -442,7 +468,10 @@ function toggleSide() {
     try {
       await api(`/sessions/${id}`, { method: "DELETE" });
       if (id === sessionId) newChat();
-      else refreshSessions();
+      // The list is refreshed either way. Deleting the chat that was open
+      // used to leave it in the sidebar, because only the "another chat" case
+      // refreshed the list.
+      refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     }
@@ -473,6 +502,11 @@ function toggleSide() {
         })) as ChatSession;
         sid = s.id;
         setSessionId(sid);
+        // The chat exists from this moment. The sidebar used to wait for the
+        // whole answer to finish streaming before it appeared, so for the
+        // thirty to ninety seconds the answer takes the sidebar still said
+        // there were no chats.
+        refreshSessions();
       }
       // Streamed: each agent step lands as it happens, so the page shows real
       // progress instead of a fixed animation. If the stream is cut, askStream
@@ -594,7 +628,7 @@ function toggleSide() {
         </div>
 
         <div className="side-list">
-          {sessions.map((s) => (
+          {(sessions ?? []).map((s) => (
             <div key={s.id} className={`side-item${s.id === sessionId ? " active" : ""}`}>
               <button
                 type="button"
@@ -615,7 +649,21 @@ function toggleSide() {
               </button>
             </div>
           ))}
-          {sessions.length === 0 && (
+          {/* Three states, three different sentences. The list being on its way,
+              the list having failed, and the list being empty are not the
+              same thing, and the sidebar used to say "no chats yet" for all
+              three. */}
+          {sessions === null && !sessionsError && (
+            <p className="side-empty side-pending" aria-live="polite">
+              {t(lang, "sideLoading")}
+            </p>
+          )}
+          {sessions === null && sessionsError && (
+            <p className="side-empty" role="status">
+              {t(lang, "sideError")}
+            </p>
+          )}
+          {sessions !== null && sessions.length === 0 && (
             <p className="side-empty">{t(lang, "noChats")}</p>
           )}
         </div>

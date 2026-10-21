@@ -184,6 +184,11 @@ Honest about what is weak:
 - **If no provider is reachable,** the answer degrades to a template built from
   the retrieved sections. It is correct and cited, but plainer than usual. The
   chat tells you the Thinking log, so you can see what happened.
+- **The chat history takes a moment to appear.** The list is one round trip to
+  the API, and that API is a free-tier service that sleeps when nobody is
+  using it, so the first request after a quiet stretch can take a while. The
+  sidebar says "Loading your chats…" while it waits and "Couldn't load your
+  chats." if it fails, rather than pretending you have no chats.
 
 ---
 

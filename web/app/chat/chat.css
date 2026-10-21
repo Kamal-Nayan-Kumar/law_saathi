@@ -189,6 +189,12 @@
   line-height: 1.5;
 }
 
+/* The list is still on its way. Dimmer than the empty state, because it is
+   a temporary answer to a different question, not a fact about the account. */
+.side-pending {
+  opacity: 0.65;
+}
+
 /* ---------- responsive ---------- */
 
 .chat-shell {
