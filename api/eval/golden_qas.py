@@ -281,6 +281,10 @@ GOLDEN_QAS: List[Dict[str, Any]] = [
         "must_include_any": [],
         "must_include_terms": [],
         "must_not": [],
+        # The whole point of this entry: the agent must ask which personal law
+        # applies instead of answering on Hindu law. Without must_ask_any the
+        # entry would pass on any answer, including a wrong one.
+        "must_ask_any": ["personal law", "hindu", "christian", "muslim", "parsi"],
         "min_confidence": 0.0,
         "note": "No personal law stated: the agent must ask which personal law "
                 "applies rather than assume Hindu law.",

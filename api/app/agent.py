@@ -444,9 +444,8 @@ _PERSONAL_LAW_PATTERNS = (
     ("interfaith", (
         "different religion", "different faith", "inter religious",
         "inter-religious", "interfaith", "other religion", "inter caste",
-        "inter-caste", "different caste", "love marriage", "hindu and muslim",
-        "hindu muslim", "muslim boy", "muslim girl", "christian boy",
-        "christian girl", "hindu and christian", "christian and muslim",
+        "inter-caste", "different caste", "hindu and muslim",
+        "hindu muslim", "hindu and christian", "christian and muslim",
         "अलग धर्म", "अंतर-धार्मिक", "अंतरधार्मिक", "हिंदू मुस्लिम",
         "हिंदू ईसाई", "ಬೇರೆ ಧರ್ಮ", "ಅಂತರಧರ್ಮ", "ಹಿಂದೂ ಮುಸ್ಲಿಂ",
         "ಹಿಂದೂ ಕ್ರಿಶ್ಚಿಯನ್", "special marriage act")),
@@ -511,14 +510,26 @@ _PERSONAL_LAW_ACTS = {
         "marriage": "Indian Christian Marriage Act 1872",
         "divorce": "Indian Divorce Act 1869",
         "succession": "Indian Succession Act 1925",
-        "maintenance": "Indian Divorce Act 1869",
+        # CrPC 125 / BNSS 144 applies to every woman in India regardless of
+        # religion (Sajjan Singh v. State of Punjab; Mohd. Abdul Samad 2024),
+        # so the secular maintenance route belongs here too.
+        "maintenance": ("Indian Divorce Act 1869 "
+                        "Bharatiya Nagarik Suraksha Sanhita 2023"),
     },
     "muslim": {
         "marriage": "Muslim Personal Law (Shariat) Application Act 1937",
         "divorce": ("Dissolution of Muslim Marriages Act 1939 "
                     "Muslim Personal Law (Shariat) Application Act 1937 "
                     "Muslim Women (Protection of Rights on Divorce) Act 1986"),
-        "succession": "Indian Succession Act 1925",
+        # NOT the Indian Succession Act 1925. Section 2(1)(a) of that Act
+        # expressly excludes persons subject to the Muslim personal law, so
+        # sending a Muslim inheritance question there is the "Hindu vs Muslim
+        # rules differ - never mix" failure CONTEXT.md warns about. The Act
+        # that applies the Muslim law of succession is the Shariat Application
+        # Act 1937; the detailed statute (Muslim Inheritance (Succession to
+        # Property) Act 1926) is not in our corpus, and the answer has to say
+        # so rather than reach for a statute that does not apply.
+        "succession": "Muslim Personal Law (Shariat) Application Act 1937",
         "maintenance": ("Muslim Women (Protection of Rights on Divorce) Act 1986 "
                         "Bharatiya Nagarik Suraksha Sanhita 2023"),
     },
@@ -684,7 +695,10 @@ def missing_for(slots: Dict[str, str], query_en: str,
         return ["topic"]
     missing: List[str] = []
     if topic in ("marriage", "divorce", "succession", "interfaith_marriage") and not slots.get("personal_law"):
-        missing.append("personal_law")
+        # One question at a time, and personal law comes first on purpose.
+        # "Mutual or contested" is a different question under each personal
+        # law, so asking it before we know the law is asking it wrongly.
+        return ["personal_law"]
     if topic == "divorce" and not slots.get("divorce_type"):
         # Only worth asking when the question is actually about getting a divorce.
         # "My husband hits me" is a domestic-violence matter that merely sounds
@@ -2078,7 +2092,7 @@ PLAN_SYSTEM = (
     "  * Maintenance: Hindu Adoption and Maintenance Act 1956 for Hindus. For all Indian citizens regardless of religion, Section 144 BNSS 2023 (formerly Section 125 CrPC) applies, and under Supreme Court Mohd. Abdul Samad 2024, divorced Muslim women can claim monthly maintenance.\n"
     "  * Senior citizens & parents: Maintenance and Welfare of Parents and Senior Citizens Act 2007 (tribunal maintenance and Section 23 void transfer of property).\n"
     "  * Custody of a minor: Hindu Minority and Guardianship Act 1956 (Section 6: custody under 5 ordinarily with mother) and Guardians and Wards Act 1890 (Section 17: paramount welfare of minor).\n"
-    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 otherwise.\n"
+    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 for Christians and Parsees. It does NOT apply to Muslims: Section 2(1)(a) excludes anyone subject to the Muslim personal law. A Muslim inheritance question is governed by the Muslim Personal Law (Shariat) Application Act 1937, and the detailed Muslim Inheritance (Succession to Property) Act 1926 is not in our corpus - say so and point to the Shariat Application Act rather than answering from the wrong statute.\n"
     "  * Personal law by religion: Hindu -> Hindu Marriage Act 1955 / Hindu Succession Act 1956; Christian -> Indian Christian Marriage Act 1872 / Indian Divorce Act 1869; Muslim -> Dissolution of Muslim Marriages Act 1939 / Muslim Personal Law (Shariat) Application Act 1937 / Muslim Women (Protection of Rights on Divorce) Act 1986; Parsi -> Parsi Marriage and Divorce Act 1936; inter-faith or inter-caste -> Special Marriage Act 1954. Never answer a Christian, Muslim or Parsi question with the Hindu Marriage Act.\n"
     "  * Protection orders, and which court: Domestic Violence Act 2005.\n"
     "  * Dowry: Dowry Prohibition Act 1961.\n"
