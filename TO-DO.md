@@ -221,6 +221,23 @@ Two ways forward, and I have not chosen because both are defensible:
 Whichever is chosen, it needs a golden question each way so the answer cannot
 drift back silently. Nothing in the eval set currently covers religion.
 
+**Mechanism now exists (implementation agent).** A `personal_law` slot is
+detected from the question text (Hindu, Christian, Muslim, Parsi,
+inter-religious/inter-caste) in English, Hindi and Kannada, including native
+scripts and unambiguous implications (e.g. talaq/khula -> Muslim). It is
+stored in `state["slots"]`. When present and known, the governing Act for a
+marriage/divorce/succession question becomes that personal law's Act and
+`search_acts` is anchored to it (Indian Christian Marriage Act 1872 / Indian
+Divorce Act 1869, Dissolution of Muslim Marriages Act 1939, Parsi Marriage and
+Divorce Act 1936, Special Marriage Act 1954, etc.). When it is absent on a
+personal-law topic, the agent asks a short clarifying question naming the
+options instead of defaulting to Hindu law; inter-religious questions route to
+the Special Marriage Act 1954. The open decision remains which of the two
+options to adopt: with "cover every religion" the mechanism answers from the
+right Act; with "Hindu law only" the redirect path is the alternative, and
+the slot can be used to redirect non-Hindu questions explicitly. The decision
+itself is still open.
+
 ### 5b. Drop the pending Bill from the corpus
 
 `is_enacted()` keeps it out of answers, but 22 chunks of the Prohibition of Child
