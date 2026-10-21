@@ -178,11 +178,15 @@ def collect(rows: dict, mapping: dict):
 def load_amendments(path: Path):
     """Load the curated ``kind: amendment_notice`` chunks.
 
-    These answer the mutual-consent-divorce timing question that the dataset
-    cannot: every consolidated corpus still prints the pre-2018 text. They are
-    fetched by payload filter (``kind == amendment_notice``), not by
-    similarity, so they must be in the index or the agent's amendment guard
-    finds nothing.
+    These carry the mutual-consent-divorce position: the periods that are in
+    force under Section 13B of the Hindu Marriage Act and Section 28 of the
+    Special Marriage Act, and the rule that the six-month wait is directory
+    and may be waived. They are hand-written, because the dataset's own text
+    for those sections says the same thing but without the waiver rule, and
+    nothing in the dataset says which Act last fixed the periods.
+
+    They are fetched by payload filter (``kind == amendment_notice``), not by
+    similarity, so they must be in the index or the agent never sees them.
     """
     ids, texts, payloads = [], [], []
     if not path.exists():
@@ -231,6 +235,35 @@ def load_amendments(path: Path):
     return ids, texts, payloads
 
 
+def refresh_amendments_only(args) -> int:
+    """Upsert the curated notices and nothing else.
+
+    The notices are hand-written, so they change when the law is checked
+    again, and re-embedding the whole corpus to update two paragraphs is
+    slow and pointless. The point id is derived from the chunk id, so this
+    replaces the notice in place.
+    """
+    ids, texts, payloads = load_amendments(Path(args.amendments))
+    print("amendment notices: %d" % len(ids))
+    if not ids:
+        print("no notices to write")
+        return 1
+    if args.dry_run:
+        for i, t in zip(ids, texts):
+            print("  %s  %s" % (i, t[:70].replace("\n", " ")))
+        print("\ndry-run: nothing written")
+        return 0
+
+    store = QdrantStore.connect(collection=args.collection)
+    store.ensure_collection()
+    store.ensure_payload_indexes(PAYLOAD_INDEXES)
+    written = store.upsert_texts_batched(ids, texts, payloads,
+                                         batch_size=args.batch_size)
+    print("upserted %d points (embedding model %s)" % (written, store.model))
+    print("collection %s now holds %d points" % (args.collection, store.count()))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Build the LawSaathi family-law index")
     ap.add_argument("--parquet", default=str(DEFAULT_PARQUET))
@@ -246,7 +279,15 @@ def main(argv=None) -> int:
                     help="curated amendment notices (corpus/amendments.jsonl)")
     ap.add_argument("--no-amendments", action="store_true",
                     help="skip the curated amendment notices")
+    ap.add_argument("--only-amendments", action="store_true",
+                    help="upsert only the curated notices, leaving the "
+                         "statute chunks alone. The point ids come from the "
+                         "chunk id, so this overwrites the notices in place "
+                         "and leaves everything else untouched.")
     args = ap.parse_args(argv)
+
+    if args.only_amendments:
+        return refresh_amendments_only(args)
 
     parquet = Path(args.parquet)
     if not parquet.exists():

@@ -2828,13 +2828,37 @@ VERIFY_SYSTEM = (
 )
 
 
-def _evidence_block(state: Dict[str, Any], limit: int = 5) -> str:
+# How much of a retrieved chunk the model is shown.
+#
+# The corpus is chunked by section, so a chunk is a whole section: the median
+# is 765 characters, the longest is 1652, and 80% of them are longer than 400.
+# Cutting a passage to 400 characters did not just shorten it, it removed the
+# part the answer was about. The Section 13B chunk puts the one-year
+# separation in sub-section (1) and the six-month wait in sub-section (2), so
+# at 400 characters the verifier was shown "one year" and then asked whether
+# the draft's "six months" was in the passages. It was not, in what it had
+# been shown, so the verifier rejected a correct answer and the user got a
+# warning that the law could not be confirmed.
+#
+# The budget is set above the longest chunk in the corpus so a passage is
+# never cut. The number of passages is what keeps the prompt bounded.
+PASSAGE_CHAR_BUDGET = 1800
+
+
+def _evidence_block(state: Dict[str, Any], limit: int = 6) -> str:
+    """The passages the verifier judges the draft against.
+
+    The same selection the writer was given, so the verifier is never asked
+    about something the writer could not have read.
+    """
     lines = []
-    for i, hit in enumerate(state.get("evidence", [])[:limit], start=1):
+    hits = select_evidence_for_answer(state.get("evidence", []))[:limit]
+    for i, hit in enumerate(hits, start=1):
         if not isinstance(hit, dict):
             continue
         payload = hit.get("payload") or {}
-        body = plain_passage(str(payload.get("text", "") or ""), limit=400)
+        body = plain_passage(str(payload.get("text", "") or ""),
+                             limit=PASSAGE_CHAR_BUDGET)
         if not body:
             continue
         lines.append("[%d] %s — %s" % (i, format_citation(payload), body))
@@ -3318,12 +3342,41 @@ def _short_meaning(text: str, limit: int = 160) -> str:
     return plain_passage(text, limit=limit)
 
 
+def _is_amendment_notice(hit: Dict[str, Any]) -> bool:
+    """True for the curated notice that carries the mutual-consent position."""
+    payload = hit.get("payload", {}) if isinstance(hit, dict) else {}
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("kind") or "") == "amendment_notice":
+        return True
+    return _AMENDMENT_LABEL in _section_of(hit)
+
+
 def select_evidence_for_answer(evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Balance bare act and web search hits so web sources reach both reasoner and citations."""
-    act_hits = [h for h in evidence if _evidence_source_type(h) in ("bare_act", "doc")]
+    """The passages the writer, the verifier and the citations all see.
+
+    They have to be the same set. The writer writes from these passages and
+    the verifier judges the draft against these passages, so when the two
+    were chosen separately the verifier was shown five bare-act chunks while
+    the writer had also read the web results, and the writer's use of a web
+    source looked to the verifier like an invention.
+
+    The notice is included on purpose. It carries the rule that the six-month
+    wait is directory and may be waived, which is not in the statute text, so
+    a draft that states the waiver is grounded in the notice. The notice used
+    to sit at the end of the evidence list, past the window both the writer
+    and the verifier were looking at.
+    """
+    act_hits = [h for h in evidence
+                if _evidence_source_type(h) in ("bare_act", "doc")
+                and not _is_amendment_notice(h)]
     web_hits = [h for h in evidence if _evidence_source_type(h) == "web"]
-    if web_hits:
-        return act_hits[:3] + web_hits[:3]
+    notice_hits = [h for h in evidence if _is_amendment_notice(h)]
+    picked = act_hits[:3] + web_hits[:2]
+    if notice_hits:
+        picked += notice_hits[:1]
+    if picked:
+        return picked
     return act_hits[:6] if act_hits else evidence[:6]
 
 
@@ -3546,7 +3599,8 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         if not isinstance(hit, dict):
             continue
         payload = hit.get("payload") or {}
-        body = plain_passage(str(payload.get("text", "") or ""), limit=600)
+        body = plain_passage(str(payload.get("text", "") or ""),
+                             limit=PASSAGE_CHAR_BUDGET)
         if not body:
             continue
         passages.append("[%d] %s — %s" % (i, format_citation(payload), body))
