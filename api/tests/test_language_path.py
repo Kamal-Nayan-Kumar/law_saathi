@@ -239,7 +239,12 @@ def test_every_answer_language_has_plain_language_rules_or_is_english():
         assert lang in A.SECTION_HEADINGS, lang
         assert lang in A.DISCLAIMER, lang
         assert lang in A.NEXT_STEPS, lang
-        assert lang in A.AMENDMENT_CAVEAT, lang
+        # AMENDMENT_CAVEAT is gone: it told the reader that a Special
+        # Marriage (Amendment) Act, 2018 had changed the waiting period, and
+        # no such Act exists. The notice now states the position itself and
+        # is fetched by Act, so there is no per-language caveat left to
+        # translate. See the note above AMENDMENT_CAVEAT's old definition.
+        assert not hasattr(A, "AMENDMENT_CAVEAT")
 
 
 def test_kannada_rewrite_is_not_accepted_as_hindi_or_english():

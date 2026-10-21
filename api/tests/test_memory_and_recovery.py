@@ -12,7 +12,6 @@ from app import agent as agent_module
 from app.agent import (
     ACT_SEARCH,
     WEB_SEARCH,
-    apply_amendment_guard,
     node_intent,
     node_response,
     replan_after_empty,
@@ -29,8 +28,12 @@ def hit(act, section, text="Some section text that is long enough to use.",
 
 NOTICE = hit("Hindu Marriage Act, 1955",
              "Section 13B: Amendment notice — divorce by mutual consent",
-             "AMENDMENT NOTICE. Amended by the Special Marriage (Amendment) "
-             "Act, 2018 (Act 2 of 2019).")
+             "Section 13B was inserted by the Marriage Laws (Amendment) Act, "
+             "1976 (Act 68 of 1976), section 7, in force from 27 May 1976, "
+             "with these periods as enacted. No later amendment has changed "
+             "them, and the passages in this index reproduce the text now in "
+             "force. The six-month period is directory, not mandatory "
+             "(Amardeep Singh v. Harveen Kaur (2017) 8 SCC 746).")
 
 HMA13B = hit("Hindu Marriage Act, 1955", "Section 13B",
              "They have been living separately for a period of one year.")
@@ -268,41 +271,29 @@ def test_only_timing_questions_ask_for_the_amendment_notice(q, expected):
     assert wants_timing_correction(q) is expected
 
 
-def test_a_stale_duration_gets_the_amendment_caveat():
-    state = agent_module.new_state("how long before mutual consent divorce",
-                                   lang="en")
-    state["evidence"] = [HMA13B, NOTICE]
-    answer = ("You need to have lived apart for at least one year before you "
-              "can file [1].")
-    out = apply_amendment_guard(state, answer)
-    assert "Act 2 of 2019" in out, "must name the amending Act"
-    assert "pre-amendment" in out
+def test_there_is_no_caveat_mechanism_left_to_append():
+    """There is no amending Act to warn the reader away from.
+
+    The Special Marriage (Amendment) Act, 2018 (Act 2 of 2019) that the old
+    notice named does not exist, and Section 28A of the Special Marriage Act
+    is not on the statute book (Delhi High Court, Suman Sankar Bhunia v.
+    Debarati Bhunia Chakraborty, 27.11.2025). The one-year separation and
+    the six-month wait in the statute text are the periods in force, fixed by
+    the Marriage Laws (Amendment) Act, 1976. So the notice is the position
+    itself, and nothing is bolted onto the answer any more."""
+    assert not hasattr(agent_module, "apply_amendment_guard")
+    assert not hasattr(agent_module, "AMENDMENT_CAVEAT")
 
 
-def test_no_notice_means_no_caveat():
-    state = agent_module.new_state("how long before mutual consent divorce",
-                                   lang="en")
-    state["evidence"] = [HMA13B]
-    answer = "You need to have lived apart for at least one year [1]."
-    assert apply_amendment_guard(state, answer) == answer
-
-
-def test_notice_present_but_no_duration_means_no_caveat():
-    """Do not bolt a legal warning onto an answer that states no timeline."""
-    state = agent_module.new_state("how long before mutual consent divorce",
-                                   lang="en")
-    state["evidence"] = [NOTICE]
-    answer = "Both spouses must agree and file together [1]."
-    assert apply_amendment_guard(state, answer) == answer
-
-
-def test_the_caveat_is_never_duplicated():
-    state = agent_module.new_state("how long before mutual consent divorce",
-                                   lang="en")
-    state["evidence"] = [HMA13B, NOTICE]
-    once = apply_amendment_guard(state, "Live apart for one year [1].")
-    twice = apply_amendment_guard(state, once)
-    assert once == twice
+def test_the_notice_states_the_periods_that_are_in_force():
+    """The notice is evidence now, so it has to carry the figures a reader
+    needs rather than a warning about a text that does not exist."""
+    text = NOTICE["payload"]["text"]
+    assert "Marriage Laws (Amendment) Act, 1976" in text
+    assert "27 May 1976" in text
+    assert "No later amendment has changed them" in text
+    for stale in ("Act 2 of 2019", "1 June 2019", "28A", "pre-amendment"):
+        assert stale not in text
 
 
 def test_the_notice_is_fetched_by_act_not_by_relevance():

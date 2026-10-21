@@ -1452,17 +1452,6 @@ TRACE_TEXT: Dict[str, Dict[str, str]] = {
         "hi": "आपसे एक प्रश्न पूछा।",
         "kn": "ನಿಮ್ಮನ್ನು ಒಂದು ಪ್ರಶ್ನೆ ಕೇಳಲಾಯಿತು.",
     },
-    "response_amendment": {
-        "en": "The passages carried an amendment notice and the draft quoted a "
-              "duration, so the answer now carries the amending Act rather than "
-              "the pre-amendment figure.",
-        "hi": "अनुच्छेदों में संशोधन की सूचना थी और मसौदे में एक अवधि लिखी थी, "
-              "इसलिए उत्तर में पुरानी अवधि के बजाय संशोधन करने वाला अधिनियम "
-              "दिया गया है।",
-        "kn": "ಭಾಗಗಳಲ್ಲಿ ತಿದ್ದುಪಡಿ ಸೂಚನೆ ಇದ್ದರಿಂದ ಮತ್ತು ಕರಡಿನಲ್ಲಿ ಒಂದು "
-              "ಅವಧಿ ಇದ್ದುದರಿಂದ, ಹಳೆಯ ಅವಧಿಯ ಬದಲಿಗೆ ತಿದ್ದುಪಡಿ ಮಾಡಿದ ಕಾಯ್ದನ್ನು "
-              "ಉತ್ತರದಲ್ಲಿ ನೀಡಲಾಗಿದೆ.",
-    },
     "response_how_written": {
         "en": "Wrote a plain-language answer",
         "hi": "सरल भाषा में उत्तर लिखा",
@@ -3588,11 +3577,12 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "  * Daughter's inheritance: Under Hindu Succession Act 2005 Section 6 and Supreme Court's Vineeta Sharma (2020) ruling, daughters have equal coparcenary rights by birth in ancestral property.\n"
         "- Refer to a source as [1], [2] inline, right after the claim it "
         "supports. Use the numbers exactly as given.\n"
-        "- If a passage is an AMENDMENT NOTICE, follow it. The consolidated "
-        "statute text in the other passages is out of date. Never state a "
-        "waiting period, separation period or timeline as the current rule "
-        "from a passage that an amendment notice has flagged. Name the "
-        "amending Act and tell the reader to confirm the current figures.\n"
+        "- If a passage is a notice about the current position (the "
+        "mutual-consent notices for Section 13B and Section 28), follow it. It "
+        "states the periods that are in force and the rule that the six-month "
+        "wait is directory and may be waived. The statute passages in the "
+        "other passages reproduce that same text, so state the figures "
+        "plainly and do not tell the reader to check them elsewhere.\n"
         "- Do NOT reproduce the passages. Do NOT quote the acts. Do NOT use "
         "'the court may deem', 'provided that', or any wording lifted from the "
         "raw text. Explain the meaning instead.\n"
@@ -3966,55 +3956,27 @@ def node_reason(state: Dict[str, Any],
     return state
 
 
-AMENDMENT_CAVEAT = {
-    "en": ("Important: this waiting period was changed by the Special "
-           "Marriage (Amendment) Act, 2018 (Act 2 of 2019), in force from "
-           "1 June 2019. The section text above is the pre-amendment "
-           "version, so do not rely on the figure it quotes. Check the "
-           "current period against the amended Act, or ask a family-law "
-           "lawyer, before you act on it."),
-    "hi": ("महत्वपूर्ण: यह प्रतीक्षा अवधि विशेष विवाह (संशोधन) अधिनियम, 2018 "
-           "(अधिनियम 2 of 2019) द्वारा बदल दी गई है, जो 1 जून 2019 से लागू "
-           "हुआ। ऊपर दिया गया धारा का पाठ पुराना है, इसलिए उसकी अवधि पर "
-           "भरोसा न करें। संशोधित अधिनियम से वर्तमान अवधि जाँच लें, या "
-           "परामर्श के लिए पारिवारिक कानून वकील से बात करें।"),
-    "kn": ("ಮುಖ್ಯ: ಈ ಕಾಯದುಪಡಿ ಅವಧಿಯನ್ನು ವಿಶೇಷ ವಿವಾಹ (ತಿದ್ದುಪಡಿ) "
-           "ಅಧಿನಿಯಮ, 2018 (ಕಾಯ 2 of 2019) ಮೂಲಕ ಬದಲಾಗಿದೆ, ಅದು 1 "
-           "ಜೂನ್ 2019ರಿಂದ ಜಾರಿಯಾಗಿದೆ. ಮೇಲಿನ ವಿಭಾಗದ ಪಠ್ಯ ಹಳೆಯದ್ದು, "
-           "ಆದ್ದರಿಂದ ಅದರ ಅವಧಿಗೆ ನಂಬಬೇಡಿ. ತಿದ್ದುಪಡಿ ಕಾಯದಿಂದ ಪ್ರಸ್ತುತ "
-           "ಅವಧಿ ಪರಿಶೀಲಿಸಿ, ಅಥವಾ ಕುಟುಂಬ ಕಾನೂನು ವಕೀಲರನ್ನು "
-           "ಸಂಪರ್ಕಿಸಿ."),
-}
+# The caveat that used to live here told the reader that a Special Marriage
+# (Amendment) Act, 2018 (Act 2 of 2019) had changed the waiting period and
+# that the statute text was pre-amendment. There is no such Act. Act 2 of
+# 2019 is the National Council for Teacher Education (Amendment) Act, 2019;
+# the 2018 Special Marriage (Amendment) Bill was a private member's bill that
+# was never passed, and Section 28A of the Special Marriage Act is not on the
+# statute book (Delhi High Court, Suman Sankar Bhunia v. Debarati Bhunia
+# Chakraborty, 27.11.2025). The periods in the indexed text are the periods in
+# force, fixed by the Marriage Laws (Amendment) Act, 1976, and the notice now
+# states them, so there is nothing left to warn the reader away from.
+#
+# The mechanism that used to append it is gone with it. The notice is still
+# fetched by Act rather than by relevance, so it reaches the writer; that part
+# was always right.
 
-# Any duration figure. If an amendment notice is in evidence and the draft
-# quotes one of these, the draft is relying on text we know is out of date.
-_DURATION_RE = re.compile(
-    r"\b(one|two|three|four|five|six|seven|eight|nine|ten|twelve|eighteen|"
-    r"twenty|1|2|3|4|5|6|7|8|9|10|12|18|24)\s*[-–]?\s*"
-    r"(month|year|week|day)s?\b", re.IGNORECASE)
-
-
-def apply_amendment_guard(state: Dict[str, Any], answer: str) -> str:
-    """Stop a stale duration being presented as current law.
-
-    The amendment notice is in the passages, but the writing model ignores it
-    and the verifier — which only checks that a claim matches a passage —
-    approves the stale figure, because in the stale passage the stale figure
-    *is* correct. Prompts did not fix this; only enforcing it does. The caveat
-    names the amending Act, which is a fact we hold in the corpus, and does
-    not assert any replacement figure.
-    """
-    has_notice = any(_AMENDMENT_LABEL in _section_of(h)
-                     for h in state.get("evidence", []))
-    if not has_notice:
-        return answer
-    if not _DURATION_RE.search(answer or ""):
-        return answer
-    lang = state.get("lang", "en")
-    caveat = AMENDMENT_CAVEAT.get(lang, AMENDMENT_CAVEAT["en"])
-    if caveat in answer:
-        return answer
-    return "%s\n\n> %s" % (answer, caveat)
+# The guard that used to live here appended a caveat to any answer that
+# quoted a duration while a notice was in evidence, on the theory that the
+# notice meant the statute text was stale. It did not mean that: there was no
+# amending Act, the statute text is the text in force, and the caveat told
+# the reader not to rely on a figure that was correct. It is removed, and the
+# notice now carries the position itself.
 
 
 def node_response(state: Dict[str, Any],
@@ -4075,10 +4037,6 @@ def node_response(state: Dict[str, Any],
             logger.warning("agent falling back to English answer for lang=%s", lang)
     answer_en, citations, citation_sources = compose_answer(state, written)
     final = strip_reasoning_leak(answer_en)
-    guarded = apply_amendment_guard(state, final)
-    if guarded != final:
-        _add_trace(state, "response", "response_amendment")
-        final = guarded
     # Append the disambiguating question the planner held back, so the user got
     # an answer *and* the chance to narrow it down.
     follow_up = str(state.get("follow_up_question") or "")

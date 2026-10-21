@@ -41,10 +41,15 @@ FAMILY_ACTS = [
     # law that governs her question.
     "The Hindu Minority and Special Marriage Act, 1950",
     "Hindu Minority and Special Marriage Act, 1950",
-    # Inter-caste marriage is the Special Marriage Act (above); the amendment
-    # is kept so the current provisions are citable.
-    "The Special Marriage (Amendment) Act, 2021",
-    "Special Marriage (Amendment) Act, 2018",
+    # Inter-caste marriage is the Special Marriage Act (above).
+    #
+    # The "Special Marriage (Amendment) Act, 2018" and "The Special Marriage
+    # (Amendment) Act, 2021" that used to be listed here are not on the
+    # statute book. The 2018 Special Marriage (Amendment) Bill was a private
+    # member's bill that was never passed, the 2021 Bill lapsed, and Section
+    # 28A of the Special Marriage Act does not exist (Delhi High Court, Suman
+    # Sankar Bhunia v. Debarati Bhunia Chakraborty, 27.11.2025). Listing them
+    # invited the corpus to carry a law that does not exist.
     # Dowry is one of our seven topics and had no statute behind it.
     "The Dowry Prohibition Act, 1961",
     "Dowry Prohibition Act, 1961",
