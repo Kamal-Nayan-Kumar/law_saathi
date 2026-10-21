@@ -41,9 +41,16 @@ class SplitRetriever:
 
     def __init__(self):
         self.queries = []
+        # Every call with the filter it was made with. The Act-scoped
+        # fetches are a separate thing: they are how a topic governed by
+        # two Acts gets both of them, and they are deliberately extra
+        # queries. The tests below are about the pivot path, so they count
+        # the unfiltered ones.
+        self.calls = []
 
     def search_text(self, text, top_k=6, filter_payload=None):
         self.queries.append(text)
+        self.calls.append((text, filter_payload))
         if re.search(r"[\u0C80-\u0CFF]", text):
             return [dict(HIT_KN)]
         return [dict(HIT_EN)]
@@ -156,7 +163,8 @@ def test_an_english_question_is_not_searched_twice():
     st["slots"] = {"topic": "maintenance"}
     ret = SplitRetriever()
     A.node_tools(st, retriever=ret, web_search=lambda q, **k: [])
-    assert len(ret.queries) == 1, ret.queries
+    unfiltered = [t for t, f in ret.calls if not f]
+    assert len(unfiltered) == 1, ret.queries
 
 
 def test_the_two_paths_agree_on_what_they_found_rather_than_doubling_it():
@@ -164,6 +172,7 @@ def test_the_two_paths_agree_on_what_they_found_rather_than_doubling_it():
     class Same(SplitRetriever):
         def search_text(self, text, top_k=6, filter_payload=None):
             self.queries.append(text)
+            self.calls.append((text, filter_payload))
             return [dict(HIT_EN)]
 
     st = A.new_state("सुसाइड नहीं चाहिए", lang="hi")
@@ -171,7 +180,10 @@ def test_the_two_paths_agree_on_what_they_found_rather_than_doubling_it():
     st["slots"] = {"topic": "succession"}
     ret = Same()
     out = A.node_tools(st, retriever=ret, web_search=lambda q, **k: [])
-    assert len(ret.queries) == 2, ret.queries
+    unfiltered = [t for t, f in ret.calls if not f]
+    assert len(unfiltered) == 2, ret.queries
+    # The Act-scoped fetches are extra queries on purpose, but a hit they
+    # both return is still counted once.
     assert len(out["evidence"]) == 1, out["evidence"]
 
 

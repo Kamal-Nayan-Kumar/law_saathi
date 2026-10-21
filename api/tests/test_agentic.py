@@ -232,8 +232,12 @@ def test_the_judges_own_queries_drive_the_retry():
                             "next_queries": ["desertion as a ground for divorce"]}))
     run_agent("maintenance for wife under HAMA", lang="en", llm=llm, retriever=ret,
               web_search=lambda q, **k: [])
-    assert ret.queries[1].startswith("desertion as a ground for divorce"), (
-        "retry must use the judge's query; got %r" % ret.queries[1:])
+    # The judge's query has to be in there. It is not the second query any
+    # more: a topic governed by two Acts is fetched once per Act, so the
+    # position of the retry depends on how many Acts the topic names.
+    assert any(q.startswith("desertion as a ground for divorce")
+               for q in ret.queries), (
+        "retry must use the judge's query; got %r" % ret.queries)
 
 
 def test_a_judge_that_cannot_be_parsed_is_ignored_not_fatal():
@@ -407,7 +411,14 @@ def test_the_thinking_panel_shows_the_models_actual_decision():
 # --------------------------------------------------------------------------
 
 def test_each_topic_maps_to_its_own_acts():
-    assert acts_for_topic("custody") == ["Guardians and Wards Act 1890"]
+    # Custody is governed by two Acts, and both have to be reachable: the
+    # Hindu Minority and Guardianship Act (s.6 custody under five, s.8 the
+    # father as natural guardian) and the Guardians and Wards Act (s.17 the
+    # welfare of the minor). Naming only one meant the answer never reached
+    # the other.
+    assert set(acts_for_topic("custody")) == {
+        "Hindu Minority and Guardianship Act 1956",
+        "Guardians and Wards Act 1890"}
     assert acts_for_topic("domestic_violence") == [
         "Protection of Women from Domestic Violence Act 2005"]
     assert acts_for_topic("maintenance") == [

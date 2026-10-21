@@ -1952,7 +1952,14 @@ TOPIC_ACT = {
     # is placed before "marriage" because the plain-marriage fallback is HMA,
     # which is the wrong answer for these questions.
     "interfaith_marriage": "Special Marriage Act 1954",
-    "custody": "Guardians and Wards Act 1890",
+    # Custody is governed by two Acts: the Hindu Minority and Guardianship
+    # Act 1956 (s.6 custody of a minor under five, s.8 the father as the
+    # natural guardian) and the Guardians and Wards Act 1890 (s.17 the
+    # paramount consideration, the welfare of the minor). Naming only the
+    # second meant the answer never reached the first, and the other way
+    # round.
+    "custody": "Hindu Minority and Guardianship Act 1956 Guardians and Wards "
+               "Act 1890",
     "divorce": "Hindu Marriage Act 1955 Divorce Act 1869",
     # Special Marriage Act first for inter-religious/inter-caste marriage:
     # it is the statute that actually governs those, and putting HMA first
@@ -1989,8 +1996,16 @@ _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
 # right section findable. It is not keyword routing — the topic still comes from
 # the model, and everything is still scored by vector similarity.
 TOPIC_CONCEPTS = {
-    "custody": "welfare of the minor first consideration guardian custody minor under five years mother Section 6 Section 17",
-    "adoption": "adoption child welfare conditions adoption ceremony consent",
+    "custody": "welfare of the minor first consideration guardian custody minor "
+               "under five years mother natural guardian section 6 section 8 "
+               "section 17",
+    # "welfare" pulled the wrong sections. HAMA s.19 and s.20 are the
+    # maintenance of children and of a widowed daughter-in-law, and an
+    # adoption question was retrieving them because "child welfare" sat
+    # closer to them than to the adoption sections s.4 to s.11.
+    "adoption": "adoption adopted child adoption ceremony consent person "
+                "adopting adopter adoption deed section 4 section 5 section 9 "
+                "adoption of a person not a Hindu",
     "succession": "class I heirs intestate succession legal heirs share property coparcener daughter Section 6 ancestral property equal share",
     "divorce": "living separately one year mutual consent decree divorce",
     "maintenance": "maintenance amount reasonable income needs means arrears divorced wife Section 144 Section 125",
@@ -1998,6 +2013,16 @@ TOPIC_CONCEPTS = {
     "domestic_violence": "residence order shared household protection officer "
                          "monetary relief aggrieved person",
     "marriage": "solemnization registration valid marriage conditions",
+    # The interfaith topic had no vocabulary of its own, so the query was the
+    # question plus the Act's name and nothing else. The Special Marriage Act
+    # says "conditions for a special marriage" and "registration of a marriage
+    # solemnized under this Act"; a person says "can a Hindu girl marry a
+    # Muslim boy". Without these words the retrieval came back with s.19
+    # (severance from the undivided family) and s.25 (wedding).
+    "interfaith_marriage": "conditions for a special marriage registration of "
+                           "a marriage solemnized under this Act marriage "
+                           "solemnized between parties belonging to different "
+                           "religions",
     "dowry": "dowry prohibition amount punishment demand",
 }
 
@@ -2734,9 +2759,21 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
         # ranking can only reorder what came back. So the governing Act's own
         # sections are fetched by payload filter as well, and go first.
         personal_law = (state.get("slots") or {}).get("personal_law") or ""
-        if personal_law and tool == ACT_SEARCH:
+        if tool == ACT_SEARCH:
             topic_now = (state.get("slots") or {}).get("topic", "")
-            for gov in acts_for_personal_law(personal_law, topic_now):
+            # The Acts that must contribute. A personal law names one Act. A
+            # topic can name two, because two Acts often govern the same
+            # question: custody is the Hindu Minority and Guardianship Act
+            # (s.6 custody under five, s.8 the father as natural guardian) and
+            # the Guardians and Wards Act (s.17 the welfare of the minor).
+            # Vector search on a query that names both returns one of them and
+            # drops the other, so each named Act is fetched by payload filter
+            # and put first.
+            if personal_law:
+                wanted_acts = acts_for_personal_law(personal_law, topic_now)
+            else:
+                wanted_acts = acts_for_topic(topic_now)
+            for gov in wanted_acts[:2]:
                 corpus_act = _corpus_act_name(gov)
                 if not corpus_act:
                     continue

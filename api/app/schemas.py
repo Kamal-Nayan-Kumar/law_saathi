@@ -92,6 +92,11 @@ class AskIn(BaseModel):
 class AskOut(BaseModel):
     answer: str
     clarification: bool = False
+    # The question was outside family law and was redirected. The golden set
+    # has to be able to tell a redirect from an answer, and it could not:
+    # there was no field to look at, so the check fell back to searching the
+    # answer for an English phrase that only the Hindi template had.
+    oos_redirect: bool = False
     citations: List[str] = []
     citation_sources: List[str] = []
     provider: str = ""

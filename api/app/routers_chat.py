@@ -209,6 +209,7 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
     return AskOut(
         answer=state.get("answer", ""),
         clarification=bool(state.get("clarification")),
+        oos_redirect=bool(state.get("oos_redirect")),
         citations=list(state.get("citations", [])),
         citation_sources=list(state.get("citation_sources", [])),
         provider=str(state.get("provider", "")),
