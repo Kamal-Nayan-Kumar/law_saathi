@@ -632,7 +632,16 @@ def acts_for_personal_law(personal_law: str, topic: str) -> List[str]:
     return [a for a in _KNOWN_ACTS if a in anchor]
 
 
-def extract_slots(query_en: str) -> Dict[str, str]:
+def extract_slots(query_en: str, query_native: str = "") -> Dict[str, str]:
+    """The slots for a question.
+
+    ``query_native`` is the reader's own question, before the English pivot.
+    The personal law is read from it first, because the pivot is a retrieval
+    aid and it can invent a signal: "आपसी सहमति से तलाक" was pivoted to
+    "mutual consent talaq", and "talaq" is a Muslim term, so a Hindu asking
+    in Hindi looked like two religions and was routed to an inter-faith
+    marriage. The pivot does not get to decide whose law applies.
+    """
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
     sec = _SECTION_RE.search(query_en or "")
@@ -697,9 +706,10 @@ def extract_slots(query_en: str) -> Dict[str, str]:
         slots["self_side"] = self_side
     if section:
         slots["section"] = section
-    # Personal law by religion. Detect from the question itself; an act name
+    # Personal law by religion. Detect from the reader's own words first, and
+    # fall back to the English pivot only if those say nothing. An act name
     # never decides it, and the slot is what anchors retrieval below.
-    pl = detect_personal_law(query_en or "")
+    pl = detect_personal_law(query_native or "") or detect_personal_law(query_en or "")
     if pl:
         slots["personal_law"] = pl
         slots["religion"] = pl
@@ -1748,7 +1758,7 @@ def node_intent(state: Dict[str, Any],
         # Without a pivot the raw query still retrieves (e5 is multilingual):
         # measurably worse than the pivot, but far better than nothing.
     state["query_en"] = query_en.strip() or query
-    slots = extract_slots(state["query_en"])
+    slots = extract_slots(state["query_en"], query_native=query)
     # Carry-over from earlier turns only makes sense for a follow-up. A
     # standalone question must not inherit the previous topic, otherwise
     # "what can you do?" gets answered as a divorce question.

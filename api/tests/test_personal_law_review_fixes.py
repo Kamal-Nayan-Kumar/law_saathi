@@ -27,6 +27,7 @@ from app.agent import (  # noqa: E402
     _corpus_act_name,
     acts_for_topic,
     detect_personal_law,
+    extract_slots,
 )
 
 # --- 1. the Special Marriage Act wins over a single religion ---------------
@@ -110,6 +111,26 @@ def test_the_ordinary_word_for_divorce_is_not_a_muslim_marker():
     assert detect_personal_law("मैं हिंदू हूँ, तलाक कैसे लूँ?") == "hindu"
     assert detect_personal_law("मैं ईसाई हूँ, तलाक कैसे लूँ?") == "christian"
     assert detect_personal_law("मैं मुस्लिम हूँ, तलाक कैसे लूँ?") == "muslim"
+
+
+def test_the_pivot_does_not_get_to_decide_whose_law_applies():
+    """The English pivot is a retrieval aid and it invents signals.
+
+    "आपसी सहमति से तलाक" was pivoted to "mutual consent talaq". "talaq" is
+    a Muslim term, so alongside "Hindu" it read as two religions and the
+    question was routed to an inter-faith marriage under the Special
+    Marriage Act. The reader's own words decide whose law applies; the
+    pivot is only a second reading.
+    """
+    native = "मैं हिंदू हूँ, आपसी सहमति से तलाक के नियम क्या हैं?"
+    pivot = "I am Hindu, what are the rules for mutual consent talaq?"
+    # The pivot on its own would read as two religions.
+    assert detect_personal_law(pivot) == "interfaith"
+    # With the reader's own words, it does not.
+    slots = extract_slots(pivot, query_native=native)
+    assert slots["personal_law"] == "hindu", slots
+    assert acts_for_topic(slots.get("topic", ""), slots.get("personal_law", "")) \
+        == ["Hindu Marriage Act 1955"]
 
 
 # --- 7. the planner prompt names no statute that does not exist -------------
