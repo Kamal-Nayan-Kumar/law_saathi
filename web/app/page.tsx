@@ -40,8 +40,8 @@ const FEATURES = [
 ];
 
 const STATS = [
-  { icon: "users" as const, value: "52 Acts", label: "Acts in our library" },
-  { icon: "book" as const, value: "3,981", label: "In-force sections" },
+  { icon: "users" as const, value: "37 Acts", label: "Acts in our library" },
+  { icon: "book" as const, value: "1,402", label: "In-force sections" },
   { icon: "globe" as const, value: "3+", label: "Languages supported" },
   { icon: "shield" as const, value: "100%", label: "Cited answers" },
 ];
@@ -90,7 +90,7 @@ const FAQS = [
   },
   {
     q: "Which family laws are covered?",
-    a: "Marriage, divorce, custody, maintenance, adoption, succession, domestic violence and senior-citizen protection — from 52 in-force acts including the Hindu Marriage Act, PWDV Act, Guardians & Wards Act, Hindu Succession Act and the Maintenance and Welfare of Parents and Senior Citizens Act.",
+    a: "Marriage, divorce, custody, maintenance, adoption, succession, domestic violence and senior-citizen protection — from 37 in-force acts including the Hindu Marriage Act, PWDV Act, Guardians & Wards Act, Hindu Succession Act, the Indian Christian Marriage Act and the Maintenance and Welfare of Parents and Senior Citizens Act.",
   },
   {
     q: "Where do the answers come from?",

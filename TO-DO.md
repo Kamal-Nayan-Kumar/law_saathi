@@ -200,16 +200,17 @@ one, use `--offline`, which checks routing with no network at all.
 
 ### 5a. Does Law Saathi cover Christian family law?
 
-The corpus has always held the Indian Christian Marriage Act, 1872 — 223 chunks,
-the second-largest source. But it appears in no plan document, `SCOPE.md` omits
-it, and nothing in the agent selects personal law by religion.
+The corpus has always held the Indian Christian Marriage Act, 1872 (121 chunks)
+and the Divorce Act, 1869 (106 chunks). But it appeared in no plan document,
+`SCOPE.md` omitted it, and nothing in the agent selected personal law by
+religion.
 
-The consequence today: *"I am a Christian man, how do I get a divorce?"*
-answers with **Hindu Marriage Act s.13B**. The Indian Divorce Act is retrieved
-too, ranked sixth, but the wrong Act wins on similarity. India applies different
-personal law by religion, so this is the same class of error as citing a Bill —
-a confident statement of the wrong law — and it reaches a real person deciding
-how to end a marriage.
+The consequence, until this change: *"I am a Christian man, how do I get a
+divorce?"* answered with **Hindu Marriage Act s.13B**. The Divorce Act was
+retrieved too, ranked sixth, but the wrong Act won on similarity. India applies
+different personal law by religion, so this was the same class of error as
+citing a Bill — a confident statement of the wrong law — and it reached a real
+person deciding how to end a marriage.
 
 Two ways forward, and I have not chosen because both are defensible:
 
@@ -221,22 +222,37 @@ Two ways forward, and I have not chosen because both are defensible:
 Whichever is chosen, it needs a golden question each way so the answer cannot
 drift back silently. Nothing in the eval set currently covers religion.
 
-**Mechanism now exists (implementation agent).** A `personal_law` slot is
-detected from the question text (Hindu, Christian, Muslim, Parsi,
-inter-religious/inter-caste) in English, Hindi and Kannada, including native
-scripts and unambiguous implications (e.g. talaq/khula -> Muslim). It is
-stored in `state["slots"]`. When present and known, the governing Act for a
-marriage/divorce/succession question becomes that personal law's Act and
-`search_acts` is anchored to it (Indian Christian Marriage Act 1872 / Indian
-Divorce Act 1869, Dissolution of Muslim Marriages Act 1939, Parsi Marriage and
-Divorce Act 1936, Special Marriage Act 1954, etc.). When it is absent on a
-personal-law topic, the agent asks a short clarifying question naming the
-options instead of defaulting to Hindu law; inter-religious questions route to
-the Special Marriage Act 1954. The open decision remains which of the two
-options to adopt: with "cover every religion" the mechanism answers from the
-right Act; with "Hindu law only" the redirect path is the alternative, and
-the slot can be used to redirect non-Hindu questions explicitly. The decision
-itself is still open.
+**Mechanism now exists and is verified.** A `personal_law` slot is detected
+from the reader's own words (Hindu, Christian, Muslim, Parsi,
+inter-religious/inter-caste) in English, Hindi and Kannada, in Latin and native
+scripts. It is stored in `state["slots"]`.
+
+- The governing Act for a marriage, divorce, succession or adoption question
+  becomes that personal law's Act: Indian Christian Marriage Act 1872 and
+  Divorce Act 1869 for a Christian, Dissolution of Muslim Marriages Act 1939
+  for a Muslim, Parsi Marriage and Divorce Act 1936 for a Parsi, Special
+  Marriage Act 1954 for an inter-faith or court marriage, the Juvenile Justice
+  Act 2015 for a non-Hindu adoption (the Hindu Adoptions and Maintenance Act
+  1956 applies to Hindus only).
+- The governing Act's sections are **fetched by payload filter**, not merely
+  named in the query. On similarity alone "I am a Christian man, how do I get
+  a divorce?" retrieved the Hindu Marriage Act, because that is what the words
+  sit closest to.
+- When the personal law is absent on a personal-law topic, the agent asks one
+  short question naming the options instead of defaulting to Hindu law. The
+  question asks for the religion or the way the marriage was solemnised, not
+  for "personal law", which is jargon.
+- The slot is read from the reader's own words, not from the English pivot.
+  The pivot turned "आपसी सहमति से तलाक" into "mutual consent talaq", and
+  "talaq" is a Muslim term, so a Hindu asking in Hindi looked like two
+  religions and was routed to an inter-faith marriage.
+- Five golden questions cover the personal-law paths (Christian, Muslim in
+  English and Hindi, Parsi, inter-faith, and the clarification case).
+
+The open decision remains which of the two options to adopt: with "cover
+every religion" the mechanism answers from the right Act; with "Hindu law
+only" the redirect path is the alternative, and the slot can be used to
+redirect non-Hindu questions explicitly. The decision itself is still open.
 
 ### 5b. Drop the pending Bill from the corpus
 
