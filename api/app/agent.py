@@ -35,6 +35,9 @@ GROQ_FALLBACK_MODELS_DEFAULT = "openai/gpt-oss-20b,qwen/qwen3.8-27b"
 # fallback should still be a model that can reason over five passages.
 OPENROUTER_MODEL = os.environ.get(
     "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+# OpenRouter meters credit per model too, and a single model running out
+# must not take the provider out. This list is tried in turn on the same key.
+OPENROUTER_FALLBACK_MODELS_DEFAULT = "openai/gpt-oss-120b,qwen/qwen3.8-27b"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 # Last-resort provider: OpenCode Zen's free tier costs nothing per token, so
@@ -931,6 +934,21 @@ _PROVIDER_FAILURES: Dict[str, float] = {}
 _PROVIDER_COOLDOWN = float(os.environ.get("LAWSAATHI_PROVIDER_COOLDOWN", "60"))
 
 
+def _provider_skip_reason(name: str) -> str:
+    """Why a provider is being skipped, or "" if it is available.
+
+    The circuit breaker used to skip a provider silently, so a five-minute
+    outage looked like "no LLM backend" with nothing in the log to explain
+    it. Saying which provider was skipped and for how long is the
+    difference between a two-minute diagnosis and a half-hour one.
+    """
+    until = _PROVIDER_FAILURES.get(name, 0.0)
+    left = until - time.monotonic()
+    if left <= 0:
+        return ""
+    return "in cooldown for %.0fs" % left
+
+
 def _provider_available(name: str) -> bool:
     until = _PROVIDER_FAILURES.get(name, 0.0)
     if until <= time.monotonic():
@@ -976,6 +994,25 @@ def _message_text(data: Dict[str, Any]) -> str:
             if isinstance(alt, str) and alt.strip():
                 return alt.strip()
     return text
+
+
+def _openrouter_models() -> List[str]:
+    """OpenRouter models to try, in order, on one API key.
+
+    A model that runs out of credit is that model's problem, not the
+    provider's. On 2026-10-21 a single 402 from one model put the whole
+    provider in a five-minute cooldown, and every question after it fell
+    back to the template answer even though the same key answered a
+    moment later. So the models are tried in turn, exactly as Groq's are,
+    and the provider is only marked down when every model has failed.
+    """
+    models = [OPENROUTER_MODEL]
+    raw = os.environ.get("OPENROUTER_FALLBACK_MODELS",
+                          OPENROUTER_FALLBACK_MODELS_DEFAULT)
+    for m in (x.strip() for x in raw.split(",")):
+        if m and m not in models:
+            models.append(m)
+    return models
 
 
 def _groq_models() -> List[str]:
@@ -1054,29 +1091,43 @@ def chat_complete(messages: List[Dict[str, str]],
                                model, e)
         _mark_failed("groq", last_error)
         logger.warning("agent every groq model failed; trying openrouter")
-    if (or_key or http_post is not None) and _provider_available("openrouter"):
-        try:
-            data = post(
-                OPENROUTER_URL + "/chat/completions",
-                {"Authorization": "Bearer " + or_key,
-                 "Content-Type": "application/json",
-                 "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
-                 "X-Title": "LawSaathi"},
-                {"model": OPENROUTER_MODEL, "messages": messages,
-                 "temperature": 0.2, "max_tokens": budget},
-            )
-            text = _message_text(data)
-            if not text:
-                raise RuntimeError("openrouter returned no content")
-            logger.info("agent llm provider=openrouter model=%s", OPENROUTER_MODEL)
-            _mark_healthy("openrouter")
-            return text, "openrouter:" + OPENROUTER_MODEL
-        except Exception as e:  # noqa: BLE001 — fallback must catch all
-            last_error = e
-            _mark_failed("openrouter", e)
-            logger.warning("agent openrouter failed (%r); trying opencode", e)
+    if or_key or http_post is not None:
+        skip = _provider_skip_reason("openrouter")
+        if skip:
+            logger.warning("agent skipping openrouter (%s)", skip)
+        elif _provider_available("openrouter"):
+            for model in _openrouter_models():
+                try:
+                    data = post(
+                        OPENROUTER_URL + "/chat/completions",
+                        {"Authorization": "Bearer " + or_key,
+                         "Content-Type": "application/json",
+                         "HTTP-Referer": "https://github.com/Kamal-Nayan-Kumar/law_saathi",
+                         "X-Title": "LawSaathi"},
+                        {"model": model, "messages": messages,
+                         "temperature": 0.2, "max_tokens": budget},
+                    )
+                    text = _message_text(data)
+                    if not text:
+                        raise RuntimeError("openrouter returned no content")
+                    logger.info("agent llm provider=openrouter model=%s", model)
+                    _mark_healthy("openrouter")
+                    return text, "openrouter:" + model
+                except Exception as e:  # noqa: BLE001 - fallback must catch all
+                    last_error = e
+                    # One model's credit running out is not the provider's
+                    # fault. Try the next model on the same key before
+                    # giving up on OpenRouter altogether.
+                    logger.warning(
+                        "agent openrouter %s failed (%r); trying next model",
+                        model, e)
+            _mark_failed("openrouter", last_error)
+            logger.warning("agent every openrouter model failed; trying opencode")
     # Free last resort: a rate-limited Groq/OpenRouter should not end the chat.
-    if _provider_available("opencode"):
+    skip = _provider_skip_reason("opencode")
+    if skip:
+        logger.warning("agent skipping opencode (%s)", skip)
+    elif _provider_available("opencode"):
         try:
             text, provider = opencode_complete(messages, http_post=post,
                                                timeout=timeout,
@@ -1087,9 +1138,13 @@ def chat_complete(messages: List[Dict[str, str]],
             last_error = e
             _mark_failed("opencode", e)
             logger.warning("agent opencode failed (%r)", e)
-    raise RuntimeError("no LLM backend (OPENROUTER_API_KEY/GROQ_API_KEY/"
-                       "OPENCODE_API_KEY empty; pass http_post in tests) :: %r"
-                       % (last_error,))
+    # Name what actually happened. The old message blamed empty keys, which
+    # sent the reader looking for a missing secret when the providers were
+    # really in cooldown.
+    detail = "; ".join(
+        "%s %s" % (name, _provider_skip_reason(name) or "failed")
+        for name in ("groq", "openrouter", "opencode"))
+    raise RuntimeError("no LLM backend (%s) :: %r" % (detail, last_error))
 
 
 TRACE_MODES = ("off", "errors", "all")

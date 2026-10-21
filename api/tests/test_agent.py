@@ -319,11 +319,51 @@ def test_opencode_is_the_free_last_resort():
     # Every model and provider is reachable once (the cooldown is per provider,
     # and this is the first call for each). Groq is tried model by model first,
     # because one model spending its daily allowance is not the key being dead.
+    # OpenRouter is tried model by model for the same reason: a 402 from one
+    # model is that model's credit running out, and it is not a reason to take
+    # the whole provider out of the chain.
     n_models = len(agent_module._groq_models())
-    assert len(order) == n_models + 2, order
+    n_or_models = len(agent_module._openrouter_models())
+    assert len(order) == n_models + n_or_models + 1, order
+    assert order[-1].startswith("https://opencode.ai/"), order
+    groq_calls = [u for u in order if "groq" in u]
+    or_calls = [u for u in order if "openrouter" in u]
+    assert len(groq_calls) == n_models, order
+    assert len(or_calls) == n_or_models, order
     assert all("groq" in u for u in order[:n_models]), order
     assert "openrouter" in order[n_models]
-    assert "opencode" in order[n_models + 1], order
+    assert "opencode" in order[n_models + n_or_models], order
+
+
+def test_one_openrouter_model_out_of_credit_does_not_take_the_provider_out():
+    """A 402 is that model's credit running out.
+
+    On 2026-10-21 one 402 put OpenRouter in a five-minute cooldown and
+    every question after it fell back to the template answer, even though
+    the same key answered a moment later. The next model on the same key is
+    tried instead, and the provider is only marked down when every model
+    has failed.
+    """
+    from app import agent as agent_module
+
+    agent_module._PROVIDER_FAILURES.clear()
+    tried = []
+
+    def one_model_has_no_credit(url, headers, payload):
+        if "openrouter" in url:
+            tried.append(payload.get("model"))
+            if len(tried) == 1:
+                raise RuntimeError("402 Payment Required")
+            return {"choices": [{"message": {"content": "answered"}}]}
+        raise RuntimeError("503 upstream down")
+
+    text, provider = chat_complete([{"role": "user", "content": "hi"}],
+                                   http_post=one_model_has_no_credit)
+    assert provider.startswith("openrouter:"), provider
+    assert text == "answered"
+    assert len(tried) == 2, tried
+    # The provider is healthy, not in cooldown.
+    assert agent_module._provider_skip_reason("openrouter") == ""
 
 
 def test_opencode_completion_returns_text_and_provider():
