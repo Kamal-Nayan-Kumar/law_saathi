@@ -113,12 +113,18 @@ ICMA 16–19; PMDA 13–19; DMMA 2, 7), plus:
 | Act | Governs | in vaquill? |
 | --- | --- | --- |
 | Indian Divorce Act, 1869 | divorce for Christians in India | **yes** (95) |
-| Special Marriage (Amendment) Act, 2018 | **the mutual-consent rewrite; created SMA s.28A** | **ABSENT** |
 | Special Marriage (Amendment) Act, 2021 | adultery, no maintenance to the erring spouse | **ABSENT** |
 
-`corpus/amendments.jsonl` exists precisely because these two are absent — the
-dataset carries the pre-2018 SMA text. Hand-written notices are a workaround
-for a missing source, not a fix.
+`corpus/amendments.jsonl` carries what a bare text cannot: the current timing
+figures for mutual-consent divorce and the case-law rule on waiver.
+
+There was never a *Special Marriage (Amendment) Act, 2018*. Act 2 of 2019 is
+the National Council for Teacher Education (Amendment) Act, 2019, and the 2018
+Special Marriage (Amendment) Bill was a private member's bill on section 4 (age
+of marriage) that was never passed. SMA s.28A is not in force either: the
+Marriage Laws (Amendment) Bill that would have inserted it lapsed in 2014.
+Delhi HC, *Suman Sankar Bhunia v. Debarati Bhunia Chakraborty* (27.11.2025),
+records that s.28A "does not exist on the statute book".
 
 ### 1.4 Custody and guardianship
 
@@ -240,7 +246,7 @@ the ~10 acts vaquill lacks from India Code directly, (c) dropping enerscript,
 | Muslim Inheritance (Succession to Property) Act, 1926 | Muslim succession | India Code |
 | Child Marriage (Prohibition) Act, 1929 | the real child-marriage statute | India Code |
 | Hindu Succession (Amendment) Act, 2005 | daughters as coparceners | India Code |
-| Special Marriage (Amendment) Act, 2018 | s.28A, the 2019 rewrite | India Code / gazette |
+| Marriage Laws (Amendment) Act, 1976 | the mutual-consent timing figures, Act 68 of 1976 | India Code |
 | Special Marriage (Amendment) Act, 2021 | adultery maintenance bar | India Code |
 | Marriage Laws (Amendment) Act, 2007 | inter-caste, s.3 | India Code |
 | Indian Christian Succession Act, 1926 | Christian intestacy abroad | India Code |
