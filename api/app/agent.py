@@ -207,7 +207,11 @@ _ACT_NAME_RE = re.compile(
     r"hindu\s+adoption\s+and\s+maintenance\s+act|"
     r"hindu\s+succession\s+act|guardians\s+and\s+wards\s+act|"
     r"domestic\s+violence\s+act|indian\s+divorce\s+act|"
-    r"hindu\s+minority\s+act", re.IGNORECASE)
+    r"hindu\s+minority\s+act|indian\s+christian\s+marriage\s+act|"
+    r"parsi\s+marriage\s+and\s+divorce\s+act|"
+    r"dissolution\s+of\s+muslim\s+marriages\s+act|"
+    r"muslim\s+women\s+\(protection\s+of\s+rights\s+on\s+divorce\)\s+act|"
+    r"muslim\s+personal\s+law\s+\(shariat\)\s+application\s+act", re.IGNORECASE)
 
 
 def _section_topic(section: str) -> Optional[str]:
@@ -431,6 +435,136 @@ def _fear_points_at_a_person(query_en: str) -> bool:
     return any(p in low for p in _FEAR_IS_PERSONAL)
 
 
+# Detection of the personal law that governs a question. Kept as its own
+# function so tests and callers can ask for it directly. Returns one of
+# "hindu", "christian", "muslim", "parsi", "interfaith", or "" when the
+# question does not say.
+_PERSONAL_LAW_PATTERNS = (
+    # inter-religious / inter-caste -> Special Marriage Act 1954
+    ("interfaith", (
+        "different religion", "different faith", "inter religious",
+        "inter-religious", "interfaith", "other religion", "inter caste",
+        "inter-caste", "different caste", "hindu and muslim",
+        "hindu muslim", "hindu and christian", "christian and muslim",
+        "अलग धर्म", "अंतर-धार्मिक", "अंतरधार्मिक", "हिंदू मुस्लिम",
+        "हिंदू ईसाई", "ಬೇರೆ ಧರ್ಮ", "ಅಂತರಧರ್ಮ", "ಹಿಂದೂ ಮುಸ್ಲಿಂ",
+        "ಹಿಂದೂ ಕ್ರಿಶ್ಚಿಯನ್", "special marriage act")),
+    ("christian", (
+        "christian", "roman catholic", "catholic", "protestant",
+        "ईसाई", "कैथोलिक", "प्रोटेस्टेंट", "ಕ್ರಿಸ್ತಿಯ", "ಕ್ರಿಶ್ಚಿಯ",
+        "ಕ್ಯಾಥಲಿಕ್", "protestant")),
+    ("muslim", (
+        "muslim", "islam", "islamic", "मुस्लिम", "इस्लाम", "मुसलमान",
+        "ಮುಸ್ಲಿಂ", "ಇಸ್ಲಾಂ", "ಮುಸ್ಲಿಮ್", "nikah", "nikaha", "talaq",
+        "talak", "khula", "mubaraat", "mubarat", "iddat", "mahr", "mehr",
+        "तलाक", "खुला", "ನಿಕಾಹ", "ತಲಾಕ್", "ಖುಲಾ")),
+    ("parsi", (
+        "parsi", "zoroastrian", "पारसी", "ಪಾರ್ಸಿ", "zoroastrianism")),
+    ("hindu", (
+        "hindu", "हिंदू", "ಹಿಂದೂ")),
+)
+
+
+def detect_personal_law(text: str) -> str:
+    """Return the personal law named or implied by ``text``.
+
+    Empty string when nothing is said. Inter-religious/inter-caste is
+    detected before any single religion so 'Hindu girl marrying a Muslim
+    boy' is not misread as Hindu law.
+    """
+    low = (text or "").lower()
+    # Implication: a question naming two different religions is inter-faith.
+    religion_hits = set()
+    if any(w in low for w in ("hindu", "हिंदू", "ಹಿಂದೂ")):
+        religion_hits.add("hindu")
+    if any(w in low for w in ("christian", "catholic", "protestant",
+                               "ईसाई", "ಕ್ರಿಸ್ತಿಯ", "ಕ್ರಿಶ್ಚಿಯ")):
+        religion_hits.add("christian")
+    if any(w in low for w in ("muslim", "islam", "मुस्लिम", "इस्लाम",
+                               "ಮುಸ್ಲಿಂ", "ಇಸ್ಲಾಂ")):
+        religion_hits.add("muslim")
+    if any(w in low for w in ("parsi", "पारसी", "ಪಾರ್ಸಿ")):
+        religion_hits.add("parsi")
+    if len(religion_hits) == 1:
+        return next(iter(religion_hits))
+    if len(religion_hits) >= 2:
+        return "interfaith"
+    for value, patterns in _PERSONAL_LAW_PATTERNS:
+        if any(p in low for p in patterns):
+            return value
+    return ""
+
+
+# Alias used by some callers / tests.
+detect_religion = detect_personal_law
+
+
+_PERSONAL_LAW_ACTS = {
+    "hindu": {
+        "marriage": "Hindu Marriage Act 1955",
+        "divorce": "Hindu Marriage Act 1955",
+        "succession": "Hindu Succession Act 1956",
+        "maintenance": "Hindu Adoption and Maintenance Act 1956",
+    },
+    "christian": {
+        "marriage": "Indian Christian Marriage Act 1872",
+        "divorce": "Indian Divorce Act 1869",
+        "succession": "Indian Succession Act 1925",
+        # CrPC 125 / BNSS 144 applies to every woman in India regardless of
+        # religion (Sajjan Singh v. State of Punjab; Mohd. Abdul Samad 2024),
+        # so the secular maintenance route belongs here too.
+        "maintenance": ("Indian Divorce Act 1869 "
+                        "Bharatiya Nagarik Suraksha Sanhita 2023"),
+    },
+    "muslim": {
+        "marriage": "Muslim Personal Law (Shariat) Application Act 1937",
+        "divorce": ("Dissolution of Muslim Marriages Act 1939 "
+                    "Muslim Personal Law (Shariat) Application Act 1937 "
+                    "Muslim Women (Protection of Rights on Divorce) Act 1986"),
+        # NOT the Indian Succession Act 1925. Section 2(1)(a) of that Act
+        # expressly excludes persons subject to the Muslim personal law, so
+        # sending a Muslim inheritance question there is the "Hindu vs Muslim
+        # rules differ - never mix" failure CONTEXT.md warns about. The Act
+        # that applies the Muslim law of succession is the Shariat Application
+        # Act 1937; the detailed statute (Muslim Inheritance (Succession to
+        # Property) Act 1926) is not in our corpus, and the answer has to say
+        # so rather than reach for a statute that does not apply.
+        "succession": "Muslim Personal Law (Shariat) Application Act 1937",
+        "maintenance": ("Muslim Women (Protection of Rights on Divorce) Act 1986 "
+                        "Bharatiya Nagarik Suraksha Sanhita 2023"),
+    },
+    "parsi": {
+        "marriage": "Parsi Marriage and Divorce Act 1936",
+        "divorce": "Parsi Marriage and Divorce Act 1936",
+        "succession": "Indian Succession Act 1925",
+        "maintenance": "Parsi Marriage and Divorce Act 1936",
+    },
+    "interfaith": {
+        "marriage": "Special Marriage Act 1954",
+        "divorce": "Special Marriage Act 1954",
+        "succession": "Indian Succession Act 1925",
+        "maintenance": "Special Marriage Act 1954",
+    },
+}
+
+
+def personal_law_acts(personal_law: str, topic: str) -> str:
+    """Act string for a personal law + topic, or '' if none."""
+    pl = (personal_law or "").strip().lower()
+    t = (topic or "").strip().lower()
+    if t == "interfaith_marriage":
+        t = "marriage"
+    mapping = _PERSONAL_LAW_ACTS.get(pl, {})
+    return mapping.get(t, "") if isinstance(mapping, dict) else ""
+
+
+def acts_for_personal_law(personal_law: str, topic: str) -> List[str]:
+    anchor = personal_law_acts(personal_law, topic)
+    if not anchor:
+        return []
+    return [a for a in _KNOWN_ACTS if a in anchor]
+
+
 def extract_slots(query_en: str) -> Dict[str, str]:
     low = (query_en or "").lower()
     slots: Dict[str, str] = {}
@@ -496,6 +630,12 @@ def extract_slots(query_en: str) -> Dict[str, str]:
         slots["self_side"] = self_side
     if section:
         slots["section"] = section
+    # Personal law by religion. Detect from the question itself; an act name
+    # never decides it, and the slot is what anchors retrieval below.
+    pl = detect_personal_law(query_en or "")
+    if pl:
+        slots["personal_law"] = pl
+        slots["religion"] = pl
     return slots
 
 
@@ -553,19 +693,24 @@ def missing_for(slots: Dict[str, str], query_en: str,
         if _ACT_NAME_RE.search(query_en or ""):
             return []
         return ["topic"]
+    missing: List[str] = []
+    if topic in ("marriage", "divorce", "succession", "interfaith_marriage") and not slots.get("personal_law"):
+        # One question at a time, and personal law comes first on purpose.
+        # "Mutual or contested" is a different question under each personal
+        # law, so asking it before we know the law is asking it wrongly.
+        return ["personal_law"]
     if topic == "divorce" and not slots.get("divorce_type"):
         # Only worth asking when the question is actually about getting a divorce.
         # "My husband hits me" is a domestic-violence matter that merely sounds
         # like a marriage dispute, and asking a frightened person whether her
         # divorce is mutual or contested was both useless and badly timed.
         if _is_divorce_process_question(query_en or ""):
-            return ["divorce_type"]
-        return []
+            missing.append("divorce_type")
     words = (query_en or "").split()
     if topic in ("divorce", "maintenance", "custody") \
             and not slots.get("parties") and len(words) < 6:
-        return ["parties"]
-    return []
+        missing.append("parties")
+    return missing
 
 
 # Asking "is this mutual or contested?" for a bare "how do I get a divorce" is
@@ -591,15 +736,24 @@ CLARIFY_TEMPLATES = {
     "en": {"topic": "What is this about — divorce, maintenance, custody, "
                     "adoption, succession, or domestic violence?",
            "divorce_type": "Is this a mutual-consent divorce or a contested one?",
-           "parties": "Who is asking — husband, wife, or guardian?"},
+           "parties": "Who is asking — husband, wife, or guardian?",
+           "personal_law": "Which personal law applies to you — Hindu, "
+                           "Christian, Muslim, Parsi, or an inter-faith "
+                           "marriage under the Special Marriage Act?"},
     "hi": {"topic": "यह किस बारे में है — तलाक, भरण-पोषण, अभिरक्षा, "
                     "गोद लेना, उत्तराधिकार या घरेलू हिंसा?",
            "divorce_type": "क्या यह आपसी सहमति से तलाक है या विवादित तलाक?",
-           "parties": "कौन पूछ रहा है — पति, पत्नी या अभिभावक?"},
+           "parties": "कौन पूछ रहा है — पति, पत्नी या अभिभावक?",
+           "personal_law": "आप पर कौन सा व्यक्तिगत कानून लागू होता है — "
+                           "हिंदू, ईसाई, मुस्लिम, पारसी, या विशेष विवाह "
+                           "अधिनियम के तहत अंतर-धार्मिक विवाह?"},
     "kn": {"topic": "ಇದು ಯಾವುದರ ಬಗ್ಗೆ — ವಿಚ್ಛೇದನ, ಜೀವನಾಂಶ, ಪಾಲನೆ, "
                     "ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಅಥವಾ ಕೌಟುಂಬಿಕ ಹಿಂಸೆ?",
            "divorce_type": "ಇದು ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನವೇ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನವೇ?",
-           "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?"},
+           "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?",
+           "personal_law": "ನಿಮಗೆ ಯಾವ ವೈಯಕ್ತಿಕ ಕಾನೂನು ಅನ್ವಯ — ಹಿಂದೂ, "
+                           "ಕ್ರಿಶ್ಚಿಯನ್, ಮುಸ್ಲಿಂ, ಪಾರ್ಸಿ, ಅಥವಾ ವಿಶೇಷ "
+                           "ವಿವಾಹ ಕಾಯ್ದೆಯಡಿ ಅಂತರಧರ್ಮ ವಿವಾಹ?"},
 }
 
 _CLARIFY_LEAD = {
@@ -1685,7 +1839,11 @@ TOPIC_ACT = {
 
 _ALL_ACTS = ("Hindu Marriage Act 1955 Special Marriage Act 1954 Hindu Adoption "
              "and Maintenance Act 1956 Hindu Succession Act 1956 Guardians and "
-             "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869")
+             "Wards Act 1890 Domestic Violence Act 2005 Indian Divorce Act 1869 "
+             "Indian Christian Marriage Act 1872 Parsi Marriage and Divorce Act "
+             "1936 Dissolution of Muslim Marriages Act 1939 Muslim Personal Law "
+             "(Shariat) Application Act 1937 Muslim Women (Protection of Rights "
+             "on Divorce) Act 1986 Indian Succession Act 1925")
 
 # The legal words the Acts actually use, per topic.
 #
@@ -1719,7 +1877,8 @@ def concepts_for_topic(topic: str) -> str:
     return TOPIC_CONCEPTS.get(topic or "", "")
 
 
-def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
+def broaden_query(query_en: str, retries: int, topic: str = "",
+                 personal_law: str = "") -> str:
     """Shape the retrieval query.
 
     Always anchor to the act that governs the detected topic, so a stray
@@ -1731,7 +1890,11 @@ def broaden_query(query_en: str, retries: int, topic: str = "") -> str:
     legal language, and "custody" does not retrieve a section that says
     "welfare of the minor" — see TOPIC_CONCEPTS.
     """
-    anchor = TOPIC_ACT.get(topic or "", "")
+    anchor = ""
+    if personal_law:
+        anchor = personal_law_acts(personal_law, topic)
+    if not anchor:
+        anchor = TOPIC_ACT.get(topic or "", "")
     concepts = concepts_for_topic(topic)
     if retries <= 0:
         parts = [query_en, anchor, concepts]
@@ -1775,11 +1938,23 @@ _KNOWN_ACTS = (
     "Hindu Minority and Guardianship Act 1956",
     "Muslim Women (Protection of Rights on Divorce) Act 1986",
     "Bharatiya Nagarik Suraksha Sanhita 2023",
+    "Indian Christian Marriage Act 1872",
+    "Parsi Marriage and Divorce Act 1936",
+    "Dissolution of Muslim Marriages Act 1939",
+    "Muslim Personal Law (Shariat) Application Act 1937",
 )
 
 
-def acts_for_topic(topic: str) -> List[str]:
-    """The acts that govern a topic, split out of the TOPIC_ACT anchor."""
+def acts_for_topic(topic: str, personal_law: Optional[str] = None) -> List[str]:
+    """The acts that govern a topic, split out of the TOPIC_ACT anchor.
+
+    When a personal law is known it overrides the default (Hindu) anchor for
+    marriage/divorce/succession questions.
+    """
+    if personal_law:
+        pl_acts = acts_for_personal_law(personal_law, topic)
+        if pl_acts:
+            return pl_acts
     anchor = TOPIC_ACT.get(topic or "", "")
     return [a for a in _KNOWN_ACTS if a in anchor]
 
@@ -1822,8 +1997,9 @@ def default_plan(state: Dict[str, Any]) -> Dict[str, Any]:
     keyword-detected topic, then search the web as well.
     """
     topic = (state.get("slots") or {}).get("topic", "")
+    personal_law = (state.get("slots") or {}).get("personal_law") or (state.get("slots") or {}).get("religion")
     query_en = state.get("query_en") or state.get("query", "")
-    acts = acts_for_topic(topic)
+    acts = acts_for_topic(topic, personal_law=personal_law)
     steps = [{"tool": ACT_SEARCH, "query": query_en, "why": "",
               "act": acts[0] if acts else ""}]
     if not state.get("doc_id"):
@@ -1916,7 +2092,8 @@ PLAN_SYSTEM = (
     "  * Maintenance: Hindu Adoption and Maintenance Act 1956 for Hindus. For all Indian citizens regardless of religion, Section 144 BNSS 2023 (formerly Section 125 CrPC) applies, and under Supreme Court Mohd. Abdul Samad 2024, divorced Muslim women can claim monthly maintenance.\n"
     "  * Senior citizens & parents: Maintenance and Welfare of Parents and Senior Citizens Act 2007 (tribunal maintenance and Section 23 void transfer of property).\n"
     "  * Custody of a minor: Hindu Minority and Guardianship Act 1956 (Section 6: custody under 5 ordinarily with mother) and Guardians and Wards Act 1890 (Section 17: paramount welfare of minor).\n"
-    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 otherwise.\n"
+    "  * Inheritance: Hindu Succession Act 1956 for Hindus (Section 6 equal coparcenary rights for daughters), Indian Succession Act 1925 for Christians and Parsees. It does NOT apply to Muslims: Section 2(1)(a) excludes anyone subject to the Muslim personal law. A Muslim inheritance question is governed by the Muslim Personal Law (Shariat) Application Act 1937, and the detailed Muslim Inheritance (Succession to Property) Act 1926 is not in our corpus - say so and point to the Shariat Application Act rather than answering from the wrong statute.\n"
+    "  * Personal law by religion: Hindu -> Hindu Marriage Act 1955 / Hindu Succession Act 1956; Christian -> Indian Christian Marriage Act 1872 / Indian Divorce Act 1869; Muslim -> Dissolution of Muslim Marriages Act 1939 / Muslim Personal Law (Shariat) Application Act 1937 / Muslim Women (Protection of Rights on Divorce) Act 1986; Parsi -> Parsi Marriage and Divorce Act 1936; inter-faith or inter-caste -> Special Marriage Act 1954. Never answer a Christian, Muslim or Parsi question with the Hindu Marriage Act.\n"
     "  * Protection orders, and which court: Domestic Violence Act 2005.\n"
     "  * Dowry: Dowry Prohibition Act 1961.\n"
     "- If the user's question is governed by a statute we do not hold, pick "
@@ -1944,6 +2121,8 @@ def plan_search(state: Dict[str, Any],
         return fallback
     slots = state.get("slots") or {}
     bits = ["Topic so far: %s" % (slots.get("topic") or "unclear")]
+    if slots.get("personal_law"):
+        bits.append("Personal law: %s." % slots["personal_law"])
     if slots.get("section"):
         bits.append("User named section %s." % slots["section"])
     if slots.get("divorce_type"):
@@ -2349,7 +2528,8 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
             # and the statute's own vocabulary for the topic — including on the
             # first pass, where this previously did nothing.
             query = broaden_query(query, int(state.get("retries") or 0),
-                                  (state.get("slots") or {}).get("topic", ""))
+                                  (state.get("slots") or {}).get("topic", ""),
+                                  (state.get("slots") or {}).get("personal_law", ""))
         shown = query[:80]
         if tool == WEB_SEARCH:
             ws = web_search or stub_web_search

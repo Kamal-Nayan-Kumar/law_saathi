@@ -125,6 +125,18 @@ def check(item: Dict[str, Any], result: Dict[str, Any]) -> List[str]:
                 problems.append(f"answered out-of-scope question, mentioned {banned!r}")
         return problems
 
+    # A question whose whole point is that the agent must ASK something.
+    # Without this, an entry with no must_include and no must_not passes on
+    # any answer at all, which is how a golden question ends up asserting
+    # nothing while looking like it asserts something.
+    asked = [a for a in item.get("must_ask_any", []) if a]
+    if asked:
+        if not result.get("clarification"):
+            problems.append("should have asked the user, but answered instead")
+        elif not any(a.lower() in low for a in asked):
+            problems.append(f"asked, but not about any of {asked!r}")
+        return problems
+
     for term in item.get("must_include_terms", []):
         if term.lower() not in low and term.lower() not in citations.lower():
             problems.append(f"missing term {term!r}")

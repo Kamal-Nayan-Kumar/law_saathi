@@ -209,29 +209,85 @@ GOLDEN_QAS: List[Dict[str, Any]] = [
         "note": "Must redirect.",
     },
     # --- Personal law by religion -------------------------------------------
-    # India applies different personal law by religion. A Christian's divorce
-    # is governed by the Indian Divorce Act, 1869 and the Indian Christian
-    # Marriage Act, 1872 — never by the Hindu Marriage Act.
-    #
-    # This entry documents a KNOWN, UNFIXED defect and is expected to fail. It
-    # is here so the defect is visible in a test run rather than discovered by a
-    # Christian user. Fixing it is a product decision, not a patch: see
-    # TO-DO.md §5a. When either outcome is chosen, replace these assertions with
-    # the behaviour that decision implies.
+    # India applies different personal law by religion. These entries name a
+    # section of the Act that actually governs, so an answer that cites the
+    # Hindu Marriage Act for a Christian/Muslim/Parsi/inter-faith question
+    # fails the golden set.
     {
         "id": "divorce-christian-en",
         "lang": "en",
         "persona": "Christian man, 40, Kochi. Married under the Indian "
                    "Christian Marriage Act, wants to know his grounds.",
         "query": "I am a Christian man, how do I get a divorce?",
+        "must_include_any": ["10"],
+        "must_include_terms": ["Divorce Act", "Christian"],
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.6,
+        "note": "Christian divorce is governed by the Indian Divorce Act, 1869 "
+                "(Section 10 grounds) — never the Hindu Marriage Act.",
+    },
+    {
+        "id": "divorce-muslim-en",
+        "lang": "en",
+        "persona": "Muslim woman, 30, Lucknow. Wants to end the marriage.",
+        "query": "I am a Muslim woman, how do I get a divorce?",
+        "must_include_any": ["2"],
+        "must_include_terms": ["Dissolution of Muslim Marriages"],
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.6,
+        "note": "Muslim divorce is governed by the Dissolution of Muslim "
+                "Marriages Act, 1939 (Section 2 grounds).",
+    },
+    {
+        "id": "divorce-muslim-hi",
+        "lang": "hi",
+        "persona": "मुस्लिम महिला, 28, लखनऊ।",
+        "query": "मैं मुस्लिम हूँ, तलाक कैसे लूँ?",
+        "must_include_any": ["2"],
+        "must_include_terms": ["Dissolution of Muslim Marriages"],
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.6,
+        "note": "Hindi path: Muslim divorce routes to the Dissolution of "
+                "Muslim Marriages Act, 1939.",
+    },
+    {
+        "id": "divorce-parsi-en",
+        "lang": "en",
+        "persona": "Parsi man, 45, Mumbai.",
+        "query": "I am a Parsi, how do I get a divorce?",
+        "must_include_any": ["32"],
+        "must_include_terms": ["Parsi Marriage and Divorce Act"],
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.6,
+        "note": "Parsi divorce is governed by the Parsi Marriage and Divorce "
+                "Act, 1936 (Section 32 grounds).",
+    },
+    {
+        "id": "marriage-interfaith-en",
+        "lang": "en",
+        "persona": "Hindu woman, 24, Delhi, marrying a Muslim man.",
+        "query": "Can a Hindu girl marry a Muslim boy?",
+        "must_include_any": ["4"],
+        "must_include_terms": ["Special Marriage Act"],
+        "must_not": ["Hindu Marriage Act"],
+        "min_confidence": 0.6,
+        "note": "Inter-faith marriage routes to the Special Marriage Act, 1954.",
+    },
+    {
+        "id": "clarify-personal-law-en",
+        "lang": "en",
+        "persona": "Someone who says nothing about religion.",
+        "query": "How do I get a divorce?",
         "must_include_any": [],
         "must_include_terms": [],
-        # The wrong-Act assertion is the whole point of this entry.
-        "must_not": ["Hindu Marriage Act"],
+        "must_not": [],
+        # The whole point of this entry: the agent must ask which personal law
+        # applies instead of answering on Hindu law. Without must_ask_any the
+        # entry would pass on any answer, including a wrong one.
+        "must_ask_any": ["personal law", "hindu", "christian", "muslim", "parsi"],
         "min_confidence": 0.0,
-        "note": "KNOWN FAILURE — personal law is not selected by religion, so "
-                "this currently answers with Hindu Marriage Act s.13B. Tracked "
-                "in TO-DO.md §5a.",
+        "note": "No personal law stated: the agent must ask which personal law "
+                "applies rather than assume Hindu law.",
     },
 ]
 

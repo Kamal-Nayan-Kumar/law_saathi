@@ -217,7 +217,7 @@ def test_the_planner_is_re_asked_once_the_acts_come_up_empty():
                   {"tool": ACT_SEARCH, "query": "registration of marriages"}]})
     llm = RoutingLLM(plan=plan, replan=replan)
     ret = Retriever([])  # the Acts have nothing
-    out = run_agent("how do I register a marriage with the government?",
+    out = run_agent("how do I register a marriage with the government as a Hindu?",
                     lang="en", llm=llm, retriever=ret,
                     web_search=lambda q, **k: [])
     said = " ".join(d["detail"] for d in out["trace_detail"])
@@ -232,7 +232,7 @@ def test_no_replan_when_the_acts_did_answer():
     llm = RoutingLLM(plan=plan)
     ret = Retriever([HMA13B])
     # Long enough, with a named party, so the planner does not stop to clarify.
-    run_agent("What are the grounds for a contested divorce for my wife?",
+    run_agent("What are the grounds for a contested divorce for my Hindu wife?",
               lang="en", llm=llm, retriever=ret,
               web_search=lambda q, **k: [])
     assert len([s for s in llm.systems
@@ -309,7 +309,7 @@ def test_the_notice_is_fetched_by_act_not_by_relevance():
     """Anchoring every query with an Act name pushes the notice out of the
     top 16, so it has to be fetched deliberately."""
     ret = Retriever([HMA13B], with_notice=True)
-    out = run_agent("how long must we live apart for mutual consent divorce?",
+    out = run_agent("how long must we live apart for mutual consent divorce as a Hindu?",
                     lang="en", llm=None, retriever=ret,
                     web_search=lambda q, **k: [])
     sections = [str(h["payload"].get("section")) for h in out["evidence"]]
@@ -321,7 +321,7 @@ def test_the_notice_is_fetched_by_act_not_by_relevance():
 
 def test_an_unrelated_question_gets_no_notice():
     ret = Retriever([HMA13B], with_notice=True)
-    out = run_agent("what are the grounds for a contested divorce?",
+    out = run_agent("what are the grounds for a contested divorce for a Hindu?",
                     lang="en", llm=None, retriever=ret,
                     web_search=lambda q, **k: [])
     sections = [str(h["payload"].get("section")) for h in out["evidence"]]

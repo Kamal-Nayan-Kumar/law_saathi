@@ -68,9 +68,8 @@ def test_planner_records_the_missing_slot_for_a_vague_divorce():
     state["intent"] = "divorce"
     out = node_planner(state)
     assert out["missing_slots"], "vague divorce must miss slots"
-    # It answers and asks, rather than stalling on the question alone.
-    assert not out["clarification"]
-    assert out["follow_up_question"]
+    # Personal law is now required before answering, so it asks.
+    assert out["clarification"]
 
 
 def test_the_planner_still_asks_when_it_must():
@@ -104,11 +103,16 @@ def test_full_run_clarification_path_has_all_six_nodes():
     assert out["answer"], "clarification question must be non-empty"
 
 
-def test_a_bare_divorce_question_is_answered_and_asks_too():
-    """"How do I get a divorce" names the topic but not the route. Asking only
-    cost the user a whole turn, and a Kannada speaker who asked the simplest
-    possible question got nothing but the follow-up. So: a real answer, with
-    the disambiguating question at the end."""
+def test_a_bare_divorce_question_asks_which_personal_law_applies():
+    """"How do I get a divorce" names the topic but not the personal law.
+
+    It used to answer on Hindu law and ask the route question at the end.
+    That was right for "mutual or contested" and wrong for personal law: the
+    procedure under the Hindu Marriage Act and under the Indian Divorce Act
+    1869 are different documents, so answering a Christian with the Hindu
+    one was a confident wrong answer. TO-DO.md §5a decided the mechanism
+    asks when the personal law is unclear, so the question comes first and
+    only that one question comes first."""
     from app.agent import run_agent as _run
 
     class Hit:
@@ -122,9 +126,13 @@ def test_a_bare_divorce_question_is_answered_and_asks_too():
 
     out = _run("How do I get a divorce", lang="en", llm=None,
                retriever=Hit())
-    assert not out["clarification"], "should not stall on the route"
-    assert out["follow_up_question"], "must offer the route question"
-    assert out["citations"], "must still cite the law it did use"
+    # Personal law is now required before answering, so a bare divorce
+    # question asks instead of silently assuming Hindu law. One question, not
+    # two: the personal law has to be settled before "mutual or contested"
+    # means anything.
+    assert out["clarification"], "must ask which personal law applies"
+    assert out["missing_slots"] == ["personal_law"], \
+        "personal law is asked on its own, before the other slots"
 
 
 def test_verifier_retries_on_empty_evidence_then_answers():
@@ -176,9 +184,9 @@ def test_extract_slots_roman_hindi_marriage():
 def test_marriage_age_question_answers_directly():
     # Deterministic fake LLM: Hinglish in, plain English out (like live).
     def fake_llm(msgs):
-        return "How old should one be to get married?", "test:fake"
+        return "How old should one be to get married under Hindu law?", "test:fake"
 
-    out = run_agent("kitna umar hona chahiye shadi ke liye", lang="hi",
+    out = run_agent("kitna umar hona chahiye shadi ke liye hindu", lang="hi",
                     llm=fake_llm, retriever=HitRetriever(),
                     web_search=lambda q: [])
     assert out["lang"] == "hi"
