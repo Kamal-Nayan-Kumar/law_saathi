@@ -141,6 +141,17 @@ def check(item: Dict[str, Any], result: Dict[str, Any]) -> List[str]:
         if term.lower() not in low and term.lower() not in citations.lower():
             problems.append(f"missing term {term!r}")
 
+    # At least one of these has to appear. A concept can be put on screen in
+    # more than one way, and the golden set should fail on a missing idea,
+    # not on one wording of it: "welfare of the minor" and "the welfare of
+    # the child" are the same point, and the answer's language may not carry
+    # the statute's word for it.
+    any_terms = [t for t in item.get("must_include_any_terms", []) if t]
+    if any_terms:
+        if not any(t.lower() in low or t.lower() in citations.lower()
+                   for t in any_terms):
+            problems.append(f"none of {any_terms!r} present")
+
     sections = [s for s in item.get("must_include_any", []) if s]
     if sections:
         if not any(s in answer or s in citations for s in sections):
@@ -149,6 +160,13 @@ def check(item: Dict[str, Any], result: Dict[str, Any]) -> List[str]:
     for banned in item.get("must_not", []):
         if banned.lower() in low:
             problems.append(f"said {banned!r}, which is wrong")
+
+    # Banned in the citations rather than in the prose. An answer about an
+    # inter-faith marriage may well name the Hindu Marriage Act to say it
+    # does not apply; what it must not do is cite it.
+    for banned in item.get("must_not_cite", []):
+        if banned.lower() in citations.lower():
+            problems.append(f"cited {banned!r}, which is wrong")
 
     # Language: a Hindi question must not get an English answer.
     if item["lang"] in ("hi", "kn"):

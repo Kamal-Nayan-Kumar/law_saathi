@@ -958,13 +958,32 @@ def _provider_available(name: str) -> bool:
 
 
 def _mark_failed(name: str, error: Exception) -> None:
+    """Put a provider aside for a while, and say so in the log.
+
+    The length matters more than it looks. A 402 from OpenRouter used to lock
+    the provider out for five minutes, and the key was answering again a
+    second later: the credit is metered per model, and the same key and the
+    same provider work again as soon as another model is tried. One 402
+    therefore took OpenRouter out of the chain for the whole run, every
+    answer fell back to the template, and the Hindi and Kannada rewrites
+    failed with it, because they were the next call after the one that
+    failed.
+    """
     status = getattr(getattr(error, "response", None), "status_code", None)
     err_str = str(error)
     if "429" in err_str or status == 429:
         # Rate limits reset in seconds on Groq; do not lock out the whole provider for 60s
         cooldown = 3.0
-    elif status in (401, 402, 403) or "402" in err_str or "401" in err_str:
+    elif status == 401 or "401" in err_str:
+        # The key itself is rejected. Nothing will fix that but a new key, so
+        # there is no point trying again for a while.
         cooldown = _PROVIDER_COOLDOWN * 5
+    elif status in (402, 403) or "402" in err_str or "403" in err_str:
+        # Out of credit for one model, or one model refused. The other
+        # models on the same key are tried first, and only when every one
+        # of them has failed does the provider itself go quiet, and then
+        # for the ordinary cooldown rather than five times it.
+        cooldown = _PROVIDER_COOLDOWN
     else:
         cooldown = _PROVIDER_COOLDOWN
     _PROVIDER_FAILURES[name] = time.monotonic() + cooldown
