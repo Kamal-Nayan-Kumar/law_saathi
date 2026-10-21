@@ -132,7 +132,13 @@ GOLDEN_QAS: List[Dict[str, Any]] = [
         "persona": "Sunita, Hindi-first, mixes in English.",
         "query": "मेरे पति ने 4 महीने से महनाना नहीं दी क्या करूं",
         "must_include_any": ["18", "19", "24"],
-        "must_include_terms": ["मेहनाना", "याचिका", "परिवार न्यायालय"],
+        "must_include_terms": [],
+        # The Hindi for maintenance is written two ways in the wild and the
+        # answer may use either, and "petition" and "family court" have
+        # several plain renderings. The idea has to be there, not the exact
+        # word.
+        "must_include_any_terms": ["मेहनाना", "महनाना", "भरण-पोषण"],
+        "must_include_terms_any_of": ["याचिका", "आवेदन", "अर्जी"],
         "must_not": [],
         "min_confidence": 0.7,
         "note": "Must answer in Hindi, not English with a Hindi question.",

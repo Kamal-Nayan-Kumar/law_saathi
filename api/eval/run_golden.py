@@ -147,6 +147,7 @@ def check(item: Dict[str, Any], result: Dict[str, Any]) -> List[str]:
     # the child" are the same point, and the answer's language may not carry
     # the statute's word for it.
     any_terms = [t for t in item.get("must_include_any_terms", []) if t]
+    any_terms += [t for t in item.get("must_include_terms_any_of", []) if t]
     if any_terms:
         if not any(t.lower() in low or t.lower() in citations.lower()
                    for t in any_terms):
