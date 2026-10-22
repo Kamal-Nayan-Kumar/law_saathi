@@ -418,12 +418,14 @@ HINGLISH_WORDS = frozenset(
     "diya kiya hua hui hue sakta sakti sakte shadi shaadi vivah pati "
     "patni biwi shohar bachcha bacha baccha umar saal mahina paisa ghar "
     "maa baap beta beti aurat aadmi bharan poshan kharcha guzara dahej "
-    "marpeet maarpeet virasat viraasat jaydad sagai".split())
+    "marpeet maarpeet virasat viraasat jaydad sagai dono niyam kanoon "
+    "adhikar shartein shart batayein batao jab mai hu hoon to adopt single married".split())
 
 HINGLISH_BIGRAMS = frozenset((
     "ke liye", "ke bare", "ke baare", "kya hai", "hai kya", "kaise kare",
     "kaise karein", "hona chahiye", "karna hai", "mein hai", "main hoon",
-    "kya hota", "kya hoti", "kitna hai", "kitni hai",
+    "kya hota", "kya hoti", "kitna hai", "kitni hai", "karna hoga",
+    "karna padega", "kar sakte", "kar sakti", "ho sakti", "ho sakta",
 ))
 
 
@@ -435,6 +437,16 @@ def hinglish_score(text: str) -> int:
     pairs = {"%s %s" % (a, b) for a, b in zip(words, words[1:])}
     hits += sum(1 for b in pairs if b in HINGLISH_BIGRAMS)
     return hits
+
+
+def is_hinglish_query(text: str) -> bool:
+    """True when query is typed in Roman script Hindi (Hinglish)."""
+    blob = (text or "").strip()
+    if not blob:
+        return False
+    if re.search(r"[\u0900-\u097F\u0C80-\u0CFF]", blob):
+        return False
+    return hinglish_score(blob) >= 2
 
 
 def detect_lang(text: str, hint: str = "en") -> str:
@@ -511,6 +523,7 @@ def new_state(query: str, lang: str = "en",
     return {
         "query": query,
         "lang": detect_lang(query, lang),
+        "is_hinglish": is_hinglish_query(query),
         "query_en": "",
         "history": [m for m in (history or []) if m.get("content")][:10],
         "intent": "",
@@ -4199,7 +4212,10 @@ def compose_answer(state: Dict[str, Any],
     ]
     slots = state.get("slots", {})
     topic = slots.get("topic", "general")
-    disclaimer = DISCLAIMER.get(lang, DISCLAIMER["en"])
+    if state.get("is_hinglish") or is_hinglish_query(str(state.get("query") or "")):
+        disclaimer = "Kewal samanya jaankari, kanooni salah nahi. Apni sthiti ke liye kripya vakeel se salah lein."
+    else:
+        disclaimer = DISCLAIMER.get(lang, DISCLAIMER["en"])
     next_steps = NEXT_STEPS.get(lang, NEXT_STEPS["en"])
     confidence = float(state.get("confidence", 1.0))
     low_warn = ""
@@ -4664,58 +4680,85 @@ def rewrite_in_language(state: Dict[str, Any], english: str,
     still correct and still cited.
     """
     lang = state.get("lang", "en")
-    if lang == "en" or not english.strip() or llm is None:
+    raw_q = str(state.get("query") or "")
+    is_hinglish = bool(state.get("is_hinglish") or is_hinglish_query(raw_q))
+
+    if (lang == "en" and not is_hinglish) or not english.strip() or llm is None:
         return ""
-    name = LANG_NAMES.get(lang, lang)
-    rules = LANG_PLAIN_RULES.get(lang, "")
     question = str(state.get("query") or state.get("query_en") or "")
-    system = (
-        "You are LawSaathi, a patient family-law advisor speaking to a normal "
-        "person in India — not a lawyer. You are given a finished, "
-        "source-checked answer written in English. Rewrite it in %s so the same "
-        "person can read it as easily as if it had been written that way from "
-        "the start.\n\n"
-        "What must NOT change:\n"
-        "- Every fact, number, age, amount and timeframe stays exactly as it "
-        "is. You are rephrasing, not re-deciding.\n"
-        "- Keep the [1], [2], [3] citation markers, attached to the same "
-        "claims they are attached to now. Keep every Act name and section "
-        "number in English (for example 'Hindu Marriage Act, Section 5').\n"
-        "- Keep the same headings, and the same 'what to do next' steps at the "
-        "end.\n"
-        "- The final heading must read exactly '### %s'. Do not translate "
-        "that heading differently, and do not add a second one.\n"
-        "- Keep the same length or shorter. Never pad.\n\n"
-        "How to write it:\n"
-        "- Say it the way a person would say it out loud to someone they know. "
-        "A rule that is a sentence in English may become a shorter, warmer "
-        "sentence here; a clause may move. Holding the English sentence order "
-        "is what makes a rewrite read as a translation, and that is the one "
-        "thing this must not do.\n"
-        "- Read the whole draft first, then write. Do not work through it "
-        "line by line.\n\n"
-        "Example of the difference (Hindi):\n"
-        "  English:  'You may apply to the Magistrate for a protection order, "
-        "and the Magistrate may direct the respondent to stay away from the "
-        "shared household.'\n"
-        "  Word-for-word: 'आप मजिस्ट्रेट के पास एक प्रोटेक्शन ऑर्डर के लिए आवेदन कर "
-        "सकती हैं, और मजिस्ट्रेट रिस्पॉन्डेंट को शेयर्ड हाउसहोल्ड से दूर रहने का "
-        "निर्देश दे सकता है।'\n"
-        "  Written for the reader: 'आप अदालत में जाकर कह सकती हैं कि वह आपके घर के "
-        "पास न आए। अदालत ऐसा आदेश दे सकती है, और इसके लिए वकील की ज़रूरत नहीं।'\n"
-        "  Notice: the same two facts, the same meaning, in the reader's own "
-        "words — and Act names and section numbers still in English.\n\n"
-        "%s\n\n"
-        "%s\n\n"
-        "Output ONLY the rewritten answer in %s. No preamble, no explanation "
-        "of what you changed, no English version alongside it, no code blocks."
-        % (name, _next_steps_heading(lang), rules,
-           NATIVE_SIMPLICITY_RULES, name)
-    )
-    user = ("The reader asked (in %s): %s\n\n"
-            "Rewrite this answer in %s:\n\n%s"
-            % (name, question or "(follow-up in the same conversation)",
-               name, english))
+
+    if is_hinglish:
+        system = (
+            "You are LawSaathi, a patient family-law advisor speaking to an everyday person in India — not a lawyer. "
+            "You are given a finished, source-checked answer written in English. Rewrite it in natural Hinglish "
+            "(conversational Hindi written in Roman / Latin script, like everyday Indian WhatsApp chat or text messaging) "
+            "so the person who asked in Hinglish can understand it naturally and easily.\n\n"
+            "Rules for Hinglish:\n"
+            "- Write strictly in Roman / Latin script (English alphabet), NEVER in Devanagari script. "
+            "Example: 'Agar aap married hain to dono spouses ko milkar apply karna hoga aur sahmati deni hogi...'\n"
+            "- Keep common English legal and administrative terms in English (e.g. 'CARA', 'Juvenile Justice Act', "
+            "'Section 13B', 'single parents', 'court', 'registration', 'eligibility').\n"
+            "- Keep the [1], [2], [3] citation markers attached to the same claims they are attached to now.\n"
+            "- Keep every Act name and section number in English (for example 'Juvenile Justice Act, 2015 — Section 56' "
+            "or 'Hindu Adoptions and Maintenance Act, 1956 — Section 7').\n"
+            "- Keep the same headings. The final heading must read '### What to do next' or '### Aage kya karein'.\n"
+            "- Speak warmly and directly to the user as 'aap'.\n"
+            "- Do NOT output in pure English and do NOT output in Devanagari script. Output in clear, friendly conversational Hinglish.\n\n"
+            "Output ONLY the rewritten answer in Hinglish. No preamble, no English version alongside it, no code blocks."
+        )
+        user = ("The reader asked (in Hinglish): %s\n\n"
+                "Rewrite this answer in Hinglish:\n\n%s"
+                % (question or "(follow-up in the same conversation)", english))
+    else:
+        name = LANG_NAMES.get(lang, lang)
+        rules = LANG_PLAIN_RULES.get(lang, "")
+        system = (
+            "You are LawSaathi, a patient family-law advisor speaking to a normal "
+            "person in India — not a lawyer. You are given a finished, "
+            "source-checked answer written in English. Rewrite it in %s so the same "
+            "person can read it as easily as if it had been written that way from "
+            "the start.\n\n"
+            "What must NOT change:\n"
+            "- Every fact, number, age, amount and timeframe stays exactly as it "
+            "is. You are rephrasing, not re-deciding.\n"
+            "- Keep the [1], [2], [3] citation markers, attached to the same "
+            "claims they are attached to now. Keep every Act name and section "
+            "number in English (for example 'Hindu Marriage Act, Section 5').\n"
+            "- Keep the same headings, and the same 'what to do next' steps at the "
+            "end.\n"
+            "- The final heading must read exactly '### %s'. Do not translate "
+            "that heading differently, and do not add a second one.\n"
+            "- Keep the same length or shorter. Never pad.\n\n"
+            "How to write it:\n"
+            "- Say it the way a person would say it out loud to someone they know. "
+            "A rule that is a sentence in English may become a shorter, warmer "
+            "sentence here; a clause may move. Holding the English sentence order "
+            "is what makes a rewrite read as a translation, and that is the one "
+            "thing this must not do.\n"
+            "- Read the whole draft first, then write. Do not work through it "
+            "line by line.\n\n"
+            "Example of the difference (Hindi):\n"
+            "  English:  'You may apply to the Magistrate for a protection order, "
+            "and the Magistrate may direct the respondent to stay away from the "
+            "shared household.'\n"
+            "  Word-for-word: 'आप मजिस्ट्रेट के पास एक प्रोटेक्शन ऑर्डर के लिए आवेदन कर "
+            "सकती हैं, और मजिस्ट्रेट रिस्पॉन्डेंट को शेयर्ड हाउसहोल्ड से दूर रहने का "
+            "निर्देश दे सकता है।'\n"
+            "  Written for the reader: 'आप अदालत में जाकर कह सकती हैं कि वह आपके घर के "
+            "पास न आए। अदालत ऐसा आदेश दे सकती है, और इसके लिए वकील की ज़रूरत नहीं।'\n"
+            "  Notice: the same two facts, the same meaning, in the reader's own "
+            "words — and Act names and section numbers still in English.\n\n"
+            "%s\n\n"
+            "%s\n\n"
+            "Output ONLY the rewritten answer in %s. No preamble, no explanation "
+            "of what you changed, no English version alongside it, no code blocks."
+            % (name, _next_steps_heading(lang), rules,
+               NATIVE_SIMPLICITY_RULES, name)
+        )
+        user = ("The reader asked (in %s): %s\n\n"
+                "Rewrite this answer in %s:\n\n%s"
+                % (name, question or "(follow-up in the same conversation)",
+                   name, english))
     import inspect
 
     try:
@@ -4740,12 +4783,24 @@ def rewrite_in_language(state: Dict[str, Any], english: str,
         logger.warning("agent native rewrite unusable; keeping English")
         return ""
     if ends_mid_sentence(text):
-        # Shipping a half sentence in Devanagari reads as a broken product.
+        # Shipping a half sentence reads as a broken product.
         # The English draft is unfinished in exactly the same place, so there
         # is nothing to gain by keeping this one.
         logger.warning("agent native rewrite stopped mid-sentence; keeping English")
         return ""
-    if state.get("lang") in ("hi", "kn"):
+    if is_hinglish:
+        low_t = text.lower()
+        has_hing_words = any(w in low_t for w in (
+            "hai", "hain", "karein", "karna", "hoga", "hogi", "sakte", "sakti",
+            "aap", "aapko", "liye", "agar", "aur", "ko", "ki", "ke", "ka",
+            "se", "me", "mein", "bhi", "to", "nahi", "nahin", "dono", "bacha",
+            "bachche", "kya", "niyam", "batao", "par", "hote"
+        ))
+        if not has_hing_words:
+            logger.warning("agent native rewrite stayed in English instead of Hinglish")
+            return ""
+        return text
+    elif state.get("lang") in ("hi", "kn"):
         # Not a raw string: r"[\u0900-\u097F]" is a literal backslash-u and
         # matches nothing, which silently disabled this whole check once.
         script = "[\u0900-\u097F]" if state["lang"] == "hi" else "[\u0C80-\u0CFF]"
@@ -4860,16 +4915,14 @@ def node_response(state: Dict[str, Any],
     # the user-facing answer. Re-writing here would throw away the judge's work.
     written = str(state.get("draft", "") or "")
     rewritten = False
-    if written and lang != "en":
+    is_hing = bool(state.get("is_hinglish") or is_hinglish_query(str(state.get("query") or "")))
+    if written and (lang != "en" or is_hing):
         # Written in English because the model is far steadier there. Now
         # rewrite it natively rather than translating it: a translator carries
         # the source's register across intact, which is how a plain English
         # answer arrived in Hindi still full of "मेंटेनेंस पेंडेंट लाइट". The
         # rewriter is grounded on the same verified draft, so it can simplify
         # without being able to invent. English is the fallback, unchanged.
-        #
-        # Prefer Groq here: the small model produced garbled Hindi ("माफिक आरोप
-        # कार्यक्रम") where gpt-oss-120b was clean.
         native = rewrite_in_language(state, written, translate_in or llm)
         if native:
             written = native
@@ -4883,7 +4936,9 @@ def node_response(state: Dict[str, Any],
     # draft ships as it is. The client picks the speaking voice from this, and
     # reading a Hindi answer with an English voice is the difference between
     # an answer and noise.
-    if lang == "en" or rewritten:
+    if is_hing and rewritten:
+        state["answer_lang"] = "hi"
+    elif lang == "en" or rewritten:
         state["answer_lang"] = lang
     elif written:
         # The English draft survived and the rewrite did not: the answer is
