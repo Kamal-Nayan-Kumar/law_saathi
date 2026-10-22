@@ -26,3 +26,5 @@ api/tests/test_debug_tmp.py
 .playwright-mcp/
 .vercel
 .env*
+artifacts/
+
