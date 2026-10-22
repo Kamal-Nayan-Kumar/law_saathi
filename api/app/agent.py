@@ -1699,7 +1699,11 @@ def trace_run(state: Dict[str, Any]) -> None:
                    or None,
         )
     except Exception as e:  # noqa: BLE001 — tracing must never break chat
-        logger.warning("agent trace_run failed (%r)", e)
+        err_str = str(e)
+        if "429" in err_str or "usage limit" in err_str.lower():
+            logger.warning("LangSmith monthly trace quota (5,000) reached. Cloud trace skipped.")
+        else:
+            logger.warning("agent trace_run failed (%r)", e)
 
 
 # ---------------------------------------------------------------------------

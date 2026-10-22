@@ -48,9 +48,11 @@ services:
         sync: false
       - key: FIRECRAWL_API_KEY
         sync: false
-      # LangSmith tracing is opt-in: the free tier allows 5k traces/month
-      # and a single question costs ~6 node traces. "errors" traces only the
-      # runs that went wrong, so the allowance lasts.
+      # LangSmith tracing is opt-in: the free tier allows 5k traces/month.
+      # When quota is exceeded, LangSmith cloud returns 429 errors.
+      # Default to false so the app uses local zero-cost JSONL observability.
+      - key: LANGCHAIN_TRACING_V2
+        value: "false"
       - key: LAWSAATHI_TRACE
         value: errors
       - key: LANGCHAIN_API_KEY
