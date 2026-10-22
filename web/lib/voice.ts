@@ -320,7 +320,7 @@ export function useSpeechSynthesis(lang: string) {
 
   /** Ask the server to speak it, for a language the device has no voice for. */
   const speakWithServer = useCallback(
-    async (text: string, id: number): Promise<boolean> => {
+    async (text: string, id: number, onFinished?: () => void): Promise<boolean> => {
       try {
         const res = await fetch("/api/bff/voice/speak", {
           method: "POST",
@@ -334,8 +334,14 @@ export function useSpeechSynthesis(lang: string) {
         const audio = new Audio(`data:audio/mpeg;base64,${data.audio}`);
         audioRef.current = audio;
         audio.onplay = () => setSpeakingId(id);
-        audio.onended = () => setSpeakingId((cur) => (cur === id ? null : cur));
-        audio.onerror = () => setSpeakingId((cur) => (cur === id ? null : cur));
+        audio.onended = () => {
+          setSpeakingId((cur) => (cur === id ? null : cur));
+          onFinished?.();
+        };
+        audio.onerror = () => {
+          setSpeakingId((cur) => (cur === id ? null : cur));
+          onFinished?.();
+        };
         await audio.play();
         return true;
       } catch {
@@ -346,7 +352,7 @@ export function useSpeechSynthesis(lang: string) {
   );
 
   const speak = useCallback(
-    async (text: string, id: number) => {
+    async (text: string, id: number, onFinished?: () => void) => {
       if (!supported || !text.trim()) return;
       const body = speakableText(text);
       if (!body) return;
@@ -354,7 +360,7 @@ export function useSpeechSynthesis(lang: string) {
       // No voice for this language on this device: the server speaks it
       // instead, in the language it was written in.
       if (!pickVoice(lang)) {
-        const done = await speakWithServer(body, id);
+        const done = await speakWithServer(body, id, onFinished);
         if (done) return;
         // The server could not do it either. Fall through and let the browser
         // try: a wrong voice is better than no voice.
@@ -370,8 +376,14 @@ export function useSpeechSynthesis(lang: string) {
       if (chosen) utter.voice = chosen;
       utter.rate = 0.98; // slightly slower than default: this is dense legal text
       utter.onstart = () => setSpeakingId(id);
-      utter.onend = () => setSpeakingId((cur) => (cur === id ? null : cur));
-      utter.onerror = () => setSpeakingId((cur) => (cur === id ? null : cur));
+      utter.onend = () => {
+        setSpeakingId((cur) => (cur === id ? null : cur));
+        onFinished?.();
+      };
+      utter.onerror = () => {
+        setSpeakingId((cur) => (cur === id ? null : cur));
+        onFinished?.();
+      };
       window.speechSynthesis.speak(utter);
     },
     [lang, speakWithServer, supported],

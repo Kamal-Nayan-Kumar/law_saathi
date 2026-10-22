@@ -9,7 +9,12 @@ import remarkGfm from "remark-gfm";
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/lib/api";
 import { askStream, type AskResult, type StreamStep } from "@/lib/stream";
-import { useDictation, useSpeechSynthesis, MAX_RECORDING_SECONDS } from "@/lib/voice";
+import {
+  useDictation,
+  useSpeechSynthesis,
+  MAX_RECORDING_SECONDS,
+  speakableText,
+} from "@/lib/voice";
 import Icon from "@/components/Icon";
 import Logo from "@/components/Logo";
 import "./chat.css";
@@ -356,6 +361,140 @@ function StreamingAnswer({ text }: { text: string }) {
   );
 }
 
+function LiveVoiceOverlay({
+  state,
+  userQuery,
+  agentAnswer,
+  isRecording,
+  lang,
+  onStopSpeaking,
+  onEndCall,
+}: {
+  state: "greeting" | "listening" | "thinking" | "speaking" | "idle";
+  userQuery: string;
+  agentAnswer: string;
+  isRecording: boolean;
+  lang: string;
+  onStopSpeaking: () => void;
+  onEndCall: () => void;
+}) {
+  return (
+    <div
+      className="live-voice-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Live Voice Call"
+    >
+      <div className="live-voice-card">
+        <button
+          type="button"
+          className="live-voice-close"
+          onClick={onEndCall}
+          aria-label="Close voice session"
+          title="Close voice session"
+        >
+          <Icon name="close" size={20} />
+        </button>
+
+        <div className="live-voice-orb-wrapper">
+          <div className={`live-voice-orb ${state}`}>
+            <Icon name={state === "speaking" ? "volume" : "mic"} size={44} />
+          </div>
+        </div>
+
+        <div className="live-voice-status">
+          {state === "greeting" &&
+            (lang === "hi"
+              ? "लॉ साथी से जुड़ रहे हैं…"
+              : lang === "kn"
+                ? "ಲಾ ಸಾಥಿ ಜೊತೆ ಸಂಪರ್ಕಿಸಲಾಗುತ್ತಿದೆ…"
+                : "Connecting to Law Saathi…")}
+          {state === "listening" &&
+            (lang === "hi"
+              ? "सुन रहे हैं… अपना सवाल बोलिए"
+              : lang === "kn"
+                ? "ಕೇಳಿಸಿಕೊಳ್ಳುತ್ತಿದೆ… ಮಾತನಾಡಿ"
+                : "Listening… speak naturally")}
+          {state === "thinking" &&
+            (lang === "hi"
+              ? "कानूनों की जाँच कर रहे हैं…"
+              : lang === "kn"
+                ? "ಕಾಯ್ದೆಗಳನ್ನು ಪರಿಶೀಲಿಸುತ್ತಿದೆ…"
+                : "Consulting statutory bare acts…")}
+          {state === "speaking" &&
+            (lang === "hi"
+              ? "लॉ साथी बोल रहे हैं…"
+              : lang === "kn"
+                ? "ಲಾ ಸಾಥಿ ಮಾತನಾಡುತ್ತಿದೆ…"
+                : "Law Saathi is speaking…")}
+          {state === "idle" &&
+            (lang === "hi"
+              ? "तैयार — बोलने के लिए माइक दबाएँ"
+              : lang === "kn"
+                ? "ಸಿದ್ಧ — ಮಾತನಾಡಲು ಮೈಕ್ ಒತ್ತಿ"
+                : "Ready — tap mic to speak")}
+        </div>
+
+        <div className="live-voice-hint">
+          {lang === "hi"
+            ? "हिन्दी, अंग्रेज़ी और कन्नड़ में बोलें"
+            : lang === "kn"
+              ? "ಕನ್ನಡ, ಇಂಗ್ಲಿಷ್ ಮತ್ತು ಹಿಂದಿಯಲ್ಲಿ ಮಾತನಾಡಿ"
+              : "Speak naturally in English, Hindi, or Kannada"}
+        </div>
+
+        {(userQuery || agentAnswer) && (
+          <div className="live-voice-captions">
+            {userQuery && (
+              <p className="live-voice-caption-user">
+                <strong>You:</strong> {userQuery}
+              </p>
+            )}
+            {agentAnswer && (
+              <p className="live-voice-caption-agent">
+                <strong>Law Saathi:</strong> {speakableText(agentAnswer)}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="live-voice-actions">
+          {state === "listening" && (
+            <button
+              type="button"
+              className={`live-voice-btn-mic ${isRecording ? "active" : ""}`}
+              onClick={onStopSpeaking}
+            >
+              <Icon name="check" size={16} />
+              <span>
+                {lang === "hi"
+                  ? "बोलना पूरा हुआ"
+                  : lang === "kn"
+                    ? "ಮಾತು ಮುಗಿದಿದೆ"
+                    : "Done speaking"}
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="live-voice-btn-end"
+            onClick={onEndCall}
+          >
+            <Icon name="close" size={16} />
+            <span>
+              {lang === "hi"
+                ? "कॉल समाप्त करें"
+                : lang === "kn"
+                  ? "ಕರೆ ಮುಕ್ತಾಯ"
+                  : "End Call"}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Chat() {
   const router = useRouter();
   const { data: authSession, isPending: authPending } = authClient.useSession();
@@ -408,6 +547,75 @@ export default function Chat() {
   }, []);
 
   const busyMic = stt.state === "recording" || stt.state === "transcribing";
+
+  // Real-time conversational Live Voice mode right inside the chat
+  const [liveVoiceOpen, setLiveVoiceOpen] = useState(false);
+  const [liveVoiceState, setLiveVoiceState] = useState<
+    "greeting" | "listening" | "thinking" | "speaking" | "idle"
+  >("idle");
+  const [liveVoiceQuery, setLiveVoiceQuery] = useState("");
+  const [liveVoiceReply, setLiveVoiceReply] = useState("");
+  const liveVoiceActiveRef = useRef(false);
+
+  const startListeningLoop = useCallback(() => {
+    if (!liveVoiceActiveRef.current) return;
+    setLiveVoiceState("listening");
+    stt.start(async (text) => {
+      if (!liveVoiceActiveRef.current) return;
+      if (!text.trim()) {
+        setLiveVoiceState("listening");
+        return;
+      }
+      setLiveVoiceState("thinking");
+      setLiveVoiceQuery(text);
+      const res = await sendText(text);
+      if (!liveVoiceActiveRef.current) return;
+      if (res?.answer) {
+        setLiveVoiceState("speaking");
+        setLiveVoiceReply(res.answer);
+        tts.speak(res.answer, Date.now(), () => {
+          if (liveVoiceActiveRef.current) {
+            startListeningLoop();
+          }
+        });
+      } else {
+        setLiveVoiceState("idle");
+      }
+    });
+  }, [stt, tts]);
+
+  const openLiveVoice = useCallback(() => {
+    if (!authSession) {
+      router.push("/login");
+      return;
+    }
+    liveVoiceActiveRef.current = true;
+    setLiveVoiceOpen(true);
+    setLiveVoiceState("greeting");
+    setLiveVoiceQuery("");
+    setLiveVoiceReply("");
+
+    const greetings = {
+      hi: "नमस्ते, मैं लॉ साथी हूँ। पारिवारिक कानून के बारे में आप क्या पूछना चाहते हैं?",
+      kn: "ನಮಸ್ಕಾರ, ನಾನು ಲಾ ಸಾಥಿ. ಕುಟುಂಬ ಕಾನೂನಿನ ಬಗ್ಗೆ ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?",
+      en: "Hello, I am Law Saathi. How can I help you with Indian family law today?",
+    };
+    const g = greetings[lang as keyof typeof greetings] || greetings.en;
+    setLiveVoiceReply(g);
+    tts.speak(g, 999999, () => {
+      if (liveVoiceActiveRef.current) {
+        startListeningLoop();
+      }
+    });
+  }, [authSession, lang, router, startListeningLoop, tts]);
+
+  const closeLiveVoice = useCallback(() => {
+    liveVoiceActiveRef.current = false;
+    stt.stop(() => {});
+    tts.stop();
+    setLiveVoiceOpen(false);
+    setLiveVoiceState("idle");
+  }, [stt, tts]);
 
   // Clicking anywhere else closes the account menu.
   useEffect(() => {
@@ -679,8 +887,10 @@ function toggleSide() {
         })
         .catch(() => {});
       refreshSessions();
+      return answerObj;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -854,10 +1064,16 @@ function toggleSide() {
             </button>
             <Logo size={40} />
             <span className="chat-top-tag">Family Law, Explained in Simple Words.</span>
-            <Link href="/voice" className="chat-top-voice-btn" title="Start real-time voice call">
+            <button
+              type="button"
+              className="chat-top-voice-btn"
+              onClick={openLiveVoice}
+              title="Start real-time voice call"
+              aria-label="Start real-time voice call"
+            >
               <Icon name="mic" size={14} />
               <span>Live Voice</span>
-            </Link>
+            </button>
           </div>
         </header>
 
@@ -1038,6 +1254,34 @@ function toggleSide() {
           )}
         </div>
       </div>
+
+      {liveVoiceOpen && (
+        <LiveVoiceOverlay
+          state={liveVoiceState}
+          userQuery={liveVoiceQuery}
+          agentAnswer={liveVoiceReply}
+          isRecording={stt.state === "recording"}
+          lang={lang}
+          onStopSpeaking={() => {
+            stt.stop(async (text) => {
+              if (!liveVoiceActiveRef.current) return;
+              if (!text.trim()) return;
+              setLiveVoiceState("thinking");
+              setLiveVoiceQuery(text);
+              const res = await sendText(text);
+              if (!liveVoiceActiveRef.current) return;
+              if (res?.answer) {
+                setLiveVoiceState("speaking");
+                setLiveVoiceReply(res.answer);
+                tts.speak(res.answer, Date.now(), () => {
+                  if (liveVoiceActiveRef.current) startListeningLoop();
+                });
+              }
+            });
+          }}
+          onEndCall={closeLiveVoice}
+        />
+      )}
     </div>
   );
 }
