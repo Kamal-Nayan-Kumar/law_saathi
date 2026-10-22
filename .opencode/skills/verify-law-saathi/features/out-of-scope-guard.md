@@ -1,18 +1,18 @@
 # Scope Guard and Follow-ups
 
-Scope Guard and Follow-ups verifies that Law Saathi enforces strict domain boundaries (Indian family law only) by refusing non-family queries gracefully, while maintaining multi-turn context on follow-up questions.
+Scope Guard and Follow-ups verifies that Law Saathi enforces strict domain boundaries (Indian family law only) by refusing non-family queries gracefully, proactively clarifying missing location slots for local advocate/court searches, and maintaining multi-turn context on follow-up questions.
 
 ## Sub-features
 
 - `scope-redirect-non-family` detects criminal, tenancy, commercial, or tax disputes and redirects politely without fabricating legal advice.
-- `scope-follow-up-resolution` resolves conversational follow-ups (e.g. "how long does it take?" or "how much can I ask?") against prior turns.
-- `scope-topic-switch` allows clean pivot when the user deliberately transitions between two distinct family law matters.
+- `scope-proactive-location-clarification` intercepts location-dependent requests (e.g., "find best lawyer online near me", "family court near me") and proactively asks for the user's city/district in India in short without traversing heavy retrieval nodes.
+- `scope-follow-up-resolution` resolves conversational follow-ups (e.g. providing "Delhi" after being asked for location, or "how long does it take?" after divorce) against prior turns.
 
 ## How to get to it (user POV)
 
-- In `http://localhost:3000/chat`, submit a question unrelated to family law (e.g. "My landlord won't refund my security deposit").
-- Observe the gentle refusal stating Law Saathi's specialization in family law and recommending appropriate civil/local remedies.
-- In an ongoing conversation about divorce, ask "how long does it take?" and observe that it answers specifically regarding the divorce timeline.
+- In `http://localhost:3000/chat`, submit a non-family-law query like: "My landlord is not giving back my security deposit, can I file a police complaint?"
+- Submit "can u find best lawyer which listed online near me?" and observe the assistant immediately ask: "To help you find family law advocates... which city or district in India are you located in?"
+- Reply with your city (e.g. "Delhi" or "Bengaluru") and receive verified local advocates and District Legal Services Authority (DLSA) information.
 
 ## Driving it with control-law-saathi
 
@@ -22,15 +22,20 @@ Preconditions:
 
 - **Test Non-Family Law Redirection (Tenancy / Landlord).**
   ```sh
-  .venv/bin/python -c 'import sys; sys.path.insert(0, "api/scripts"); import probe; s = probe.new_session(1, "test_oos"); r = probe.ask(s, "My landlord is not giving back my security deposit. What should I do?"); print("OOS:", r.get("oos_redirect")); print(r["answer"][:250])'
+  .venv/bin/python scripts/verify-law-saathi.py chat --persona persona_out_of_scope
   ```
-  Observable result: `oos_redirect: True`, and text politely explains that Law Saathi focuses on family law and advises approaching the local rent authority or civil court.
-- **Test Contextual Follow-up Resolution.**
+  Observable result: `out_of_scope_redirect: PASS`, and text politely explains that Law Saathi focuses on family law.
+- **Test Proactive Location Clarification (Short Path).**
   ```sh
-  .venv/bin/python -c 'import sys; sys.path.insert(0, "api/scripts"); import probe; s = probe.new_session(1, "test_followup"); r1 = probe.ask(s, "How do I file for mutual consent divorce under Hindu law?"); r2 = probe.ask(s, "how long does it take?"); print("Followup answer snippet:\n", r2["answer"][:300])'
+  .venv/bin/python scripts/verify-law-saathi.py chat --persona persona_proactive_lawyer_near_me
   ```
-  Observable result: Turn 2 explains the 6 to 18-month timeline of Hindu Marriage Act Section 13B without needing the user to repeat the topic.
-- **Proof.** Confirm entries in `artifacts/verify-law-saathi/chat_proof.json` verifying `out_of_scope_redirect: PASS`.
+  Observable result: Status `PASS`, `clarification: True`, response time < 1s (short path), asks for city or district in India.
+- **Test Follow-up Location Resolution.**
+  ```sh
+  .venv/bin/python -c 'import sys; sys.path.insert(0, "api/scripts"); import probe; s = probe.new_session(1, "loc_flow"); probe.ask(s, "can u find best lawyer which listed online near me?"); r2 = probe.ask(s, "Delhi"); print("Citations:", r2["citations"]); print("Sources:", r2["citation_sources"])'
+  ```
+  Observable result: Turn 2 executes Firecrawl web search targeting Delhi and returns local family law advocates and DLSA aid.
+- **Proof.** Confirm entries in `artifacts/verify-law-saathi/chat_proof.json` verifying `out_of_scope_redirect: PASS` and `clarification_prompt: PASS`.
 
 ## Gotchas
 

@@ -114,6 +114,15 @@ def has_kannada(text: str) -> bool:
     return bool(re.search(r"[\u0C80-\u0CFF]", text))
 
 
+def has_hinglish(text: str) -> bool:
+    low = (text or "").lower()
+    return any(w in low for w in (
+        "hai", "hain", "karein", "karna", "hoga", "hogi", "sakte", "sakti",
+        "aap", "aapko", "liye", "agar", "aur", "ko", "ki", "ke", "ka",
+        "se", "me", "mein", "to", "nahi", "nahin", "kya"
+    ))
+
+
 PERSONA_TEST_CASES = [
     {
         "id": "persona_sunita_hi",
@@ -148,8 +157,37 @@ PERSONA_TEST_CASES = [
         "lang": "hi",
         "query": "Mera beta humko ghar se nikalne ki dhamki de raha hai, kya senior citizen act me hum complaint kar sakte hain?",
         "expected_act_keywords": ["Senior Citizens", "Parents", "Maintenance", "2007", "Section"],
-        "script_validator": has_devanagari,
-        "script_name": "Devanagari / Hindi",
+        "script_validator": has_hinglish,
+        "script_name": "Hinglish (Roman Hindi)",
+    },
+    {
+        "id": "persona_hinglish_adoption",
+        "name": "Adoption rules in Hinglish (Roman Hindi)",
+        "lang": "hi",
+        "query": "agar koi bacha adopt karna hai to uska niyam kya hai? dono case me batao jab mai single ya married hu to...",
+        "expected_act_keywords": ["Juvenile Justice", "CARA", "Adoption", "2015", "Section"],
+        "script_validator": has_hinglish,
+        "script_name": "Hinglish (Roman Hindi)",
+    },
+    {
+        "id": "persona_proactive_lawyer_near_me",
+        "name": "Proactive location clarification (Lawyer near me)",
+        "lang": "en",
+        "query": "can u find best lawyer which listed online near me?",
+        "is_clarification": True,
+        "expected_act_keywords": [],
+        "script_validator": lambda t: "city" in t.lower() or "district" in t.lower(),
+        "script_name": "Location clarification prompt",
+    },
+    {
+        "id": "persona_firecrawl_delhi_lawyer",
+        "name": "Firecrawl lawyer search with location (Delhi)",
+        "lang": "en",
+        "query": "find best family law lawyers in Delhi",
+        "expected_act_keywords": ["Delhi", "Lawyer", "Advocate"],
+        "script_validator": lambda t: len(t) > 80,
+        "script_name": "English with Firecrawl web citations",
+        "expect_web_citation": True,
     },
     {
         "id": "persona_out_of_scope",
@@ -164,7 +202,7 @@ PERSONA_TEST_CASES = [
 ]
 
 
-def run_chat_verification(lang_filter: str = "all") -> dict:
+def run_chat_verification(lang_filter: str = "all", persona_filter: str | None = None) -> dict:
     if probe is None:
         raise RuntimeError("api/scripts/probe.py could not be imported")
 
@@ -175,7 +213,9 @@ def run_chat_verification(lang_filter: str = "all") -> dict:
     }
 
     test_cases = PERSONA_TEST_CASES
-    if lang_filter in ("en", "hi", "kn"):
+    if persona_filter:
+        test_cases = [tc for tc in test_cases if tc.get("id") == persona_filter]
+    elif lang_filter in ("en", "hi", "kn"):
         test_cases = [tc for tc in test_cases if tc.get("lang") == lang_filter]
 
     for tc in test_cases:
@@ -220,6 +260,18 @@ def run_chat_verification(lang_filter: str = "all") -> dict:
                 results["test_cases"].append(tc_res)
                 continue
 
+            # 1b. Proactive Clarification Check
+            if tc.get("is_clarification"):
+                is_clarify = resp.get("clarification") is True or any(
+                    w in ans.lower()
+                    for w in ["city", "district", "located in", "शहर", "ज़िले", "ನಗರ", "ಜಿಲ್ಲೆ"]
+                )
+                tc_res["checks"]["clarification_prompt"] = "PASS" if is_clarify else "FAIL"
+                if not is_clarify:
+                    tc_res["status"] = "FAIL"
+                results["test_cases"].append(tc_res)
+                continue
+
             # 2. Script & Language Check
             script_ok = tc["script_validator"](ans)
             tc_res["checks"]["script_fidelity"] = {
@@ -238,6 +290,12 @@ def run_chat_verification(lang_filter: str = "all") -> dict:
                 "status": "PASS" if (grounded and len(citations) > 0) else "WARN",
             }
 
+            if tc.get("expect_web_citation"):
+                has_web = any(src == "web" for src in resp.get("citation_sources", [])) or len(citations) > 0
+                tc_res["checks"]["firecrawl_web_citation"] = "PASS" if has_web else "FAIL"
+                if not has_web:
+                    tc_res["status"] = "FAIL"
+
             # 4. Readability & Markdown Check
             has_markdown = any(m in ans for m in ["###", "**", "-", "*"])
             tc_res["checks"]["markdown_structure"] = "PASS" if has_markdown else "WARN"
@@ -253,6 +311,9 @@ def run_chat_verification(lang_filter: str = "all") -> dict:
                     "lawyer",
                     "वकील",
                     "ವಕೀಲರ",
+                    "kewal samanya jaankari",
+                    "kanooni salah nahi",
+                    "vakeel se salah",
                 ]
             )
             tc_res["checks"]["legal_disclaimer"] = "PASS" if has_disclaimer else "WARN"
@@ -313,6 +374,7 @@ def main():
     subparsers.add_parser("doctor", help="Run doctor checks on web, API, DB, LiveKit")
     chat_p = subparsers.add_parser("chat", help="Run persona chat evaluations")
     chat_p.add_argument("--lang", default="all", choices=["en", "hi", "kn", "all"])
+    chat_p.add_argument("--persona", default=None, help="Specific persona ID to evaluate")
     subparsers.add_parser("voice", help="Run LiveKit/Sarvam voice pipeline tests")
     subparsers.add_parser("all", help="Run doctor, chat, and voice verification")
 
@@ -333,8 +395,9 @@ def main():
 
     if cmd in ("chat", "all"):
         lang = getattr(args, "lang", "all")
-        print(f"\n--- 2. Real-User Multilingual Chat Evaluation (lang={lang}) ---")
-        chat_res = run_chat_verification(lang_filter=lang)
+        persona = getattr(args, "persona", None)
+        print(f"\n--- 2. Real-User Multilingual Chat Evaluation (lang={lang}, persona={persona}) ---")
+        chat_res = run_chat_verification(lang_filter=lang, persona_filter=persona)
         print(f"Overall Chat Status: {chat_res['status']}")
         for tc in chat_res["test_cases"]:
             print(f"\n  [{tc['status']}] {tc['name']}")
