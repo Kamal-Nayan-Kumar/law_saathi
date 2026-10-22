@@ -116,6 +116,11 @@ def _dowry_question(query: str) -> bool:
 NODES = ("intent", "planner", "tools", "reason", "verifier", "response")
 
 TOPIC_KEYWORDS = {
+    "find_lawyer": ("find lawyer", "find advocate", "best lawyer", "lawyer near me",
+                    "advocate near me", "lawyer online", "lawyers online",
+                    "legal aid near me", "family court near me", "hire lawyer",
+                    "contact lawyer", "vakeel chahiye", "vakil chahiye",
+                    "वकील चाहिए", "वकील खोजें", "ವಕೀಲರು ಬೇಕು", "ನ್ಯಾಯವಾದಿ ಬೇಕು"),
     "divorce": ("divorce", "divorced", "talak", "talaq", "khula", "mubaraat",
                 "तलाक", "ವಿಚ್ಛೇದನ",
                 # The inflected forms: "ವಿವಾಹವಿಚ್ಛೇದದ ನಂತರ" (after the
@@ -258,13 +263,29 @@ _IDENTITY_PATTERNS = (
 )
 
 
+_GRATITUDE_WORDS = (
+    "thanks", "thank you", "thank u", "thx", "dhanyawad", "dhanyavaad",
+    "shukriya", "dhanyavada", "धन्यवाद", "शुक्रिया", "ಧನ್ಯವಾದ"
+)
+
+
+def is_gratitude_query(text: str) -> bool:
+    low = re.sub(r"[^\w\s]", " ", (text or "").lower()).strip()
+    words = low.split()
+    if not words or len(words) > 4:
+        return False
+    return any(g in low for g in _GRATITUDE_WORDS) or low in ("ok", "okay", "alright", "got it", "theek hai", "thik hai")
+
+
 def is_identity_query(text: str) -> bool:
-    """True when the user is asking about Law Saathi itself or greeting."""
+    """True when the user is asking about Law Saathi itself, greeting, or polite closing."""
+    if is_gratitude_query(text):
+        return True
     low = re.sub(r"[^\w\s]", " ", (text or "").lower()).strip()
     words = low.split()
     if not words:
         return False
-    if len(words) <= 2 and any(w in ("hello", "hi", "hey", "namaste", "namaskar", "namaskara") for w in words):
+    if len(words) <= 2 and any(w in ("hello", "hi", "hey", "namaste", "namaskar", "namaskara", "vanakkam") for w in words):
         return True
     return any(p in low for p in _IDENTITY_PATTERNS)
 
@@ -321,6 +342,67 @@ def _section_topic(section: str) -> Optional[str]:
     if key in _SECTION_TOPIC:
         return _SECTION_TOPIC[key]
     return _SECTION_TOPIC_ALIASES.get(key.lower())
+
+
+_LAWYER_KWS = (
+    "lawyer", "advocate", "attorney", "vakeel", "vakil", "legal aid",
+    "family court", "legal clinic", "counsel", "dlsa", "slsa", "वकील", "ವಕೀಲ", "ನ್ಯಾಯವಾದಿ"
+)
+
+
+def _is_lawyer_or_court_lookup(low: str) -> bool:
+    """True when user is seeking a lawyer, legal aid, or family court directory."""
+    if not any(k in low for k in _LAWYER_KWS):
+        return False
+    if any(phrase in low for phrase in (
+        "do i need a lawyer", "can i do it myself", "without a lawyer",
+        "need a lawyer to", "lawyer mandatory", "वकील जरूरी", "ವಕೀಲರ ಅಗತ್ಯ",
+        "वकील की जरूरत", "वकील की आवश्यकता"
+    )):
+        return False
+    return True
+
+
+INDIAN_CITIES = {
+    "delhi": "Delhi", "new delhi": "Delhi", "mumbai": "Mumbai", "bombay": "Mumbai",
+    "bengaluru": "Bengaluru", "bangalore": "Bengaluru", "chennai": "Chennai", "madras": "Chennai",
+    "kolkata": "Kolkata", "calcutta": "Kolkata", "hyderabad": "Hyderabad", "pune": "Pune",
+    "ahmedabad": "Ahmedabad", "jaipur": "Jaipur", "lucknow": "Lucknow", "kanpur": "Kanpur",
+    "nagpur": "Nagpur", "indore": "Indore", "thane": "Thane", "bhopal": "Bhopal",
+    "visakhapatnam": "Visakhapatnam", "patna": "Patna", "vadodara": "Vadodara",
+    "ghaziabad": "Ghaziabad", "ludhiana": "Ludhiana", "agra": "Agra", "nashik": "Nashik",
+    "faridabad": "Faridabad", "meerut": "Meerut", "rajkot": "Rajkot", "varanasi": "Varanasi",
+    "srinagar": "Srinagar", "aurangabad": "Aurangabad", "dhanbad": "Dhanbad",
+    "amritsar": "Amritsar", "navi mumbai": "Navi Mumbai", "allahabad": "Prayagraj",
+    "prayagraj": "Prayagraj", "ranchi": "Ranchi", "howrah": "Howrah", "coimbatore": "Coimbatore",
+    "jabalpur": "Jabalpur", "gwalior": "Gwalior", "vijayawada": "Vijayawada", "jodhpur": "Jodhpur",
+    "madurai": "Madurai", "raipur": "Raipur", "kota": "Kota", "guwahati": "Guwahati",
+    "chandigarh": "Chandigarh", "mysuru": "Mysuru", "mysore": "Mysuru", "noida": "Noida",
+    "gurgaon": "Gurugram", "gurugram": "Gurugram", "kochi": "Kochi", "cochin": "Kochi",
+    "trivandrum": "Thiruvananthapuram", "thiruvananthapuram": "Thiruvananthapuram",
+    "kerala": "Kerala", "karnataka": "Karnataka", "tamil nadu": "Tamil Nadu",
+    "maharashtra": "Maharashtra", "uttar pradesh": "Uttar Pradesh", "bihar": "Bihar",
+    "west bengal": "West Bengal", "gujarat": "Gujarat", "rajasthan": "Rajasthan",
+    "punjab": "Punjab", "haryana": "Haryana",
+    "दिल्ली": "Delhi", "नई दिल्ली": "Delhi", "बेंगलुरु": "Bengaluru", "बैंगलोर": "Bengaluru",
+    "मुंबई": "Mumbai", "चेन्नई": "Chennai", "कोलकाता": "Kolkata", "हैदराबाद": "Hyderabad",
+    "पुणे": "Pune", "जयपुर": "Jaipur", "लखनऊ": "Lucknow", "पटना": "Patna", "मैसूर": "Mysuru",
+    "ಬೆಂಗಳೂ": "Bengaluru", "ಮೈಸೂ": "Mysuru", "ಮುಂಬೈ": "Mumbai", "ದೆಹಲಿ": "Delhi",
+    "ಚೆನ್ನೈ": "Chennai", "ಕೊಲ್ಕತ್ತಾ": "Kolkata", "ಹೈದರಾಬಾದ್": "Hyderabad"
+}
+
+
+def _extract_location(low: str, query_native: str = "") -> str:
+    for city_k, city_name in INDIAN_CITIES.items():
+        if ord(city_k[0]) > 127:
+            if city_k in low or (query_native and city_k in query_native.lower()):
+                return city_name
+        else:
+            if re.search(r"\b" + re.escape(city_k) + r"\b", low, re.IGNORECASE):
+                return city_name
+            if query_native and re.search(r"\b" + re.escape(city_k) + r"\b", query_native, re.IGNORECASE):
+                return city_name
+    return ""
 
 
 # Roman-Hindi (Hinglish) signals: users often type Hindi in Latin script
@@ -861,9 +943,11 @@ def extract_slots(query_en: str, query_native: str = "") -> Dict[str, str]:
     # to a woman asking about the Act that protects her.
     if "domestic_violence" not in topics and _complaint_about_a_person(bare):
         topics.append("domestic_violence")
+    if _is_lawyer_or_court_lookup(low) or (query_native and _is_lawyer_or_court_lookup(query_native.lower())):
+        topics.insert(0, "find_lawyer")
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
-        for pref in ("interfaith_marriage", "senior_citizens", "maintenance",
+        for pref in ("find_lawyer", "interfaith_marriage", "senior_citizens", "maintenance",
                      "custody", "adoption", "succession", "domestic_violence",
                      "divorce", "marriage"):
             if pref in topics:
@@ -886,6 +970,11 @@ def extract_slots(query_en: str, query_native: str = "") -> Dict[str, str]:
     sec_topic = _section_topic(section)
     if sec_topic:
         slots["topic"] = sec_topic
+    if slots.get("topic") == "find_lawyer" or _is_lawyer_or_court_lookup(low):
+        slots["topic"] = "find_lawyer"
+        loc = _extract_location(low, query_native)
+        if loc:
+            slots["location"] = loc
 
     m = _DIVORCE_TYPE_RE.search(query_en or "")
     if m:
@@ -961,6 +1050,11 @@ def missing_for(slots: Dict[str, str], query_en: str,
     """
     if slots.get("section"):
         return []  # exact-section lookup is answerable as-is
+    topic = slots.get("topic")
+    if topic == "find_lawyer":
+        if not slots.get("location"):
+            return ["location"]
+        return []
     if is_followup:
         return []
     topic = slots.get("topic")
@@ -1017,6 +1111,8 @@ def should_answer_anyway(missing: List[str], topic: str = "") -> bool:
     """
     if not missing:
         return False
+    if missing == ["location"]:
+        return False
     if set(missing) <= {"divorce_type", "parties"}:
         return True
     if missing == ["personal_law"] and topic in _RELIGION_NEUTRAL_TOPICS:
@@ -1034,7 +1130,8 @@ _RELIGION_NEUTRAL_TOPICS = ("marriage", "custody", "adoption",
 
 CLARIFY_TEMPLATES = {
     # Short per-slot questions; only the actually-missing slots are asked.
-    "en": {"topic": "What is this about — divorce, maintenance, custody, "
+    "en": {"location": "To help you find family law advocates, legal aid clinics, or the family court near you, which city or district in India are you located in? (For example: Delhi, Bengaluru, Mumbai, Lucknow, etc.)",
+           "topic": "What is this about — divorce, maintenance, custody, "
                     "adoption, succession, or domestic violence?",
            "divorce_type": "Is this a mutual-consent divorce or a contested one?",
            "parties": "Who is asking — husband, wife, or guardian?",
@@ -1042,14 +1139,16 @@ CLARIFY_TEMPLATES = {
                            "marriage — Hindu, Christian, Muslim, Parsi, or a "
                            "court or inter-faith marriage under the Special "
                            "Marriage Act?"},
-    "hi": {"topic": "यह किस बारे में है — तलाक, भरण-पोषण, अभिरक्षा, "
+    "hi": {"location": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)",
+           "topic": "यह किस बारे में है — तलाक, भरण-पोषण, अभिरक्षा, "
                     "गोद लेना, उत्तराधिकार या घरेलू हिंसा?",
            "divorce_type": "क्या यह आपसी सहमति से तलाक है या विवादित तलाक?",
            "parties": "कौन पूछ रहा है — पति, पत्नी या अभिभावक?",
            "personal_law": "आपकी शादी किस धर्म या रीति से हुई थी — हिंदू, "
                            "ईसाई, मुस्लिम, पारसी, या कोर्ट मैरिज (विशेष "
                            "विवाह अधिनियम)?"},
-    "kn": {"topic": "ಇದು ಯಾವುದರ ಬಗ್ಗೆ — ವಿಚ್ಛೇದನ, ಜೀವನಾಂಶ, ಪಾಲನೆ, "
+    "kn": {"location": "ನಿಮ್ಮ ಸಮೀಪದ ಕೌಟುಂಬಿಕ ವಕೀಲರು, ಉಚಿತ ಕಾನೂನು ನೆರವು (DLSA) ಅಥವಾ ಕೌಟುಂಬಿಕ ನ್ಯಾಯಾಲಯವನ್ನು ಹುಡುಕಲು, ನೀವು ಭಾರತದ ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿದ್ದೀರಿ ಎಂದು ತಿಳಿಸಬಹುದೇ? (ಉದಾಹರಣೆಗೆ: ಬೆಂಗಳೂರು, ಮೈಸೂರು, ಮಂಗಳೂರು ಇತ್ಯಾದಿ)",
+           "topic": "ಇದು ಯಾವುದರ ಬಗ್ಗೆ — ವಿಚ್ಛೇದನ, ಜೀವನಾಂಶ, ಪಾಲನೆ, "
                     "ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಅಥವಾ ಕೌಟುಂಬಿಕ ಹಿಂಸೆ?",
            "divorce_type": "ಇದು ಪರಸ್ಪರ ಒಪ್ಪಿಗೆಯ ವಿಚ್ಛೇದನವೇ ಅಥವಾ ವಿವಾದಿತ ವಿಚ್ಛೇದನವೇ?",
            "parties": "ಕೇಳುತ್ತಿರುವವರು ಯಾರು — ಗಂಡ, ಹೆಂಡತಿ ಅಥವಾ ಪಾಲಕರು?",
@@ -1089,6 +1188,8 @@ def clarification_question(missing: List[str], lang: str) -> str:
     only produces broken grammar ("...तलाक क्या है?").
     """
     bank = CLARIFY_TEMPLATES.get(lang, CLARIFY_TEMPLATES["en"])
+    if missing == ["location"]:
+        return bank.get("location", CLARIFY_TEMPLATES["en"]["location"])
     lead = _CLARIFY_LEAD.get(lang, _CLARIFY_LEAD["en"])
     asked = [bank.get(m, m) for m in missing[:2]]
     if len(asked) == 1:
@@ -2472,6 +2573,14 @@ def default_plan(state: Dict[str, Any]) -> Dict[str, Any]:
     keyword-detected topic, then search the web as well.
     """
     topic = (state.get("slots") or {}).get("topic", "")
+    if topic == "find_lawyer":
+        loc = (state.get("slots") or {}).get("location") or "India"
+        steps = [{"tool": WEB_SEARCH, "query": f"family court advocates lawyers in {loc} India",
+                  "why": f"Search online directories for family law advocates and legal aid in {loc}",
+                  "act": ""}]
+        return {"governing_act": "Advocates Act / Legal Services Authorities Act",
+                "reasoning": f"Online directory search for family law advocates and DLSA in {loc}",
+                "steps": steps, "source": "fixed"}
     personal_law = (state.get("slots") or {}).get("personal_law") or (state.get("slots") or {}).get("religion")
     query_en = state.get("query_en") or state.get("query", "")
     acts = acts_for_topic(topic, personal_law=personal_law)
@@ -2488,7 +2597,8 @@ _WEB_SEARCH_SIGNALS = (
     "recent", "latest", "new law", "naya kanoon", "faisla", "cooling off",
     "cooling-off", "waive", "waiver", "waived", "article 142",
     "muslim maintenance", "muslim woman maintenance", "muslim wife",
-    "tirthu", "court order"
+    "tirthu", "court order", "lawyer", "advocate", "attorney", "vakeel",
+    "vakil", "legal aid", "family court", "dlsa"
 )
 
 
@@ -2529,10 +2639,13 @@ def normalise_plan(raw: Any, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # nothing was found. So the Act search is not optional: if the model left
     # it out, it goes back in first.
     if not any(s["tool"] == ACT_SEARCH for s in steps):
-        fixed = default_plan(state)["steps"][0]
-        fixed["why"] = "The bare Acts are always searched, even when the web " \
-                       "is also used."
-        steps.insert(0, fixed)
+        if (state.get("slots") or {}).get("topic") == "find_lawyer":
+            pass  # Finding local advocates relies on directory and web search, not statutory sections
+        else:
+            fixed = default_plan(state)["steps"][0]
+            fixed["why"] = "The bare Acts are always searched, even when the web " \
+                           "is also used."
+            steps.insert(0, fixed)
     # Keep web search if the question specifically calls for recent rulings,
     # court judgments, cooling-off waiver, or modern case law; otherwise save it
     # as a fallback when the bare Acts come up short.
@@ -2772,104 +2885,24 @@ _NON_LEGAL_OR_US_DOMAINS = (
     "courts.ca.gov", "nycourts.gov", "texaslawhelp.org",
     "illinoislegalaid.org", "michiganlegalhelp.org",
     "youtube.com", "youtu.be", "facebook.com", "instagram.com",
-    "reddit.com", "twitter.com", "x.com"
+    "reddit.com", "twitter.com", "x.com",
+    "justia.com", "findlaw.com", "avvo.com", "lawyers.com", "superlawyers.com", "yelp.com"
 )
-
-
-def _search_indian_kanoon(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Free search over Indian case law and judgments from Indian Kanoon."""
-    import urllib.parse
-    import httpx
-
-    clean_q = re.sub(r"[^\w\s\-\(\)]", " ", query).strip()
-    encoded = urllib.parse.quote_plus(clean_q)
-    url = f"https://indiankanoon.org/search/?formInput={encoded}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-    }
-    try:
-        resp = httpx.get(url, headers=headers, timeout=12.0)
-        if resp.status_code != 200:
-            return []
-        articles = resp.text.split('<article class="result"')
-        results: List[Dict[str, Any]] = []
-        for art in articles[1:]:
-            title_m = re.search(r'<h4 class="result_title">\s*<a href="([^"]+)">([^<]+)</a>', art)
-            headline_m = re.search(r'<div class="headline">(.*?)</div>', art, re.DOTALL)
-            source_m = re.search(r'<span class="docsource">([^<]+)</span>', art)
-            doc_m = re.search(r'<a class="cite_tag" href="(/doc/\d+/)"', art)
-            if title_m:
-                href = doc_m.group(1) if doc_m else title_m.group(1)
-                full_url = f"https://indiankanoon.org{href}"
-                raw_title = title_m.group(2).strip()
-                source = source_m.group(1).strip() if source_m else ""
-                title = f"{raw_title} ({source})" if source else raw_title
-                snippet = ""
-                if headline_m:
-                    snippet = re.sub(r"<[^>]+>", "", headline_m.group(1)).strip()
-                    snippet = re.sub(r"\s+", " ", snippet)
-                results.append({
-                    "payload": {
-                        "url": full_url,
-                        "title": title,
-                        "text": snippet or "Indian legal document / judgment.",
-                    },
-                    "score": 0.88,
-                })
-                if len(results) >= top_k:
-                    break
-        return results
-    except Exception as exc:  # noqa: BLE001
-        logger.info("agent indian_kanoon search failed (%r)", exc)
-        return []
-
-
-def _search_ddg_lite(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Free web search via DuckDuckGo Lite endpoint."""
-    import httpx
-
-    url = "https://lite.duckduckgo.com/lite/"
-    data = {"q": query}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    try:
-        resp = httpx.post(url, data=data, headers=headers, timeout=10.0)
-        if resp.status_code != 200:
-            return []
-        links = re.findall(r'<a[^>]+class=[\'"]result-link[\'"][^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', resp.text)
-        if not links:
-            links = re.findall(r'<a[^>]+href=[\'"](https?://[^\'"]+)[\'"][^>]*>(.*?)</a>', resp.text)
-        results: List[Dict[str, Any]] = []
-        for href, title in links:
-            if "duckduckgo" in href:
-                continue
-            clean_title = re.sub(r"<[^>]+>", "", title).strip()
-            low_u = href.lower()
-            if any(dom in low_u for dom in _NON_LEGAL_OR_US_DOMAINS):
-                continue
-            results.append({
-                "payload": {
-                    "url": href,
-                    "title": clean_title,
-                    "text": clean_title,
-                },
-                "score": 0.82,
-            })
-            if len(results) >= top_k:
-                break
-        return results
-    except Exception as exc:  # noqa: BLE001
-        logger.info("agent ddg_lite search failed (%r)", exc)
-        return []
 
 
 def _search_firecrawl(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     """Firecrawl search if FIRECRAWL_API_KEY is configured and has credits."""
     key = os.environ.get("FIRECRAWL_API_KEY", "")
     if not key:
+        env_file = pathlib.Path(__file__).resolve().parents[1] / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("FIRECRAWL_API_KEY="):
+                    key = line.split("=", 1)[1].strip()
+                    os.environ["FIRECRAWL_API_KEY"] = key
+                    break
+    if not key:
+        logger.warning("agent firecrawl: FIRECRAWL_API_KEY not found")
         return []
     try:
         from firecrawl import Firecrawl
@@ -2905,37 +2938,24 @@ def _search_firecrawl(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
 
 
 def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Multi-provider web search fallback (Kanoon -> DDG Lite -> Firecrawl)."""
-    cfg = os.environ.get("LAWSAATHI_WEB_SEARCH", "kanoon,ddg,firecrawl").lower().strip()
+    """Web search using Firecrawl exclusively."""
+    cfg = os.environ.get("LAWSAATHI_WEB_SEARCH", "firecrawl").lower().strip()
     if cfg == "off":
         return []
-    providers = [p.strip() for p in cfg.split(",") if p.strip()]
 
     clean_q = re.sub(r"[^\w\s\-\(\)]", " ", query).strip()
-    if not any(k in clean_q.lower() for k in ("india", "indian", "supreme court", "high court", "delhi")):
+    if not any(k in clean_q.lower() for k in ("india", "indian", "supreme court", "high court", "delhi", "mumbai", "bengaluru")):
         search_query = "%s Indian family law India" % clean_q
     else:
-        search_query = "%s India law" % clean_q
-    logger.info("agent web_search query=%r providers=%r", search_query[:80], providers)
+        search_query = "%s India" % clean_q if "india" not in clean_q.lower() else clean_q
+    logger.info("agent web_search (firecrawl exclusively) query=%r", search_query[:80])
 
-    for prov in providers:
-        if prov == "kanoon":
-            hits = _search_indian_kanoon(search_query, top_k=top_k)
-            if hits:
-                logger.info("agent web_search returned %d hits via indian_kanoon", len(hits))
-                return hits
-        elif prov in ("ddg", "duckduckgo"):
-            hits = _search_ddg_lite(search_query, top_k=top_k)
-            if hits:
-                logger.info("agent web_search returned %d hits via ddg_lite", len(hits))
-                return hits
-        elif prov == "firecrawl":
-            hits = _search_firecrawl(search_query, top_k=top_k)
-            if hits:
-                logger.info("agent web_search returned %d hits via firecrawl", len(hits))
-                return hits
+    hits = _search_firecrawl(search_query, top_k=top_k)
+    if hits:
+        logger.info("agent web_search returned %d hits via firecrawl", len(hits))
+        return hits
 
-    logger.warning("agent web_search all providers (%s) returned 0 hits", ",".join(providers))
+    logger.warning("agent web_search (firecrawl) returned 0 hits for %r", search_query[:80])
     return []
 
 
@@ -3539,7 +3559,8 @@ def is_oos(query_en: str) -> bool:
             # dowry question, not a property question.
             "in-law", "in-laws", "mother-in-law", "father-in-law",
             "brother", "sister", "son", "daughter", "child", "children",
-            "family", "wife's", "husband's")) or any(k in low for k in indic_hits)
+            "family", "wife's", "husband's",
+            "lawyer", "advocate", "attorney", "vakeel", "vakil", "legal aid", "family court")) or any(k in low for k in indic_hits)
     has_section_or_act = bool(re.search(r"section\s*\d|\bact\b", low))
     # A domain we never cover wins over everything else. "My wife wants me to
     # sign a contract" and "my father is giving his farm to my brother" both
@@ -3758,6 +3779,12 @@ OOS_REDIRECT = {
     "en": "I'm a family-law assistant, so I can only help with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please ask a family-law question.",
     "hi": "यह प्रश्न मेरे पारिवारिक कानून के दायरे से बाहर है (भूमि, संपत्ति, आपराधिक, कर, आदि)। मैं केवल विवाह, तलाक, अभिरक्षा, भरण-पोषण, गोद लेना, उत्तराधिकार और घरेलू हिंसा में सहायता करता हूँ। कृपया इस विषय के लिए विशेषज्ञ से परामर्श करें।",
     "kn": "ಈ ಪ್ರಶ್ನೆಯು ನನ್ನ ಕುಟುಂಬ ಕಾನೂನಿನ ವ್ಯಾಪ್ತಿಯಿಂದ ಹೊರಗಿದೆ (ಭೂಮಿ, ಆಸ್ತಿ, ಕ್ರಿಮಿನಲ್, ತೆರಿಗೆ ಇತ್ಯಾದಿ). ನಾನು ವಿವಾಹ, ವಿಚ್ಛೇದನ, ಪಾಲನೆ, ಜೀವನಾಂಶ, ದತ್ತು, ಉತ್ತರಾಧಿಕಾರ ಮತ್ತು ಕೌಟುಂಬಿಕ ಹಿಂಸೆಯಲ್ಲಿ ಮಾತ್ರ ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ದಯವಿಟ್ಟು ಈ ವಿಷಯಕ್ಕಾಗಿ ತಜ್ಞರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
+}
+
+GRATITUDE_ANSWER = {
+    "en": "You are very welcome! Please feel free to ask if you have any more questions about Indian family law.",
+    "hi": "आपका बहुत-बहुत स्वागत है! यदि आपके पास भारतीय पारिवारिक कानून से जुड़ा कोई अन्य सवाल हो, तो बिना झिझक पूछें।",
+    "kn": "ನಿಮಗೆ ತುಂಬಾ ಸ್ವಾಗತ! ಭಾರತೀಯ ಕುಟುಂಬ ಕಾನೂನಿಗೆ ಸಂಬಂಧಿಸಿದಂತೆ ಯಾವುದೇ ಪ್ರಶ್ನೆಗಳಿದ್ದರೂ ಹಿಂಜರಿಕೆಯಿಲ್ಲದೆ ಕೇಳಿ.",
 }
 
 IDENTITY_ANSWER = {
@@ -4131,6 +4158,8 @@ def select_evidence_for_answer(evidence: List[Dict[str, Any]]) -> List[Dict[str,
                 and not _is_amendment_notice(h)]
     web_hits = [h for h in evidence if _evidence_source_type(h) == "web"]
     notice_hits = [h for h in evidence if _is_amendment_notice(h)]
+    if not act_hits and web_hits:
+        return web_hits[:4]
     picked = act_hits[:3] + web_hits[:2]
     if notice_hits:
         picked += notice_hits[:1]
@@ -4145,6 +4174,9 @@ def compose_answer(state: Dict[str, Any],
     lang = state.get("lang", "en")
     tone = state.get("tone", "simple")
     if state.get("is_identity"):
+        raw_q = state.get("query_en", "") or state.get("query", "")
+        if is_gratitude_query(raw_q):
+            return (GRATITUDE_ANSWER.get(lang, GRATITUDE_ANSWER["en"]), [], [])
         return (IDENTITY_ANSWER.get(lang, IDENTITY_ANSWER["en"]), [], [])
     # Out-of-scope redirect takes precedence
     if state.get("oos_redirect"):
@@ -4388,6 +4420,7 @@ def write_plain_answer(state: Dict[str, Any], llm: Callable) -> str:
         "  * Child custody: Under Section 6(a) of the Hindu Minority and Guardianship Act 1956, custody of a child under age 5 ordinarily remains with the mother. Under Guardians and Wards Act 1890 Section 17, the paramount consideration is always the child's welfare.\n"
         "  * Senior citizens: Under the Maintenance and Welfare of Parents and Senior Citizens Act 2007, parents can claim maintenance before the Tribunal, and under Section 23, if property was transferred on condition of care and the child neglects them, the transfer can be declared void.\n"
         "  * Daughter's inheritance: Under Hindu Succession Act 2005 Section 6 and Supreme Court's Vineeta Sharma (2020) ruling, daughters have equal coparcenary rights by birth in ancestral property.\n"
+        "  * Finding local lawyers / legal aid: If the question is about finding a lawyer, advocate, or legal aid in an Indian city, synthesize the family law advocates and firms from the web sources; note that free legal representation is available through the District Legal Services Authority (DLSA) at the local court complex; and advise verifying enrollment with the State Bar Council.\n"
         "- Refer to a source as [1], [2] inline, right after the claim it "
         "supports. Use the numbers exactly as given.\n"
         "- If a passage is a notice about the current position (the "
