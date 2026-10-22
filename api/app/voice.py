@@ -35,6 +35,7 @@ GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 SARVAM_MODEL = os.environ.get("SARVAM_STT_MODEL", "saaras:v4")
 GROQ_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+SARVAM_TTS_MODEL = os.environ.get("SARVAM_TTS_MODEL", "bulbul:v4-flash")
 
 # Sarvam's REST endpoint handles clips under 30s. The browser is told to stop
 # recording at the same number so the audio we reject is never sent.
@@ -172,21 +173,73 @@ def transcribe_detail(audio_b64: str, lang: str = "en") -> Tuple[str, str]:
 
 
 def synthesize(text: str, lang: str = "en") -> Optional[str]:
-    """TTS: text -> audio base64 (or None). Answers are read by the browser's
-    own speechSynthesis, which is free and offline, so nothing calls this."""
+    """TTS: text -> base64 mp3 (or None).
+
+    The browser's own speechSynthesis is free and offline, so it stays the
+    first choice. It is also a lottery: the OS may have no voice for the
+    language at all, and `utterance.lang` alone is a request rather than a
+    choice, so a Kannada answer can be read aloud in English phonemes on a
+    machine with no Kannada voice. That is the difference between an answer
+    and noise, so the server can do the talking.
+
+    The client only asks for this when the browser has no voice for the
+    language, so the common case stays free and instant. `LAWSAATHI_TTS=off`
+    turns the server route off entirely.
+    """
+    if os.environ.get("LAWSAATHI_TTS", "on").lower() == "off":
+        return None
     if not SARVAM_API_KEY or not text:
         return None
     httpx = _client()
     if httpx is None:
         return None
+    code = _TTS_LANGUAGE.get((lang or "en").lower(), "en-IN")
+    payload = {
+        "text": text[:TTS_MAX_CHARS],
+        "target_language_code": code,
+        "speaker": _TTS_SPEAKER.get(code, _TTS_SPEAKER["en-IN"]),
+        "model": SARVAM_TTS_MODEL,
+        "speech_sample_rate": 22050,
+    }
     try:
-        payload = {"text": text, "language": lang, "format": "mp3"}
-        headers = {"api-subscription-key": SARVAM_API_KEY, "Content-Type": "application/json"}
-        resp = httpx.post(SARVAM_TTS_URL, json=payload, headers=headers, timeout=30.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            # Sarvam may return url or base64 audio
-            return data.get("audio_content") or data.get("audio_url") or None
-    except Exception:
-        pass
-    return None
+        resp = httpx.post(SARVAM_TTS_URL, json=payload,
+                          headers={"api-subscription-key": SARVAM_API_KEY,
+                                   "Content-Type": "application/json"},
+                          timeout=45.0)
+        if resp.status_code != 200:
+            logger.warning("sarvam tts http=%s body=%s", resp.status_code,
+                           resp.text[:160])
+            return None
+        data = resp.json()
+        audios = data.get("audios") or []
+        if audios and isinstance(audios[0], str) and audios[0]:
+            return audios[0]
+        # Older shape: a single audio_content field.
+        return data.get("audio_content") or data.get("audio_url") or None
+    except Exception as exc:  # noqa: BLE001 — TTS is best-effort
+        logger.warning("sarvam tts failed: %r", exc)
+        return None
+
+
+# Bulbul v4 persona ids, one per language. v3 speaker names ("priya", "shubh")
+# are rejected by v4, so the model and the speaker list have to agree.
+_TTS_LANGUAGE = {
+    "en": "en-IN", "hi": "hi-IN", "kn": "kn-IN",
+    "ta": "ta-IN", "te": "te-IN", "ml": "ml-IN", "bn": "bn-IN",
+    "gu": "gu-IN", "mr": "mr-IN", "pa": "pa-IN",
+}
+_TTS_SPEAKER = {
+    "en-IN": "shubh_en_narration_gentle",
+    "hi-IN": "aayan_hi_conversational",
+    "kn-IN": "chaitra_kn_conversation",
+    "ta-IN": "vasanthi_ta_conversation",
+    "te-IN": "sravanthi_te_conversation",
+    "ml-IN": "soumya_ml_conversation",
+    "bn-IN": "tumpa_bn_conversation",
+    "gu-IN": "dhaval_gu_conversation",
+    "mr-IN": "sneha_mr_conversation",
+    "pa-IN": "taran_pa_conversation",
+}
+# Sarvam counts characters for TTS and the REST endpoint accepts a limit per
+# request, so a long answer is chunked rather than refused.
+TTS_MAX_CHARS = 2000

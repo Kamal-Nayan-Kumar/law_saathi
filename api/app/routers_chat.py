@@ -20,6 +20,8 @@ from app.schemas import (
     SessionIn,
     SessionOut,
     SessionPatch,
+    SpeakIn,
+    SpeakOut,
     TranscriptOut,
     UserOut,
     VoiceIn,
@@ -178,6 +180,10 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
     Also the single place the AskOut fields are built, so the streaming and
     JSON endpoints can never disagree about what the answer contains.
     """
+    # Which language the answer is in, which is not always the language the
+    # question was in: when the native rewrite could not run, the answer
+    # ships in English. The client uses this for the speaking voice.
+    answer_lang = str(state.get("answer_lang") or body_lang)
     # Persist what the agent learned about this user for next time — currently
     # the legal topic, so "what about maintenance?" tomorrow does not restart
     # from nothing.
@@ -191,7 +197,7 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
             db.add(Memory(user_id=user.id, key=k, value=v))
     db.flush()
     db.add(Message(session_id=session_id, role="assistant",
-                   content=state.get("answer", ""), lang=body_lang,
+                   content=state.get("answer", ""), lang=answer_lang,
                    citations=list(state.get("citations", [])),
                    citation_sources=list(state.get("citation_sources", [])),
                    # Persisted so the Thinking panel still works when the chat
@@ -222,7 +228,7 @@ def _persist_ask(session_id: int, body: AskIn, user: User, db: Session,
         # this to pick a speaking voice for "Read aloud", and it is the honest
         # answer to "why is this in the other language" when something goes
         # wrong — without it the field can only be guessed from the request.
-        lang=body_lang,
+        lang=answer_lang,
     )
 
 
@@ -345,6 +351,34 @@ def transcribe_voice(body: VoiceIn,
                              error=str(exc))
     logger.info("voice stt provider=%s chars=%d", provider, len(transcript))
     return TranscriptOut(transcript=transcript, lang=body.lang, provider=provider)
+
+
+@router.post("/voice/speak", response_model=SpeakOut)
+def speak_voice(body: SpeakIn,
+                user: User = Depends(auth_lib.current_user)):
+    """Text -> spoken audio, for the languages the reader's device cannot read.
+
+    The browser reads answers aloud with its own speech synthesis, which is
+    free and instant. It also depends on the OS having a voice for the
+    language: on a machine with no Kannada voice, the browser reads a
+    Kannada answer in English phonetes, which sounds like the app is broken.
+    This route is the way out of that, and it speaks all ten Indian languages
+    Sarvam supports, not only the three the project started with.
+
+    Behind login, like transcription: it costs money and it is an open
+    endpoint that forwards text to a paid provider otherwise.
+    """
+    from app import voice as voice_module
+
+    text = (body.text or "").strip()
+    if not text:
+        return SpeakOut(audio="", lang=body.lang, provider="")
+    audio = voice_module.synthesize(text, body.lang)
+    if not audio:
+        # The client falls back to the browser's own voice.
+        return SpeakOut(audio="", lang=body.lang, provider="")
+    logger.info("voice tts lang=%s chars=%d", body.lang, len(text))
+    return SpeakOut(audio=audio, lang=body.lang, provider="sarvam")
 
 
 @router.get("/me/memories", response_model=MemoriesOut)

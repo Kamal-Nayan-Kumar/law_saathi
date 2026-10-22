@@ -18,7 +18,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.family_law_acts import ACTS as _REGISTRY_ACTS
 
@@ -65,11 +65,63 @@ MAX_TOKENS_SHORT = int(os.environ.get("LAWSAATHI_MAX_TOKENS_SHORT", "450"))
 # reply cannot turn into a dozen retrieval calls.
 MAX_PLAN_STEPS = 4
 
+# The corpus tags every chunk with a `topic`, and those tags line up with the
+# agent's own topics. This maps one onto the other, so a question can be
+# searched inside the part of the index that is about its subject.
+#
+# The child-marriage tag is separate from the marriage tag on purpose: the
+# age question is answered by the Prohibition of Child Marriage Act, 2006, and
+# that Act is 33 chunks of its own.
+_CORPUS_TOPIC_TAG = {
+    "marriage": "marriage",
+    "divorce": "divorce",
+    "custody": "custody",
+    "adoption": "children",
+    "succession": "succession",
+    "domestic_violence": "domestic_violence",
+    "maintenance": "maintenance",
+    "senior_citizens": "maintenance",
+    "interfaith_marriage": "marriage",
+}
+# Marriage age is its own question with its own Act, and the keyword for it
+# ("age", "उम्र", "ವಯಸ್ಸು") is checked before the topic is used.
+_CHILD_MARRIAGE_HINTS = (
+    "minimum age", "marriage age", "child marriage", "age to marry",
+    "how old can", "what age", "age limit", "age for marriage",
+    "कम उम्र", "उम्र की शादी", "बाल विवाह", "सगाई की उम्र", "शादी की उम्र",
+    "ಕನಿಷ್ಠ ವಯಸ್ಸು", "ಮದುಪೆಯ ವಯಸ್ಸು", "ಬಾಲ ಮದುವೆ", "ವಯಸ್ಸಿಗೆ",
+)
+
+
+def _child_marriage_question(query: str) -> bool:
+    """Is this question about the age at which someone may marry?"""
+    low = (query or "").lower()
+    return any(h in low for h in _CHILD_MARRIAGE_HINTS)
+
+
+# Dowry has its own tag in the corpus, and its own Act. A dowry question is
+# a domestic-violence question for the topic, but the answer belongs to the
+# Dowry Prohibition Act, 1961, not to the Act on violence.
+_DOWRY_HINTS = (
+    "dowry", "dahej", "dowry demand", "dowry harassment",
+    "दहेज", "देहेज", "दहेज की मांग",
+    "ಕೋಲಿಕೆ", "ಸಂಪತ್ತು ಕೋಲಿಕೆ",
+)
+
+
+def _dowry_question(query: str) -> bool:
+    low = (query or "").lower()
+    return any(h in low for h in _DOWRY_HINTS)
+
 NODES = ("intent", "planner", "tools", "reason", "verifier", "response")
 
 TOPIC_KEYWORDS = {
     "divorce": ("divorce", "divorced", "talak", "talaq", "khula", "mubaraat",
-                "तलाक", "ವಿಚ್ಛೇದನ"),
+                "तलाक", "ವಿಚ್ಛೇದನ",
+                # The inflected forms: "ವಿವಾಹವಿಚ್ಛೇದದ ನಂತರ" (after the
+                # divorce) and "विवाह विच्छेद के बाद" (after the divorce).
+                # Without the stem the question matched no topic at all.
+                "ವಿಚ್ಛೇದ", "ತಲಾಖ್", "ಖುಲಾ", "ತಲಾಕ್", "ವಿವಾಹವಿಚ್ಛೇದ", "विच्छेद"),
     "maintenance": ("maintenance", "maintainence", "bharan", "poshan",
                     "kharcha", "guzara", "भरण", "पोषण", "ಪೋಷಣೆ",
                     "alimony",
@@ -80,9 +132,27 @@ TOPIC_KEYWORDS = {
                     "मेहनाना", "महनाना", "मेनेनाना", "वेतन", "भरणपोषण",
                     "करचा", "खर्चा", "गुजारा", "पोसण", "पोषण",
                     "ಎಷ್ಟು ಕೊಡಿ", "ಎಷ್ಟು ಬೇಕು", "ಭರವಸೂ", "ಹಿಂಗಿರಿ", "ಭರಿಸುವ",
-                    "ಜೀವನಾಂಶ"),
+                    "ಜೀವನಾಂಶ",
+                    # "मासगी" is the word an ordinary Hindi reader uses, not the
+                    # statute's "भरण-पोषण". Without it, "पत्नी अपने पति से
+                    # कितनी मासगी मांग सकती है" matched no topic at all and was
+                    # refused as out of scope whenever the English pivot did
+                    # not come back.
+                    "मासगी", "मासगी दे", "निभान सामग्री", "ಹಣಕಾಸು",
+                    "ಅನ್ನಧನ"),
     "custody": ("custody", "guardian", "अभिरक्षा", "कस्टडी", "ಕಸ್ಟಡಿ", "ಪಾಲನೆ",
                 "ಮಗು", "ಮಕ್ಕಳು", "बच्चा", "ಹೆತ್ತವರ", "ವಶ",
+                 # "हिरासत" is what an ordinary Hindi reader says for custody.
+                 # Without it, "तलाक के बाद बच्चे की हिरासत किसे मिलती है" was
+                 # read as a *divorce* question, and a divorce question has to
+                 # ask which personal law applies, so the reader got a
+                 # religion question instead of an answer about the child.
+                 "हिरासत", "बच्चे की हिरासत", "हिरासत किसे",
+                 # The same in Kannada: "ಮಕುವಿನ ಆಧಿಕಾರ" is custody. Without
+                 # it, "ವಿವಾಹವಿಚ್ಛೇದದ ನಂತರ ಮಕುವನ ಆಧಿಕಾರ ಯಾರಿಗೆ" put
+                 # "ವಿಚ್ಛೇದನ" in the text first and was misfiled as divorce.
+                 "ಮಕುವಿನ ಆಧಿಕಾರ", "ಮಕುವನ ಆಧಿಕಾರ", "ಮಗುವಿನ ಆಧಿಕಾರ",
+                 "ಮಕುವಿಗೆ", "ಹೆತ್ತವರ ಆಧಿಕಾರ", "ಹೆತ್ತವರನ್ನು", "ಹೆತ್ತವರನ್ನು ಕೊಡು",
                  "removal order", "removed from the house", "residence order",
                  "right to reside", "who stays in the house",
                  "उसे रहने", "घर से बाहर", "ಮನೆಯಿಂದ ಹೊರಗೆ"),
@@ -129,15 +199,39 @@ TOPIC_KEYWORDS = {
                           "i cannot leave", "i can't leave", "i cannot go out",
                           "threatens to", "shouted at me", "screams at me",
                           "scares me", "intimidates me", "follows me home",
+                          # Other words for the same thing. "violating me",
+                          # "assaulted me", "torturing me" were all refused as
+                          # out of scope, which is the worst possible answer to
+                          # someone describing harm.
+                          "violating", "violates", "violated", "assault",
+                          "assaulted", "torturing", "tortured", "hurting me",
+                          "hurts me", "forced me", "forces me", "starves me",
                           "मुझे डर", "डर लगता", "अकेला नहीं छोड़",
                           "निकलने नहीं देता", "मारने की धमकी", "फोन छीन",
                           "नजर रखता", "निगरानी रखता",
+                          "मारपीट", "मारता", "मारती", "मारते", "मार रहा",
+                          "मार रही", "छोड़ने नहीं देता", "उसे नहीं देता",
+                          "अकेला छोड़",
                           "ನನಗೆ ಭಯ", "ಹೊರಡೆ", "ಬೀಗ ಹಾಕುತ್ತಾನೆ",
-                          "ದೂರ ಮನೆ", "ಹೊಡೆ", "ಹಿಂಸೆ", "ಬೀದು", "ದೌರ್ಜನೆ"),
+                          "ದೂರ ಮನೆ", "ಹೊಡೆ", "ಹಿಂಸೆ", "ಬೀದು", "ದೌರ್ಜನೆ",
+                          "ಹೊರಗೆ ಹಾಕುತ್ತಾನೆ"
+                          # The words for dowry in the languages people
+                          # actually ask in. Only the Latin "dowry" was
+                          # here, so a Hindi or Kannada dowry question
+                          # matched no topic at all and depended on the
+                          # English pivot coming back.
+                          "ಕೋಲಿಕೆ", "ಸಂಪತ್ತು ಕೋಲಿಕೆ", "ಕೋಲಿಕೆ ಹಾಕುತ್ತಾರೆ", "दहेज", "देहेज", "दहेज की मांग",),
     "marriage": ("marriage", "marry", "married", "marital", "wedding",
                  "shadi", "shaadi", "vivah",
                  "nikah", "nikaha", "sagai", "engagement", "विवाह", "शादी",
-                 "ಮದುವೆ", "conjugal"),
+                 "ಮದುವೆ", "conjugal",
+                 # "ಹೆಣ್ಣೆಯ ಮದುಪೆ" is a Kannada reader's phrase for a
+                 # marriage, and "ಮದುಪೆ" is the word for the wedding itself.
+                 # With only "ಮದುವೆ" in the list, "ಭಾರತದಲ್ಲಿ ಹೆಣ್ಣೆಯ ಮದುಪೆಯ
+                 # ಕನಿಷ್ಠ ವಯಸ್ಸು ಎಷ್ಟು" matched no topic at all.
+                 "ಮದುಪೆ", "ಹೆಣ್ಣೆಯ ಮದುಪೆ", "ಹೆಣ್ಣೆಯ", "ವಿವಾಹ",
+                 # The Hindi forms people actually type.
+                 "विवाह", "शादी", "सगाई", "मेहिली"),
     # Inter-caste and inter-religious marriage are Special Marriage Act
     # questions, and they are the questions people are most afraid to ask.
     "interfaith_marriage": ("different religion", "different faith",
@@ -440,6 +534,32 @@ def _fear_points_at_a_person(query_en: str) -> bool:
     return any(p in low for p in _FEAR_IS_PERSONAL)
 
 
+# A relationship word and a harm word in the same sentence. "I want to file a
+# complaint against my husband" is a Protection of Women from Domestic
+# Violence Act question, and the same holds for a complaint, a police report
+# or an FIR against a wife, a mother-in-law or a daughter.
+_PERSON_HARM_WORDS = (
+    # Only the words that mean "I want to do something about this". The
+    # general harm words (beat, fear, hurt) are already in the domestic
+    # violence keyword list, and putting them here as well pulled
+    # "i am scared my husband will not pay me anything" into the DV slot,
+    # which is a maintenance question.
+    "complaint", "complain", "complaining", "fir", "police", "report",
+    "case", "lawyer", "court", "notice", "warning", "threatening",
+    "शिकायत", "एफआईआर", "एफ़आईआर", "पुलिस", "अदालत", "केस", "वकील",
+    "कानून", "धमकी", "प्रताड़ना",
+    "ದೂರು", "ಪೊಲೀಸ್", "ನ್ಯಾಯಾಲಯ", "ಕೇಸ್", "ವಕೀಲ", "ಹೆದರಿಕೆ",
+)
+
+
+def _complaint_about_a_person(bare: str) -> bool:
+    """Does this name a family member and something done to them?"""
+    low = (bare or "").lower()
+    if not any(h in low for h in _PERSON_HARM_WORDS):
+        return False
+    return any(p in low for p in PARTY_WORDS)
+
+
 # Detection of the personal law that governs a question. Kept as its own
 # function so tests and callers can ask for it directly. Returns one of
 # "hindu", "christian", "muslim", "parsi", "interfaith", or "" when the
@@ -635,6 +755,54 @@ def acts_for_personal_law(personal_law: str, topic: str) -> List[str]:
     return [a for a in _KNOWN_ACTS if a in anchor]
 
 
+def _near_miss(text: str, keywords: Iterable[str]) -> bool:
+    """Does the text contain a word that is one or two edits from a keyword?
+
+    Only Latin words are compared. Devanagari and Kannada are matched exactly,
+    because the scripts do not fail the same way: a Hindi reader who means
+    "मासगी" writes it correctly or writes a different word entirely, they do
+    not produce "maasgi". And the comparison is capped at two edits, because
+    "husbend" is one edit from "husband" but "guard" is two from "guardians"
+    and both are family law anyway.
+    """
+    words = re.findall(r"[a-z]{5,}", text or "")
+    if not words:
+        return False
+    for kw in keywords:
+        if len(kw) < 5 or not kw.isascii():
+            continue
+        limit = 1 if len(kw) < 7 else 2
+        for w in words:
+            if abs(len(w) - len(kw)) > limit:
+                continue
+            if _edit_distance_at_most(w, kw, limit):
+                return True
+    return False
+
+
+def _edit_distance_at_most(a: str, b: str, limit: int) -> bool:
+    """Is the Levenshtein distance between a and b within limit?
+
+    A two-row dynamic programme, so a long question costs nothing. Rows only,
+    no recursion, and it gives up the moment the distance goes over the limit.
+    """
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > limit:
+        return False
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        current = [i]
+        for j, cb in enumerate(b, start=1):
+            current.append(min(previous[j] + 1,
+                                current[j - 1] + 1,
+                                previous[j - 1] + (ca != cb)))
+        if min(current) > limit:
+            return False
+        previous = current
+    return previous[-1] <= limit
+
+
 def extract_slots(query_en: str, query_native: str = "") -> Dict[str, str]:
     """The slots for a question.
 
@@ -657,10 +825,41 @@ def extract_slots(query_en: str, query_native: str = "") -> Dict[str, str]:
 
     topics = [t for t, kws in TOPIC_KEYWORDS.items()
               if any(k in bare for k in kws)]
+    if not topics and query_native:
+        # The reader's own words, when the pivot found nothing.
+        #
+        # The pivot can widen a term: a Kannada dowry question was pivoted to
+        # "my in-laws are demanding property from me", and "property" is not
+        # a family-law topic, so the pivot found no topic at all and the
+        # question was asked back as "what is this about?". The reader's own
+        # word for dowry is in the list, so the native question decides.
+        native_bare = _ACT_NAME_RE.sub(" ", (query_native or "").lower())
+        topics = [t for t, kws in TOPIC_KEYWORDS.items()
+                  if any(k in native_bare for k in kws)]
+        if not topics:
+            topics = [t for t, kws in TOPIC_KEYWORDS.items()
+                      if _near_miss(native_bare, kws)]
+    if not topics:
+        # Typo tolerance. A phone keyboard produces "husbend", "maintenence",
+        # "custodyy", "adopton", "divors" — and every one of those questions
+        # was refused as out of scope, because the topic is found by matching
+        # exact words and nothing matched. The word lists already carry some
+        # misspellings ("maintainence"), which shows the need is real and the
+        # list can never be complete. One edit or two is enough to catch the
+        # typos people actually make, and it only runs when the exact match
+        # found nothing, so it cannot change an answer that already worked.
+        topics = [t for t, kws in TOPIC_KEYWORDS.items()
+                  if _near_miss(bare, kws)]
     # Fear of a person is domestic violence even when no keyword above fires.
     # Coercive control — confinement, being watched, not allowed to leave — is
     # what s.3(a) covers, and these phrasings reached no topic at all.
     if "domestic_violence" not in topics and _fear_points_at_a_person(query_en):
+        topics.append("domestic_violence")
+    # A complaint about a family member is a domestic-violence question. "I
+    # want to file a complaint against my husband" named no topic at all, so
+    # the planner asked "what is this about — divorce, maintenance, custody?"
+    # to a woman asking about the Act that protects her.
+    if "domestic_violence" not in topics and _complaint_about_a_person(bare):
         topics.append("domestic_violence")
     if topics:
         # Prefer the most specific topic: maintenance/custody beat divorce.
@@ -801,14 +1000,36 @@ def missing_for(slots: Dict[str, str], query_en: str,
 _CLARIFY_WITH_ANSWER_NODES = ("planner", "tools", "reason", "verifier")
 
 
-def should_answer_anyway(missing: List[str]) -> bool:
+def should_answer_anyway(missing: List[str], topic: str = "") -> bool:
     """Answer with what we have rather than only asking.
 
     Only for the questions where the answer does not actually change: how much
     maintenance, how a protection order works. Never for "which act applies",
     which is the one case where asking is better than guessing.
+
+    The exception is personal law on a *religion-neutral* topic. "What is the
+    minimum age to marry" and "my marriage was never registered" were both
+    answered with "which religion is your marriage?" and nothing else. The
+    age is 18 for everyone in India and registration is the same process for
+    everyone, so the reader got a question about themselves in place of an
+    answer about the law. For those, the answer comes first and the question
+    is offered at the end.
     """
-    return bool(missing) and set(missing) <= {"divorce_type", "parties"}
+    if not missing:
+        return False
+    if set(missing) <= {"divorce_type", "parties"}:
+        return True
+    if missing == ["personal_law"] and topic in _RELIGION_NEUTRAL_TOPICS:
+        return True
+    return False
+
+
+# Topics whose answer does not turn on which personal law applies. Marriage
+# age and registration are the same for everyone in India; custody turns on
+# the welfare of the child. Succession and divorce do depend on the personal
+# law, so those keep the hard question.
+_RELIGION_NEUTRAL_TOPICS = ("marriage", "custody", "adoption",
+                            "domestic_violence", "maintenance")
 
 
 CLARIFY_TEMPLATES = {
@@ -842,6 +1063,22 @@ _CLARIFY_LEAD = {
     "hi": "सही मार्गदर्शन के लिए — ",
     "kn": "ಸರಿಯಾಗಿ ಮಾರ್ಗದರ್ಶನ ನೀಡಲು — ",
 }
+
+
+def _is_in_script(text: str, lang: str) -> bool:
+    """Is this text written in the reader's script?
+
+    Hindi is Devanagari, Kannada is Kannada. A "Hindi" answer with no
+    Devanagari in it is an untranslated echo, and the reader is better served
+    by the local template than by the echo.
+    """
+    if not text:
+        return False
+    if lang == "hi":
+        return re.search(r"[\u0900-\u097F]", text) is not None
+    if lang == "kn":
+        return re.search(r"[\u0C80-\u0CFF]", text) is not None
+    return True
 
 
 def clarification_question(missing: List[str], lang: str) -> str:
@@ -882,6 +1119,32 @@ def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any],
     resp = httpx.post(url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
+
+
+# gpt-oss reasons before it answers, and it reasons in the same token budget
+# as the answer. Left alone it spends ~5,500 tokens thinking, so with
+# MAX_TOKENS_LONG at 1,800 it finished thinking, ran out of budget, and
+# returned an *empty* content field. The caller read that as "the model did
+# not answer", gave up on that model, and shipped the English draft to a Hindi
+# or Kannada reader.
+#
+# Measured on the live API with the real rewrite prompt, 11 runs each:
+#
+#   no reasoning_effort : 4 empty, mean 1,688 completion tokens, ~4.4s
+#   reasoning_effort=low: 0 empty, mean   231 completion tokens, ~1.0s
+#
+# The second number is why this is also a rate-limit fix: Groq's free tier
+# meters 8,000 tokens a minute, so 1,688 tokens a call is about five calls a
+# minute, and 231 is about thirty-five. One gpt-oss call used to spend the
+# whole quota on thinking about a 200-word answer.
+REASONING_EFFORT = os.environ.get("LAWSAATHI_REASONING_EFFORT", "low")
+
+
+def _model_extra(model: str) -> Dict[str, Any]:
+    """Per-model request fields Groq understands but the others ignore."""
+    if model and "gpt-oss" in model and REASONING_EFFORT:
+        return {"reasoning_effort": REASONING_EFFORT}
+    return {}
 
 
 def opencode_complete(messages: List[Dict[str, str]],
@@ -1015,6 +1278,24 @@ def _message_text(data: Dict[str, Any]) -> str:
     return text
 
 
+def _hit_token_limit(data: Dict[str, Any]) -> bool:
+    """Did the model run out of budget mid-answer?
+
+    A completion cut at the token ceiling stops mid-word. Two answers were
+    observed shipping that way: "…उसने आपकी मांग को नज़रअंदाज़ किय" and
+    "…ನಿಮ್ನ ನಿರ್ದಿಷ್ಟ". One of them was marked verified, because the
+    verifier only checks that the claims are supported by the passages, not
+    that the sentence finishes.
+
+    So the cut is treated as a failed call and the next model in the chain
+    gets a turn, rather than the reader getting half a sentence.
+    """
+    choices = data.get("choices") or []
+    if not choices:
+        return False
+    return choices[0].get("finish_reason") == "length"
+
+
 def _openrouter_models() -> List[str]:
     """OpenRouter models to try, in order, on one API key.
 
@@ -1085,18 +1366,23 @@ def chat_complete(messages: List[Dict[str, str]],
     if (groq_key or http_post is not None) and _provider_available("groq"):
         for model in _groq_models():
             try:
+                payload = {"model": model, "messages": messages,
+                           "temperature": 0.2, "max_tokens": budget}
+                payload.update(_model_extra(model))
                 data = post(
                     GROQ_URL,
                     {"Authorization": "Bearer " + groq_key,
                      "Content-Type": "application/json"},
-                    {"model": model, "messages": messages,
-                     "temperature": 0.2, "max_tokens": budget},
+                    payload,
                 )
                 text = _message_text(data)
                 if not text:
                     # An empty completion is a failure, not an answer: falling through
                     # beats showing the user a blank reply.
                     raise RuntimeError("groq %s returned no content" % model)
+                if _hit_token_limit(data):
+                    # Stopped mid-word. The next model gets a turn instead.
+                    raise RuntimeError("groq %s hit the token limit" % model)
                 logger.info("agent llm provider=groq model=%s", model)
                 _mark_healthy("groq")
                 return text, "groq:" + model
@@ -1214,16 +1500,20 @@ def translate_complete(messages: List[Dict[str, str]],
         budget = MAX_TOKENS_LONG if max_tokens is None else max_tokens
         for model in _groq_models():
             try:
+                payload = {"model": model, "messages": messages,
+                           "temperature": 0.2, "max_tokens": budget}
+                payload.update(_model_extra(model))
                 data = post(
                     GROQ_URL,
                     {"Authorization": "Bearer " + os.environ.get("GROQ_API_KEY", ""),
                      "Content-Type": "application/json"},
-                    {"model": model, "messages": messages,
-                     "temperature": 0.2, "max_tokens": budget},
+                    payload,
                 )
                 text = _message_text(data)
                 if not text:
                     raise RuntimeError("groq %s returned no content" % model)
+                if _hit_token_limit(data):
+                    raise RuntimeError("groq %s hit the token limit" % model)
                 logger.info("agent translate provider=groq model=%s", model)
                 _mark_healthy("groq")
                 return text, "groq:" + model
@@ -1875,7 +2165,14 @@ def node_intent(state: Dict[str, Any],
         state["oos_redirect"] = False
     else:
         state["intent"] = classify_intent(state["query_en"], slots)
-        state["oos_redirect"] = is_oos(state["query_en"])
+        # Refuse only when the reader's own words AND the English pivot both
+        # look out of scope. The pivot is a translation, and a translation can
+        # widen a term into a word that trips the scope check: "dowry" became
+        # "property" once, and a Kannada question about dowry was refused as
+        # a property-law question. When the pivot fails, which it often does
+        # under a rate limit, the raw Hindi has to be enough on its own.
+        state["oos_redirect"] = (is_oos(state["query_en"])
+                                 and is_oos(raw_query))
     topic = slots.get("topic")
     found_bits = []
     if topic:
@@ -1931,7 +2228,8 @@ def node_planner(state: Dict[str, Any],
         state["plan"] = default_plan(state)
         _add_trace(state, "planner", "planner_oos")
         return state
-    if missing and not should_answer_anyway(missing):
+    if missing and not should_answer_anyway(
+            missing, str(state.get("slots", {}).get("topic") or "")):
         state["clarification"] = clarification_question(
             missing, state.get("lang", "en"))
         # No retrieval worth planning when we are about to ask the user anyway.
@@ -2686,6 +2984,10 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
     notes: List[str] = []
     n_web = 0
     lang = state.get("lang", "en")
+    # The sections the topic filter brought in. They are put back at the top
+    # after the Act ranking, which otherwise sends everything the planner
+    # chose to the front.
+    topic_hits: List[Dict[str, Any]] = []
 
     def note(key: str, **fields: Any) -> None:
         """One line of the step log, in the reader's language."""
@@ -2819,7 +3121,7 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                 extra = list(store.search_text(
                     "%s %s" % (native_query, act) if act else native_query,
                     top_k=4) or [])
-            except Exception as e:  # noqa: BLE001 — best effort, like the first
+            except Exception as e:  # noqa: BLE001 - best effort, like the first
                 logger.warning("agent native-query search failed (%r)", e)
             else:
                 known = {_hit_key(h) for h in hits}
@@ -2828,6 +3130,46 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
                     hits = list(hits) + fresh
                     note("tools_native", q=native_query[:80], n=len(fresh),
                          plural=_plural(lang, len(fresh)))
+        # The topic-scoped path. Every chunk in the index carries a `topic`
+        # tag, and those tags line up with the agent's own topics. Without the
+        # filter, a bare vector search for "what is the minimum age for a girl
+        # to get married" returned the Surrogacy Act, and "my husband beats
+        # me" returned the Divorce Act. With it, the first returns the
+        # Prohibition of Child Marriage Act and the second the Protection of
+        # Women from Domestic Violence Act.
+        #
+        # It is a second search rather than a filter, so the unfiltered result
+        # is still there as a fallback: a question whose topic was detected
+        # wrongly loses nothing.
+        if tool == ACT_SEARCH and not retry_queries and not doc_id:
+            topic_now = (state.get("slots") or {}).get("topic", "")
+            tag = _CORPUS_TOPIC_TAG.get(topic_now, "")
+            if topic_now == "marriage" and _child_marriage_question(
+                    state.get("query") or state.get("query_en") or ""):
+                tag = "child_marriage"
+            if _dowry_question(state.get("query") or state.get("query_en") or ""):
+                tag = "dowry"
+            if tag:
+                try:
+                    extra = list(store.search_text(
+                        search_text, top_k=5,
+                        filter_payload={"topic": tag}) or [])
+                except Exception as e:  # noqa: BLE001 - best effort
+                    logger.warning("agent topic-scoped search failed (%r)", e)
+                else:
+                    known = {_hit_key(h) for h in hits}
+                    fresh = [h for h in extra if _hit_key(h) not in known]
+                    if fresh:
+                        # Kept apart, because the Act ranking below would
+                        # otherwise push them back down: the planner's choice
+                        # of Act is the one thing the topic filter has to
+                        # overrule, or "the minimum age to marry" comes back
+                        # as Hindu Marriage Act s.18 (penalty for a child
+                        # marriage) instead of the age section itself.
+                        topic_hits = fresh
+                        hits = fresh + hits
+                        note("tools_topic", q=shown, n=len(fresh),
+                             plural=_plural(lang, len(fresh)), tag=tag)
         if tool == SECTION_READ:
             section = re.sub(r"[^0-9A-Za-z]", "", query).lower()
             exact = [h for h in hits
@@ -2854,6 +3196,14 @@ def node_tools(state: Dict[str, Any], retriever: Any = None,
             hits, (state.get("slots") or {}).get("section", "")
             if tool == SECTION_READ else "")
         hits = _rank_toward_act(hits, act)
+        if topic_hits:
+            # The topic filter has the last word. The Act ranking sends
+            # every section of the planner's chosen Act above everything
+            # else, which is right when the planner is right and wrong when
+            # it is not, and the topic tag in the corpus is right by
+            # construction.
+            kept = {id(h) for h in topic_hits}
+            hits = topic_hits + [h for h in hits if id(h) not in kept]
         enacted = [h for h in hits if is_enacted(h.get("payload") or {})]
         dropped = len(hits) - len(enacted)
         hits = enacted
@@ -2964,6 +3314,24 @@ OOS_KEYWORDS = ("land", "farmland", "agriculture", "soil", "crop", "farming",
                 "कार्ड", "एफ़सीआरई", "किराया", "मकान", "पुलिस", "वसूली",
                 "ಕೌಳೂರು", "ಪೊಲೀಸ್", "ಅರ್ಜಿ", "ಸರ್ಕಾರಿ")
 
+# Words that name a domain we do not cover and never will. A question naming
+# one of these is refused even when it also names a family member, because
+# "my wife wants me to sign a contract" is a contract question and "my father
+# is giving his farm to my brother" is a property question, and answering
+# either with family law would be answering about the wrong law.
+OOS_HARD = ("land", "farm", "farmland", "agriculture", "soil", "crop",
+            "farming", "property", "real estate", "criminal", "tax",
+            "income tax", "property law", "criminal law", "theft", "murder",
+            "rape", "cheque", "stamp duty", "tenant", "eviction",
+            "motor vehicle", "consumer forum", "rti", "right to information",
+            "company", "employer", "employment", "labour", "labor", "bank",
+            "loan", "debt", "recovery", "bail", "police station", "nda",
+            "patent", "trademark", "copyright", "passport", "visa",
+            "contract", "agreement",
+            "electoral", "vote", "government job", "municipal",
+            "gram panchayat", "कार्ड", "किराया", "मकान", "वसूली",
+            "ಕೌಳೂರು", "ಅರ್ಜಿ", "ಸರ್ಕಾರಿ")
+
 # Signals that a question about land or property is really about *inheriting*
 # it, which is family law. "My father died and my brother is taking the
 # ancestral land" was being refused as out-of-scope property law, which is
@@ -2995,6 +3363,14 @@ def _oos_match(keyword: str, low: str) -> bool:
 
 
 def is_oos(query_en: str) -> bool:
+    """Is this question outside family law?
+
+    The rule that matters: **refusing is the dangerous answer**. A person who
+    asks a family-law question in the wrong words and gets told the topic is
+    out of scope has been told a falsehood about the law. So the check is
+    generous with anything that reads as family, and it looks at the reader's
+    own words rather than only at a translation of them.
+    """
     if is_identity_query(query_en):
         return False
     low = (query_en or "").lower()
@@ -3010,18 +3386,27 @@ def is_oos(query_en: str) -> bool:
     if is_succession:
         return False
     # If a recognized family-law topic is extracted (e.g. domestic violence,
-    # marriage, divorce, maintenance, custody, succession, senior citizens), the question is in scope.
+    # marriage, divorce, maintenance, custody, succession, senior citizens),
+    # the question is in scope. So is a question that names a family member:
+    # "मैं अपने पति के खिलाफ शिकायत दर्ज करना चाहती हूं" names a husband and
+    # nothing else, and refusing it was refusing a domestic-violence question.
     slots = extract_slots(query_en)
-    if slots.get("topic") or slots.get("section"):
+    has_topic = bool(slots.get("topic") or slots.get("section"))
+    if has_topic:
         has_family = True
     else:
         indic_hits = (
             "तलाक", "विवाह", "शादी", "भरण", "पोषण", "गुजारा", "खर्चा",
             "कस्टडी", "अभिरक्षा", "बच्चा", "बच्चे", "दहेज", "हिंसा", "वारिस",
             "उत्तराधिकार", "पैतृक", "संपत्ति", "माता", "पिता", "बुजुर्ग", "वृद्ध",
+            "पति", "पत्नी", "मासगी", "बेटा", "बेटी", "बेटे", "मामा", "मामी",
+            "सास", "सासू", "नाता", "नाती", "जीवनसाथी", "मारपीट", "गोद",
+            "शिकायत", "एफआईआर", "एफ़आईआर",
             "ವಿಚ್ಛೇದನ", "ಮದುವೆ", "ಜೀವನಾಂಶ", "ಪೋಷಣೆ", "ಕಸ್ಟಡಿ", "ಪಾಲನೆ",
             "ಮಗು", "ಮಕ್ಕಳು", "ಹಿಂಸೆ", "ವರದಕ್ಷಿಣೆ", "ಉತ್ತರಾಧಿಕಾರ", "ಆಸ್ತಿ",
-            "ಪೋಷಕರು", "ಹಿರಿಯ", "ತಂದೆ", "ತಾಯಿ", "ಗಂಡ", "ಹೆಂಡತಿ"
+            "ಪೋಷಕರು", "ಹಿರಿಯ", "ತಂದೆ", "ತಾಯಿ", "ಗಂಡ", "ಹೆಂಡತಿ",
+            "ಹಣಕಾಸು", "ಅನ್ನಧನ",
+            "ಹಿಂದಿನವರು", "ಹಿಂದಿನವರ", "ಸಂಬಂಧ", "ದತ್ತು", "ವಾರಿಸ", "ಬೀಗ", "ಹೊಡೆ", "ದೂರು"
         )
         has_family = any(k in low for k in (
             "marriage", "married", "divorce", "divorced", "custody",
@@ -3030,8 +3415,21 @@ def is_oos(query_en: str) -> bool:
             "heir", "adoption", "adopt", "residence order", "protection order",
             "maintenance", "custody", "guardian", "domestic violence",
             "husband", "wife", "spouse", "married", "senior citizen",
-            "senior citizens", "parents", "elderly", "gift deed", "gifted")) or any(k in low for k in indic_hits)
+            "senior citizens", "parents", "elderly", "gift deed", "gifted",
+            # A relationship word, in the words a reader actually uses. "In-laws"
+            # was missing, and "my in-laws are demanding dowry from me" is a
+            # dowry question, not a property question.
+            "in-law", "in-laws", "mother-in-law", "father-in-law",
+            "brother", "sister", "son", "daughter", "child", "children",
+            "family", "wife's", "husband's")) or any(k in low for k in indic_hits)
     has_section_or_act = bool(re.search(r"section\s*\d|\bact\b", low))
+    # A domain we never cover wins over everything else. "My wife wants me to
+    # sign a contract" and "my father is giving his farm to my brother" both
+    # name a family member and a law we do not hold, and answering them with
+    # family law would be answering about the wrong law.
+    has_hard_oos = any(_oos_match(k, low) for k in OOS_HARD)
+    if has_hard_oos and not has_topic:
+        return True
     # Out of scope if an explicit out-of-scope topic is named, OR if the
     # question names no family-law concept at all.
     if has_oos and not has_family:
@@ -4282,26 +4680,21 @@ def node_response(state: Dict[str, Any],
     memory = state.get("memory") or {}
     lang = state.get("lang", "en")
     if state.get("clarification"):
-        # Clarification path: answer in the user's language, no guessing.
+        # Clarification path: the question is already in the reader's language.
+        #
+        # It used to be handed to the model with "Translate it once", even
+        # though the template was already Hindi or Kannada. The model did what
+        # it was asked and translated the Hindi back into English: a Hindi
+        # reader asking about the marriage age was answered with "For proper
+        # guidance — what was your marriage according to which religion or
+        # custom — Hindu, Christian, Muslim, Parsi, or court marriage (Special
+        # Marriage Act)?". The template is correct in all three languages, so
+        # it is used as it is.
         text = state["clarification"]
-        if lang != "en" and llm is not None:
-            try:
-                rendered, provider = llm([
-                    {"role": "system",
-                     "content": "Render this clarification question in %s. "
-                                "Translate it once. Output only the translation. "
-                                "No explanations, no preamble." % lang},
-                    {"role": "user", "content": text},
-                ])
-                # Never show a looped translation; the local template is
-                # already correct in all three languages.
-                if rendered and not looks_looped(rendered):
-                    text = rendered
-                    state["provider"] = provider
-                elif rendered:
-                    logger.warning("agent clarify translation looped; keeping template")
-            except Exception as e:  # noqa: BLE001 — template is already local
-                logger.warning("agent clarify translate failed (%r)", e)
+        if lang != "en" and not _is_in_script(text, lang):
+            # Only a template that somehow came back in the wrong script needs
+            # help, and even then the answer is the local one.
+            logger.warning("agent clarify template not in %s script", lang)
         state["answer"] = text
         state["citations"] = []
         state["citation_sources"] = []
@@ -4334,6 +4727,21 @@ def node_response(state: Dict[str, Any],
             logger.warning("agent falling back to English answer for lang=%s", lang)
     answer_en, citations, citation_sources = compose_answer(state, written)
     final = strip_reasoning_leak(answer_en)
+    # Which language the answer is actually in. It is not always the language
+    # the question was in: when the native rewrite could not run, the English
+    # draft ships as it is. The client picks the speaking voice from this, and
+    # reading a Hindi answer with an English voice is the difference between
+    # an answer and noise.
+    if lang == "en" or rewritten:
+        state["answer_lang"] = lang
+    elif written:
+        # The English draft survived and the rewrite did not: the answer is
+        # in English.
+        state["answer_lang"] = "en"
+    else:
+        # No model at all. The template writes a localized opening and quotes
+        # the statute text, so the reader hears their own language.
+        state["answer_lang"] = lang
     # Append the disambiguating question the planner held back, so the user got
     # an answer *and* the chance to narrow it down.
     follow_up = str(state.get("follow_up_question") or "")

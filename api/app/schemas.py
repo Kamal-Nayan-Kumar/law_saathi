@@ -81,6 +81,20 @@ class TranscriptOut(BaseModel):
     error: Optional[str] = None
 
 
+class SpeakIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    lang: str = Field(default="en", pattern="^(en|hi|kn)$")
+
+
+class SpeakOut(BaseModel):
+    """Text -> spoken audio. An empty `audio` means the server could not do
+    it and the client should use the browser's own voice instead."""
+    audio: str = ""
+    lang: str = "en"
+    provider: str = ""
+    error: Optional[str] = None
+
+
 class AskIn(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     lang: str = Field(default="en", pattern="^(en|hi|kn)$")

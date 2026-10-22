@@ -60,6 +60,61 @@ export function speakableLangs(): string[] {
   return [...found];
 }
 
+/**
+ * The voice to read this language aloud with.
+ *
+ * `utterance.lang` on its own is a request, not a choice. When the OS has no
+ * voice for the language, Chrome and Safari fall back to the default voice,
+ * and a Kannada answer is then read in English phonemes: it sounds like the
+ * app is broken rather than like it is speaking Kannada. So the voice is
+ * picked here, by language, and the caller can check that one exists.
+ *
+ * The list of voices is empty on the first call in Chrome and Safari, and
+ * fills in later, so this is called again whenever the list changes.
+ */
+export function pickVoice(lang: string): SpeechSynthesisVoice | null {
+  if (!canSpeak()) return null;
+  const want = (SPEECH_LANG[lang] || "en-IN").slice(0, 2).toLowerCase();
+  const voices = window.speechSynthesis.getVoices();
+  const matching = voices.filter(
+    (v) => v.lang.slice(0, 2).toLowerCase() === want,
+  );
+  if (!matching.length) return null;
+  // An exact regional match reads better than a generic one: en-IN over
+  // en-US, hi-IN over hi.
+  const exact = matching.find(
+    (v) => v.lang.toLowerCase() === (SPEECH_LANG[lang] || "en-IN").toLowerCase(),
+  );
+  return exact || matching[0];
+}
+
+/** Can the OS read this language aloud at all? */
+export function canSpeakLang(lang: string): boolean {
+  return pickVoice(lang) !== null;
+}
+
+/**
+ * The text worth reading out loud.
+ *
+ * Markdown is stripped (speech synthesis reads "#" and "*" aloud), the
+ * citation markers become "source 1", and the "what to do next" list and the
+ * disclaimer are cut, because they are noise out loud. The heading is cut in
+ * every language, not only the English one, or the list is read out in Hindi
+ * and Kannada too.
+ */
+export function speakableText(text: string): string {
+  const plain = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#*_>`]/g, "")
+    .replace(/\[(\d+)\]/g, "source $1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain
+    .split(/what to do next|आगे क्या करें|ಮುಂದಿನ ಏನು ಮಾಡಬೇಕು|ಮುಂದೆ ಏನು ಮಾಡಬೇಕು/i)[0]
+    .trim();
+}
+
 export type ListenState = "idle" | "recording" | "transcribing" | "error";
 
 /** Safari and Chrome disagree about which of these actually record speech.
@@ -244,37 +299,89 @@ export function useDictation(lang: string) {
 export function useSpeechSynthesis(lang: string) {
   const [speakingId, setSpeakingId] = useState<number | null>(null);
   const supported = canSpeak();
+  // The OS may have no voice for the language being asked about. Chrome
+  // fills the voice list in late, so this is re-checked whenever the list
+  // changes rather than only on the first render.
+  const [voice, setVoice] = useState<SpeechSynthesisVoice | null>(null);
+  // The server can speak the answer in a language the device has no voice
+  // for. It is asked for only when the browser cannot do it, so the common
+  // case stays free and instant.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!supported) return;
+    const refresh = () => setVoice(pickVoice(lang));
+    refresh();
+    window.speechSynthesis.addEventListener("voiceschanged", refresh);
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+    };
+  }, [lang, supported]);
+
+  /** Ask the server to speak it, for a language the device has no voice for. */
+  const speakWithServer = useCallback(
+    async (text: string, id: number): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/bff/voice/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, lang }),
+        });
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => ({}));
+        if (!data?.audio) return false;
+        audioRef.current?.pause();
+        const audio = new Audio(`data:audio/mpeg;base64,${data.audio}`);
+        audioRef.current = audio;
+        audio.onplay = () => setSpeakingId(id);
+        audio.onended = () => setSpeakingId((cur) => (cur === id ? null : cur));
+        audio.onerror = () => setSpeakingId((cur) => (cur === id ? null : cur));
+        await audio.play();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [lang],
+  );
 
   const speak = useCallback(
-    (text: string, id: number) => {
+    async (text: string, id: number) => {
       if (!supported || !text.trim()) return;
-      // Strip markdown: speech synthesis reads "#" and "*" aloud.
-      const plain = text
-        .replace(/```[\s\S]*?```/g, " ")
-        .replace(/[#*_>`]/g, "")
-        .replace(/\[(\d+)\]/g, "source $1")
-        .replace(/https?:\/\/\S+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      // The citation list and disclaimer are noise out loud. Cut them.
-      const body = plain.split(/What to do next/i)[0].trim();
+      const body = speakableText(text);
       if (!body) return;
+
+      // No voice for this language on this device: the server speaks it
+      // instead, in the language it was written in.
+      if (!pickVoice(lang)) {
+        const done = await speakWithServer(body, id);
+        if (done) return;
+        // The server could not do it either. Fall through and let the browser
+        // try: a wrong voice is better than no voice.
+      }
 
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(body);
       utter.lang = SPEECH_LANG[lang] || "en-IN";
+      // The voice itself, not just a request for one. Without this the
+      // browser picks whatever it likes and a Kannada answer can be read in
+      // English phonemes.
+      const chosen = pickVoice(lang);
+      if (chosen) utter.voice = chosen;
       utter.rate = 0.98; // slightly slower than default: this is dense legal text
       utter.onstart = () => setSpeakingId(id);
       utter.onend = () => setSpeakingId((cur) => (cur === id ? null : cur));
       utter.onerror = () => setSpeakingId((cur) => (cur === id ? null : cur));
       window.speechSynthesis.speak(utter);
     },
-    [lang, supported],
+    [lang, speakWithServer, supported],
   );
 
   const stop = useCallback(() => {
     if (!supported) return;
     window.speechSynthesis.cancel();
+    audioRef.current?.pause();
+    audioRef.current = null;
     setSpeakingId(null);
   }, [supported]);
 
@@ -282,6 +389,7 @@ export function useSpeechSynthesis(lang: string) {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    audioRef.current?.pause();
   }, []);
 
   return { supported, speakingId, speak, stop };
