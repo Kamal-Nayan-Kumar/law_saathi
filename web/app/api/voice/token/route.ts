@@ -3,10 +3,18 @@ import { AccessToken } from "livekit-server-sdk";
 import { auth } from "@/lib/auth/server";
 
 export async function POST(req: NextRequest) {
-  // 1. Authenticate user session
-  const { data: session } = await auth.getSession();
-  const userId = session?.user?.id || `guest-${Math.random().toString(36).slice(2, 8)}`;
-  const userName = session?.user?.name || "Participant";
+  // 1. Authenticate user session safely (guests allowed for demo)
+  let userId = `guest-${Math.random().toString(36).slice(2, 8)}`;
+  let userName = "Participant";
+  try {
+    const { data: session } = await auth.getSession();
+    if (session?.user) {
+      userId = session.user.id;
+      userName = session.user.name || "Participant";
+    }
+  } catch {
+    // Guest fallback
+  }
 
   const body = await req.json().catch(() => ({}));
   const roomName = body.room || `law-saathi-${userId}`;
