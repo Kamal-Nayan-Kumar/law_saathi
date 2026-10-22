@@ -1,0 +1,19 @@
+[project]
+name = "law-saathi-voice"
+version = "0.1.0"
+description = "Realtime voice agent for Law Saathi: LiveKit + Sarvam STT/TTS + the Law Saathi pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "livekit-agents[sarvam]~=1.8",
+    "python-dotenv>=1.2.4",
+]
+
+[dependency-groups]
+dev = [
+    "livekit>=1.1.20",
+]
+
+[tool.uv]
+package = false

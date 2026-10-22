@@ -2776,21 +2776,106 @@ _NON_LEGAL_OR_US_DOMAINS = (
 )
 
 
-def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Firecrawl seam for T5 — real crawl/search when FIRECRAWL_API_KEY set."""
+def _search_indian_kanoon(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Free search over Indian case law and judgments from Indian Kanoon."""
+    import urllib.parse
+    import httpx
+
     clean_q = re.sub(r"[^\w\s\-\(\)]", " ", query).strip()
-    if not any(k in clean_q.lower() for k in ("india", "indian", "supreme court", "high court", "delhi")):
-        search_query = "%s Indian family law India" % clean_q
-    else:
-        search_query = "%s India law" % clean_q
-    logger.info("agent web_search query=%r (T5 Firecrawl)", search_query[:80])
+    encoded = urllib.parse.quote_plus(clean_q)
+    url = f"https://indiankanoon.org/search/?formInput={encoded}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+    }
     try:
-        import os
+        resp = httpx.get(url, headers=headers, timeout=12.0)
+        if resp.status_code != 200:
+            return []
+        articles = resp.text.split('<article class="result"')
+        results: List[Dict[str, Any]] = []
+        for art in articles[1:]:
+            title_m = re.search(r'<h4 class="result_title">\s*<a href="([^"]+)">([^<]+)</a>', art)
+            headline_m = re.search(r'<div class="headline">(.*?)</div>', art, re.DOTALL)
+            source_m = re.search(r'<span class="docsource">([^<]+)</span>', art)
+            doc_m = re.search(r'<a class="cite_tag" href="(/doc/\d+/)"', art)
+            if title_m:
+                href = doc_m.group(1) if doc_m else title_m.group(1)
+                full_url = f"https://indiankanoon.org{href}"
+                raw_title = title_m.group(2).strip()
+                source = source_m.group(1).strip() if source_m else ""
+                title = f"{raw_title} ({source})" if source else raw_title
+                snippet = ""
+                if headline_m:
+                    snippet = re.sub(r"<[^>]+>", "", headline_m.group(1)).strip()
+                    snippet = re.sub(r"\s+", " ", snippet)
+                results.append({
+                    "payload": {
+                        "url": full_url,
+                        "title": title,
+                        "text": snippet or "Indian legal document / judgment.",
+                    },
+                    "score": 0.88,
+                })
+                if len(results) >= top_k:
+                    break
+        return results
+    except Exception as exc:  # noqa: BLE001
+        logger.info("agent indian_kanoon search failed (%r)", exc)
+        return []
+
+
+def _search_ddg_lite(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Free web search via DuckDuckGo Lite endpoint."""
+    import httpx
+
+    url = "https://lite.duckduckgo.com/lite/"
+    data = {"q": query}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    try:
+        resp = httpx.post(url, data=data, headers=headers, timeout=10.0)
+        if resp.status_code != 200:
+            return []
+        links = re.findall(r'<a[^>]+class=[\'"]result-link[\'"][^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', resp.text)
+        if not links:
+            links = re.findall(r'<a[^>]+href=[\'"](https?://[^\'"]+)[\'"][^>]*>(.*?)</a>', resp.text)
+        results: List[Dict[str, Any]] = []
+        for href, title in links:
+            if "duckduckgo" in href:
+                continue
+            clean_title = re.sub(r"<[^>]+>", "", title).strip()
+            low_u = href.lower()
+            if any(dom in low_u for dom in _NON_LEGAL_OR_US_DOMAINS):
+                continue
+            results.append({
+                "payload": {
+                    "url": href,
+                    "title": clean_title,
+                    "text": clean_title,
+                },
+                "score": 0.82,
+            })
+            if len(results) >= top_k:
+                break
+        return results
+    except Exception as exc:  # noqa: BLE001
+        logger.info("agent ddg_lite search failed (%r)", exc)
+        return []
+
+
+def _search_firecrawl(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Firecrawl search if FIRECRAWL_API_KEY is configured and has credits."""
+    key = os.environ.get("FIRECRAWL_API_KEY", "")
+    if not key:
+        return []
+    try:
         from firecrawl import Firecrawl
-        key = os.environ.get("FIRECRAWL_API_KEY", "")
-        fc = Firecrawl(api_key=key or None)
-        res = fc.search(search_query, limit=top_k * 2, sources=["web"])
-        results = []
+        fc = Firecrawl(api_key=key)
+        res = fc.search(query, limit=top_k * 2, sources=["web"])
+        results: List[Dict[str, Any]] = []
         for item in (res.web or []):
             url = getattr(item, "url", None) or (getattr(item, "metadata", {}).get("sourceURL") if hasattr(item, "metadata") else None)
             title = getattr(item, "title", None) or (getattr(item, "metadata", {}).get("title") if hasattr(item, "metadata") else None)
@@ -2799,26 +2884,59 @@ def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
                 url = item.get("url") or item.get("metadata", {}).get("sourceURL")
                 title = item.get("title") or item.get("metadata", {}).get("title")
                 text = item.get("description") or item.get("markdown") or item.get("text", "")
-            if not url and isinstance(item, dict) and item.get("metadata"):
-                url = item["metadata"].get("sourceURL")
             if url:
                 low_u = url.lower()
                 if any(dom in low_u for dom in _NON_LEGAL_OR_US_DOMAINS):
                     continue
-                payload = {
-                    "url": url,
-                    "title": title or url,
-                    "text": (text or "Web source.")[:800],
-                }
-                results.append({"payload": payload, "score": 0.85})
+                results.append({
+                    "payload": {
+                        "url": url,
+                        "title": title or url,
+                        "text": (text or "Web source.")[:800],
+                    },
+                    "score": 0.85,
+                })
                 if len(results) >= top_k:
                     break
-        if results:
-            logger.info("agent web_search returned %d web hits", len(results))
         return results
-    except Exception as e:  # noqa: BLE001 — web is best-effort
-        logger.info("agent web_search Firecrawl unavailable (%r); falling back to stub", e)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("agent firecrawl search failed (%r)", exc)
         return []
+
+
+def stub_web_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Multi-provider web search fallback (Kanoon -> DDG Lite -> Firecrawl)."""
+    cfg = os.environ.get("LAWSAATHI_WEB_SEARCH", "kanoon,ddg,firecrawl").lower().strip()
+    if cfg == "off":
+        return []
+    providers = [p.strip() for p in cfg.split(",") if p.strip()]
+
+    clean_q = re.sub(r"[^\w\s\-\(\)]", " ", query).strip()
+    if not any(k in clean_q.lower() for k in ("india", "indian", "supreme court", "high court", "delhi")):
+        search_query = "%s Indian family law India" % clean_q
+    else:
+        search_query = "%s India law" % clean_q
+    logger.info("agent web_search query=%r providers=%r", search_query[:80], providers)
+
+    for prov in providers:
+        if prov == "kanoon":
+            hits = _search_indian_kanoon(search_query, top_k=top_k)
+            if hits:
+                logger.info("agent web_search returned %d hits via indian_kanoon", len(hits))
+                return hits
+        elif prov in ("ddg", "duckduckgo"):
+            hits = _search_ddg_lite(search_query, top_k=top_k)
+            if hits:
+                logger.info("agent web_search returned %d hits via ddg_lite", len(hits))
+                return hits
+        elif prov == "firecrawl":
+            hits = _search_firecrawl(search_query, top_k=top_k)
+            if hits:
+                logger.info("agent web_search returned %d hits via firecrawl", len(hits))
+                return hits
+
+    logger.warning("agent web_search all providers (%s) returned 0 hits", ",".join(providers))
+    return []
 
 
 def _evidence_source_type(hit: Dict[str, Any]) -> str:

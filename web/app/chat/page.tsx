@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -853,6 +854,10 @@ function toggleSide() {
             </button>
             <Logo size={40} />
             <span className="chat-top-tag">Family Law, Explained in Simple Words.</span>
+            <Link href="/voice" className="chat-top-voice-btn" title="Start real-time voice call">
+              <Icon name="mic" size={14} />
+              <span>Live Voice</span>
+            </Link>
           </div>
         </header>
 

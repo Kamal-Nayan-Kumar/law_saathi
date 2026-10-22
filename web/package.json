@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.24",
     "@neondatabase/auth": "^0.5.0-beta",
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.2",
     "next": "^16.3.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

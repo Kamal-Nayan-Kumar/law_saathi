@@ -274,6 +274,27 @@
   text-overflow: ellipsis;
 }
 
+.chat-top-voice-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--maroon);
+  background: var(--surface);
+  border: 1px solid var(--maroon-soft);
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.chat-top-voice-btn:hover {
+  background: var(--maroon);
+  color: white;
+}
+
 .side-toggle {
   display: none;
   background: none;
