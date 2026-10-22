@@ -102,7 +102,7 @@ def test_transcribe_endpoint_returns_text_only(client, monkeypatch):
     assert body["error"] is None
     # The transcript must not have been persisted as a user message: it has
     # not been asked yet.
-    assert client.get("/sessions", headers=bff_headers()).json() == []
+    assert client.get("/sessions", headers=bff_headers()).json()["items"] == []
 
 
 def test_transcribe_endpoint_reports_failure_without_500(client, monkeypatch):

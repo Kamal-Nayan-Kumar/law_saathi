@@ -19,6 +19,20 @@ class SessionOut(BaseModel):
     title: str
 
 
+class SessionPage(BaseModel):
+    """One page of the chat history.
+
+    The list used to arrive in one piece, and a user with a few hundred chats
+    got all of them rendered at once. The sidebar is a narrow column, so the
+    reader had to scroll past a wall to reach the chat they wanted.
+    """
+    items: List[SessionOut] = []
+    page: int = 1
+    per_page: int = 20
+    total: int = 0
+    has_more: bool = False
+
+
 class SessionPatch(BaseModel):
     title: str = Field(min_length=1, max_length=255)
 

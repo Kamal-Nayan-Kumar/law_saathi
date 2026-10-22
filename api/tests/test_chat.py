@@ -27,7 +27,68 @@ def test_chat_history_persists_per_user(client):
     assert client.get(f"/sessions/{sid}/messages", headers=h2).status_code == 404
     mine = client.get("/sessions", headers=h2)
     assert mine.status_code == 200
-    assert mine.json() == []
+    assert mine.json()["items"] == []
+
+
+def test_the_history_arrives_a_page_at_a_time(client):
+    """The sidebar used to be handed every chat at once.
+
+    A user with a few hundred chats got a wall of them in a narrow column.
+    The list is now paginated, newest first, and the page tells the client
+    how much is behind it.
+    """
+    from tests.conftest import bff_headers
+
+    h = bff_headers("paged")
+    for i in range(25):
+        client.post("/sessions", json={"title": "chat %d" % i}, headers=h)
+
+    first = client.get("/sessions?page=1&per_page=10", headers=h).json()
+    assert first["page"] == 1
+    assert first["per_page"] == 10
+    assert first["total"] == 25
+    assert first["has_more"] is True
+    assert len(first["items"]) == 10
+
+    second = client.get("/sessions?page=2&per_page=10", headers=h).json()
+    assert len(second["items"]) == 10
+    assert second["has_more"] is True
+
+    third = client.get("/sessions?page=3&per_page=10", headers=h).json()
+    assert len(third["items"]) == 5
+    assert third["has_more"] is False
+
+    # No chat appears on two pages, or the list would show the same one twice.
+    seen = [s["id"] for page in (first, second, third) for s in page["items"]]
+    assert len(seen) == len(set(seen)) == 25
+
+    # Newest first, because that is the order the sidebar shows them in.
+    assert seen == sorted(seen, reverse=True)
+
+
+def test_a_page_cannot_be_asked_for_too_big(client):
+    """One request must not be able to pull the whole table into memory."""
+    from tests.conftest import bff_headers
+
+    h = bff_headers("greedy")
+    for i in range(5):
+        client.post("/sessions", json={"title": "chat %d" % i}, headers=h)
+
+    page = client.get("/sessions?page=1&per_page=100000", headers=h).json()
+    assert page["per_page"] <= 100
+
+
+def test_a_bad_page_number_is_clamped_not_an_error(client):
+    """A page of zero or minus one is a mistyped URL, not a broken server."""
+    from tests.conftest import bff_headers
+
+    h = bff_headers("badpage")
+    client.post("/sessions", json={"title": "chat"}, headers=h)
+
+    for asked in ("0", "-5"):
+        page = client.get(f"/sessions?page={asked}", headers=h).json()
+        assert page["page"] == 1
+        assert len(page["items"]) == 1
 
 
 def test_message_needs_login(client):

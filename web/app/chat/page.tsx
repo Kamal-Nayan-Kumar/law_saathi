@@ -37,6 +37,19 @@ type ChatSession = {
   title: string;
 };
 
+// One page of the history, as the API returns it.
+type SessionPage = {
+  items: ChatSession[];
+  page: number;
+  per_page: number;
+  total: number;
+  has_more: boolean;
+};
+
+// How many chats the sidebar asks for at a time. Twenty is about two
+// screens of a narrow column.
+const SESSION_PAGE_SIZE = 20;
+
 type TraceStep = StreamStep;
 
 /**
@@ -75,7 +88,7 @@ type UiKey =
   | "thinking" | "steps" | "sources" | "readAloud" | "stop"
   | "working" | "starting" | "newChat" | "noChats" | "signOut"
   | "history" | "deleteChat" | "confirmDelete" | "askPlaceholder"
-  | "sideLoading" | "sideError"
+  | "sideLoading" | "sideError" | "loadMore" | "moreChats" | "sideLoadingMore"
   | "recording" | "transcribing" | "emptyTitle" | "emptyHint" | "checking"
   | "srcAct" | "srcWeb" | "srcDoc" | "srcOther";
 
@@ -99,6 +112,11 @@ const UI: Record<UiKey, { en: string; hi: string; kn: string }> = {
   // and failed are their own states, and each says only what it knows.
   sideLoading: { en: "Loading your chats…", hi: "आपकी बातचीतें लोड हो रही हैं…", kn: "ನಿಮ್ಮ ಸಂಭಾಷಣೆಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ…" },
   sideError: { en: "Couldn't load your chats.", hi: "आपकी बातचीतें लोड नहीं हो सकीं।", kn: "ನಿಮ್ಮ ಸಂಭಾಷಣೆಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ." },
+  // The history arrives a page at a time. The button says how many are still
+  // behind it, so the reader knows whether it is worth pressing.
+  loadMore: { en: "Show older chats", hi: "पुरानी बातचीतें दिखाएँ", kn: "ಹಳೆಯ ಸಂಭಾಷಣೆಗಳನ್ನು ತೋರಿಸಿ" },
+  moreChats: { en: "{n} more", hi: "{n} और", kn: "ಇನ್ನೂ {n}" },
+  sideLoadingMore: { en: "Loading…", hi: "लोड हो रहा है…", kn: "ಲೋಡ್ ಆಗುತ್ತಿದೆ…" },
   signOut: { en: "Sign out", hi: "साइन आउट", kn: "ಸೈನ್ ಔಟ್" },
   history: { en: "Chat history", hi: "बातचीत का इतिहास", kn: "ಸಂಭಾಷಣೆ ಇತಿಹಾಸ" },
   deleteChat: { en: "Delete this chat?", hi: "यह बातचीत हटाएँ?", kn: "ಈ ಸಂಭಾಷಣೆಯನ್ನು ಅಳಿಸಬೇಕೆ?" },
@@ -115,10 +133,15 @@ const UI: Record<UiKey, { en: string; hi: string; kn: string }> = {
   srcOther: { en: "source", hi: "स्रोत", kn: "ಮೂಲ" },
 };
 
-function t(lang: string, key: UiKey): string {
+function t(lang: string, key: UiKey, vars?: Record<string, string | number>): string {
   const bank = UI[key];
-  if (lang === "hi" || lang === "kn") return bank[lang];
-  return bank.en;
+  let out = lang === "hi" || lang === "kn" ? bank[lang] : bank.en;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      out = out.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+  }
+  return out;
 }
 
 // Shown before the first step arrives. The real steps replace this list as the
@@ -343,6 +366,12 @@ export default function Chat() {
   // Set when the list could not be fetched at all. The sidebar then says
   // that, rather than claiming there are no chats.
   const [sessionsError, setSessionsError] = useState(false);
+  // How much of the history is on screen, so "load more" knows where to
+  // start and a delete can put the reader back where they were.
+  const [sessionPage, setSessionPage] = useState(1);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -401,8 +430,11 @@ export default function Chat() {
 
   const refreshSessions = useCallback(async () => {
     try {
-      const list = (await api("/sessions")) as ChatSession[];
-      setSessions([...list].reverse());
+      const page = (await api(`/sessions?page=1&per_page=${SESSION_PAGE_SIZE}`)) as SessionPage;
+      setSessions(page.items || []);
+      setSessionPage(1);
+      setSessionTotal(page.total || 0);
+      setHasMore(!!page.has_more);
       setSessionsError(false);
     } catch {
       // A failed sidebar refresh is not worth interrupting the user over, but
@@ -411,6 +443,59 @@ export default function Chat() {
       setSessionsError(true);
     }
   }, []);
+
+  // The next page of history. Appended, not replaced, so the chats the
+  // reader has already scrolled past stay where they were.
+  const loadMoreSessions = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = sessionPage + 1;
+      const page = (await api(
+        `/sessions?page=${next}&per_page=${SESSION_PAGE_SIZE}`,
+      )) as SessionPage;
+      setSessions((cur) => {
+        const seen = new Set((cur || []).map((s) => s.id));
+        const added = (page.items || []).filter((s) => !seen.has(s.id));
+        return [...(cur || []), ...added];
+      });
+      setSessionPage(next);
+      setSessionTotal(page.total || 0);
+      setHasMore(!!page.has_more);
+    } catch {
+      // The pages already on screen stay. The button stays, so the reader can
+      // try again, and nothing pretends the list ended here.
+      setSessionsError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, sessionPage]);
+
+  // After a delete, the pages already on screen are fetched again so the
+  // reader stays where they were, and the list does not suddenly shrink back
+  // to one page.
+  const reloadLoadedSessions = useCallback(async () => {
+    const pages = Math.max(1, sessionPage);
+    try {
+      const fetched: ChatSession[] = [];
+      let total = 0;
+      let more = false;
+      for (let p = 1; p <= pages; p++) {
+        const page = (await api(
+          `/sessions?page=${p}&per_page=${SESSION_PAGE_SIZE}`,
+        )) as SessionPage;
+        fetched.push(...(page.items || []));
+        total = page.total || 0;
+        more = !!page.has_more;
+      }
+      setSessions(fetched);
+      setSessionTotal(total);
+      setHasMore(more);
+      setSessionsError(false);
+    } catch {
+      setSessionsError(true);
+    }
+  }, [sessionPage]);
 
   // The history is fetched on mount, in parallel with the session check
   // rather than after it. The session lives in an httpOnly cookie that the
@@ -492,7 +577,11 @@ function toggleSide() {
       // The list is refreshed either way. Deleting the chat that was open
       // used to leave it in the sidebar, because only the "another chat" case
       // refreshed the list.
-      refreshSessions();
+      //
+      // The pages already on screen are fetched again rather than the first
+      // page alone, so a reader who had scrolled down to page three is not
+      // thrown back to the top of the history by their own deletion.
+      await reloadLoadedSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     }
@@ -686,6 +775,23 @@ function toggleSide() {
           )}
           {sessions !== null && sessions.length === 0 && (
             <p className="side-empty">{t(lang, "noChats")}</p>
+          )}
+          {/* More history. The count is in the label, so the reader knows how
+              much is behind the button and not only that there is more. */}
+          {sessions !== null && hasMore && (
+            <button
+              type="button"
+              className="side-more"
+              onClick={loadMoreSessions}
+              disabled={loadingMore}
+            >
+              {loadingMore ? t(lang, "sideLoadingMore") : t(lang, "loadMore")}
+              {sessionTotal > 0 && !loadingMore && (
+                <span className="side-more-count">
+                  {t(lang, "moreChats", { n: sessionTotal - sessions.length })}
+                </span>
+              )}
+            </button>
           )}
         </div>
 

@@ -19,6 +19,7 @@ from app.schemas import (
     MessageOut,
     SessionIn,
     SessionOut,
+    SessionPage,
     SessionPatch,
     SpeakIn,
     SpeakOut,
@@ -29,6 +30,14 @@ from app.schemas import (
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
+
+# How many chats the sidebar asks for at a time. Twenty is about two screens
+# of a narrow column, which is enough to find the chat you want without
+# asking for the whole history.
+DEFAULT_SESSION_PAGE = 20
+# A page cannot be bigger than this however the client asks for it, so one
+# request cannot pull the whole table into memory.
+MAX_SESSION_PAGE = 100
 
 
 def _message_out(msg: Message) -> MessageOut:
@@ -79,11 +88,33 @@ def create_session(body: SessionIn,
     return SessionOut(id=chat.id, title=chat.title)
 
 
-@router.get("/sessions", response_model=List[SessionOut])
+@router.get("/sessions", response_model=SessionPage)
 def list_sessions(user: User = Depends(auth_lib.current_user),
-                  db: Session = Depends(db_module.get_session)):
-    chats = db.query(ChatSession).filter_by(user_id=user.id).order_by(ChatSession.id).all()
-    return [SessionOut(id=c.id, title=c.title) for c in chats]
+                  db: Session = Depends(db_module.get_session),
+                  page: int = 1, per_page: int = DEFAULT_SESSION_PAGE):
+    """One page of the reader's chats, newest first.
+
+    Newest first, because that is the order the sidebar shows them in, and
+    because a chat that was just created belongs at the top. The client used
+    to reverse the whole list to get that order; with pages, the order has to
+    be decided here or the pages come out back to front.
+    """
+    page = max(1, int(page or 1))
+    per_page = max(1, min(int(per_page or DEFAULT_SESSION_PAGE),
+                          MAX_SESSION_PAGE))
+    base = db.query(ChatSession).filter_by(user_id=user.id)
+    total = base.count()
+    chats = (base.order_by(ChatSession.id.desc())
+             .offset((page - 1) * per_page)
+             .limit(per_page)
+             .all())
+    return SessionPage(
+        items=[SessionOut(id=c.id, title=c.title) for c in chats],
+        page=page,
+        per_page=per_page,
+        total=total,
+        has_more=page * per_page < total,
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionOut)

@@ -199,6 +199,47 @@
   opacity: 0.65;
 }
 
+/* More history behind the current page. It sits at the end of the list, so
+   it is reached by scrolling to the bottom, and it says how many chats are
+   behind it so the reader knows whether to press it. */
+.side-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  width: calc(100% - var(--s3) * 2);
+  margin: var(--s2) var(--s3) var(--s3);
+  padding: var(--s2);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.side-more:hover:not(:disabled) {
+  background: var(--bg-warm);
+  color: var(--ink);
+  border-color: var(--maroon-soft);
+}
+
+.side-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.side-more:focus-visible {
+  outline: 2px solid var(--maroon);
+  outline-offset: 2px;
+}
+
+.side-more-count {
+  color: var(--muted-2);
+  font-size: 0.78rem;
+}
+
 /* ---------- responsive ---------- */
 
 .chat-shell {
