@@ -380,6 +380,10 @@ INDIAN_CITIES = {
     "chandigarh": "Chandigarh", "mysuru": "Mysuru", "mysore": "Mysuru", "noida": "Noida",
     "gurgaon": "Gurugram", "gurugram": "Gurugram", "kochi": "Kochi", "cochin": "Kochi",
     "trivandrum": "Thiruvananthapuram", "thiruvananthapuram": "Thiruvananthapuram",
+    "dharwad": "Dharwad", "hubli": "Hubballi", "hubballi": "Hubballi", "belgaum": "Belagavi",
+    "belagavi": "Belagavi", "mangalore": "Mangaluru", "mangaluru": "Mangaluru", "udupi": "Udupi",
+    "shivamogga": "Shivamogga", "shimoga": "Shivamogga", "kalaburagi": "Kalaburagi",
+    "gulbarga": "Kalaburagi", "davangere": "Davangere", "ballari": "Ballari",
     "kerala": "Kerala", "karnataka": "Karnataka", "tamil nadu": "Tamil Nadu",
     "maharashtra": "Maharashtra", "uttar pradesh": "Uttar Pradesh", "bihar": "Bihar",
     "west bengal": "West Bengal", "gujarat": "Gujarat", "rajasthan": "Rajasthan",
@@ -387,22 +391,36 @@ INDIAN_CITIES = {
     "दिल्ली": "Delhi", "नई दिल्ली": "Delhi", "बेंगलुरु": "Bengaluru", "बैंगलोर": "Bengaluru",
     "मुंबई": "Mumbai", "चेन्नई": "Chennai", "कोलकाता": "Kolkata", "हैदराबाद": "Hyderabad",
     "पुणे": "Pune", "जयपुर": "Jaipur", "लखनऊ": "Lucknow", "पटना": "Patna", "मैसूर": "Mysuru",
+    "धारवाड़": "Dharwad", "ಧಾರವಾಡ": "Dharwad", "ಹುಬ್ಬಳ್ಳಿ": "Hubballi",
     "ಬೆಂಗಳೂ": "Bengaluru", "ಮೈಸೂ": "Mysuru", "ಮುಂಬೈ": "Mumbai", "ದೆಹಲಿ": "Delhi",
     "ಚೆನ್ನೈ": "Chennai", "ಕೊಲ್ಕತ್ತಾ": "Kolkata", "ಹೈದರಾಬಾದ್": "Hyderabad"
 }
 
 
 def _extract_location(low: str, query_native: str = "") -> str:
+    found_city = ""
+    found_state = ""
+    states = {"Karnataka", "Kerala", "Tamil Nadu", "Maharashtra", "Uttar Pradesh",
+              "Bihar", "West Bengal", "Gujarat", "Rajasthan", "Punjab", "Haryana"}
     for city_k, city_name in INDIAN_CITIES.items():
+        is_match = False
         if ord(city_k[0]) > 127:
             if city_k in low or (query_native and city_k in query_native.lower()):
-                return city_name
+                is_match = True
         else:
             if re.search(r"\b" + re.escape(city_k) + r"\b", low, re.IGNORECASE):
-                return city_name
-            if query_native and re.search(r"\b" + re.escape(city_k) + r"\b", query_native, re.IGNORECASE):
-                return city_name
-    return ""
+                is_match = True
+            elif query_native and re.search(r"\b" + re.escape(city_k) + r"\b", query_native, re.IGNORECASE):
+                is_match = True
+        if is_match:
+            if city_name in states:
+                found_state = city_name
+            else:
+                found_city = city_name
+                break
+    if found_city and found_state:
+        return f"{found_city}, {found_state}"
+    return found_city or found_state
 
 
 # Roman-Hindi (Hinglish) signals: users often type Hindi in Latin script
@@ -2087,15 +2105,13 @@ def carry_slots_from_history(slots: Dict[str, str],
     merged = dict(slots)
     if slots.get("topic_from_followup"):
         merged.pop("topic_from_followup", None)
-    for msg in history:
+    for msg in reversed(history):
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         for key, val in extract_slots(msg.get("content", "")).items():
             if key == "topic":
-                # History's topic is a fact about the conversation; the guess
-                # from question shape is not. Do not let a later message's guess
-                # overwrite an established topic.
-                if merged.get("topic_from_followup") and not merged.get("topic"):
+                # If current turn has no topic (or only a weak followup guess), inherit established topic from most recent user turn.
+                if not merged.get("topic") or merged.get("topic_from_followup"):
                     merged["topic"] = val
                 continue
             if key not in merged:
@@ -2145,6 +2161,16 @@ def _force_contextualize(history: List[Dict[str, str]], raw_query: str,
     return candidate
 
 
+def _is_chatty_refusal_or_response(text: str) -> bool:
+    """True when an LLM follow-up rewriter emitted a chat refusal instead of a query."""
+    low = (text or "").lower().strip()
+    return any(low.startswith(p) for p in (
+        "i understand", "i’m sorry", "i'm sorry", "i am sorry", "i cannot",
+        "i can't", "i can’t", "as an ai", "sure,", "here is", "certainly",
+        "sorry,", "apologies", "hello", "hi,"
+    ))
+
+
 def looks_standalone(query: str) -> bool:
     """Whether a message is complete enough that rewriting it is pointless.
 
@@ -2171,44 +2197,57 @@ def node_intent(state: Dict[str, Any],
     history = state.get("history", [])
     memory = state.get("memory") or {}
     if history and llm is not None:
-        # Follow-up questions ("mutual", "what about my daughter?") need
-        # prior turns to stand alone for retrieval, so rewrite first.
-        rewritten = ""
-        try:
-            rewritten, provider = llm([
-                {"role": "system",
-                 "content": ("You resolve follow-up questions. Given the "
-                             "conversation history and the user's last message, "
-                             "write ONE standalone family-law question that "
-                             "keeps every detail from the last message "
-                             "(e.g. 'mutual' after a divorce question means "
-                             "mutual-consent divorce; 'wife' means the wife is "
-                             "asking). If the last message already stands "
-                             "alone, repeat it unchanged. Output ONLY that "
-                             "one question — no explanation, no preamble.")},
-                *history[-6:],
-                {"role": "user", "content": query},
-            ])
-            state["provider"] = provider
-        except Exception as e:  # noqa: BLE001 — fall back to raw query
-            logger.warning("agent contextualize failed (%r); using raw query", e)
-        candidate = (rewritten or "").strip()
-        # A follow-up that comes back byte-identical was not resolved. Either
-        # it genuinely stands alone, or the model just echoed it — and an
-        # unresolved follow-up retrieves on two words and returns junk. Retry
-        # once, insisting, before giving up.
-        if candidate and candidate.lower() != raw_query.strip().lower():
-            query = candidate
-            _add_trace(state, "contextualize",
-                       "ctx_resolved", q=raw_query[:60])
+        # Check if previous assistant message asked the user for their location
+        last_asst = ""
+        for m in reversed(history):
+            if isinstance(m, dict) and m.get("role") == "assistant":
+                last_asst = (m.get("content") or "").lower()
+                break
+        if any(marker in last_asst for marker in ("which city or district", "city or district in india", "किस शहर या ज़िले", "शहर या ज़िले", "ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆ")):
+            loc = _extract_location(raw_query) or raw_query.strip()
+            query = f"Find family law advocates, lawyers, and legal aid in {loc}, India"
+            _add_trace(state, "contextualize", "ctx_resolved", q=raw_query[:60])
+        elif looks_standalone(raw_query) or _is_lawyer_or_court_lookup(raw_query.lower()):
+            _add_trace(state, "contextualize", "ctx_standalone")
         else:
-            retry = "" if looks_standalone(raw_query) else \
-                _force_contextualize(history, raw_query, llm)
-            if retry:
-                query = retry
-                _add_trace(state, "contextualize", "ctx_retry", q=retry[:100])
+            # Follow-up questions ("mutual", "what about my daughter?") need
+            # prior turns to stand alone for retrieval, so rewrite first.
+            rewritten = ""
+            try:
+                rewritten, provider = llm([
+                    {"role": "system",
+                     "content": ("You resolve follow-up questions. Given the "
+                                 "conversation history and the user's last message, "
+                                 "write ONE standalone family-law question that "
+                                 "keeps every detail from the last message "
+                                 "(e.g. 'mutual' after a divorce question means "
+                                 "mutual-consent divorce; 'wife' means the wife is "
+                                 "asking). If the last message already stands "
+                                 "alone, repeat it unchanged. Output ONLY that "
+                                 "one question — no explanation, no preamble.")},
+                    *history[-6:],
+                    {"role": "user", "content": query},
+                ])
+                state["provider"] = provider
+            except Exception as e:  # noqa: BLE001 — fall back to raw query
+                logger.warning("agent contextualize failed (%r); using raw query", e)
+            candidate = (rewritten or "").strip()
+            # A follow-up that comes back byte-identical was not resolved. Either
+            # it genuinely stands alone, or the model just echoed it — and an
+            # unresolved follow-up retrieves on two words and returns junk. Retry
+            # once, insisting, before giving up.
+            if candidate and candidate.lower() != raw_query.strip().lower() and not _is_chatty_refusal_or_response(candidate):
+                query = candidate
+                _add_trace(state, "contextualize",
+                           "ctx_resolved", q=raw_query[:60])
             else:
-                _add_trace(state, "contextualize", "ctx_standalone")
+                retry = "" if looks_standalone(raw_query) else \
+                    _force_contextualize(history, raw_query, llm)
+                if retry and not _is_chatty_refusal_or_response(retry):
+                    query = retry
+                    _add_trace(state, "contextualize", "ctx_retry", q=retry[:100])
+                else:
+                    _add_trace(state, "contextualize", "ctx_standalone")
         # query_en was seeded from the raw query and, for English, never
         # refreshed after the rewrite — so English follow-ups retrieved on the
         # unresolved text while Hindi ones (translated below) retrieved on
@@ -2255,6 +2294,10 @@ def node_intent(state: Dict[str, Any],
                               if slots.get(k) != v)
             logger.info("agent carried slots from history: %s", added)
         slots = carried
+        if slots.get("topic") == "find_lawyer" and not slots.get("location"):
+            loc = _extract_location(state["query_en"], query)
+            if loc:
+                slots["location"] = loc
     # Long-term memory (across sessions) only fills a slot when the current
     # question is a follow-up or very short; otherwise a new question would
     # silently inherit last session's topic.
@@ -2283,14 +2326,12 @@ def node_intent(state: Dict[str, Any],
         state["oos_redirect"] = False
     else:
         state["intent"] = classify_intent(state["query_en"], slots)
-        # Refuse only when the reader's own words AND the English pivot both
-        # look out of scope. The pivot is a translation, and a translation can
-        # widen a term into a word that trips the scope check: "dowry" became
-        # "property" once, and a Kannada question about dowry was refused as
-        # a property-law question. When the pivot fails, which it often does
-        # under a rate limit, the raw Hindi has to be enough on its own.
-        state["oos_redirect"] = (is_oos(state["query_en"])
-                                 and is_oos(raw_query))
+        # If an established family-law topic or lawyer lookup is active, do not mark out of scope.
+        if slots.get("topic") or slots.get("section"):
+            state["oos_redirect"] = False
+        else:
+            state["oos_redirect"] = (is_oos(state["query_en"])
+                                     and is_oos(raw_query))
     topic = slots.get("topic")
     found_bits = []
     if topic:
