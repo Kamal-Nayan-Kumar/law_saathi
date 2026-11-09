@@ -1,0 +1,543 @@
+{
+  "n": 23,
+  "intended_n": 23,
+  "passed": 14,
+  "pass_rate": 0.6087,
+  "partial": false,
+  "partial_reason": "",
+  "by_lang": {
+    "en": {
+      "n": 18,
+      "passed": 11
+    },
+    "hi": {
+      "n": 3,
+      "passed": 2
+    },
+    "kn": {
+      "n": 2,
+      "passed": 1
+    }
+  },
+  "run_agent_calls": 23,
+  "rate_limit_hits": 0,
+  "waited_secs": 0.0,
+  "retriever_error": "",
+  "results": [
+    {
+      "id": "maintenance-arrears-en",
+      "lang": "en",
+      "query": "my husband has not given maintenance for 4 months what can i do",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 7785,
+      "citation_count": 3,
+      "citations": [
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 23",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 19",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 25"
+      ],
+      "verified": true,
+      "confidence": 0.9069093,
+      "answer_chars": 1168,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-amount-en",
+      "lang": "en",
+      "query": "how much can i ask for? i get 18000 he earns around 90000",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'needs'",
+        "answer was not verified"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 20579,
+      "citation_count": 4,
+      "citations": [
+        "Hindu Adoptions and Maintenance Act, 1956 — Preamble",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 19",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 18",
+        "How much settlement can I ask for in an Indian divorce or ..."
+      ],
+      "verified": false,
+      "confidence": 0.92133355,
+      "answer_chars": 1065,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "custody-welfare-en",
+      "lang": "en",
+      "query": "who gets custody of my 5 year old daughter after divorce",
+      "deterministic_pass": false,
+      "problems": [
+        "none of ['17', '24'] cited"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 18020,
+      "citation_count": 3,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 9",
+        "Hindu Minority and Guardianship Act, 1956 — Section 6",
+        "Hindu Minority and Guardianship Act, 1956 — Section 2"
+      ],
+      "verified": true,
+      "confidence": 0.9093402,
+      "answer_chars": 1692,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "custody-vs-guardianship-en",
+      "lang": "en",
+      "query": "is guardianship the same as custody",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 21891,
+      "citation_count": 3,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 7",
+        "Hindu Minority and Guardianship Act, 1956 — Section 2",
+        "Hindu Minority and Guardianship Act, 1956 — Section 6"
+      ],
+      "verified": true,
+      "confidence": 0.9085051,
+      "answer_chars": 798,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "dv-first-report-en",
+      "lang": "en",
+      "query": "my husband hits me. i am scared to tell anyone. what are my options",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-20b",
+      "latency_ms": 22137,
+      "citation_count": 5,
+      "citations": [
+        "Protection of Women from Domestic Violence Act, 2005 — Section 22",
+        "Protection of Women from Domestic Violence Act, 2005 — Section 19",
+        "Protection of Women from Domestic Violence Act, 2005 — Section 3",
+        "[PDF] FAQs How to address issues related to Marriages of Indian ...",
+        "Help for spouses or partners who are victims of abuse"
+      ],
+      "verified": true,
+      "confidence": 0.9012729,
+      "answer_chars": 2014,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "dv-residence-en",
+      "lang": "en",
+      "query": "can i get him removed from the house",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'residence order'",
+        "none of ['19'] cited"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 10936,
+      "citation_count": 3,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 7",
+        "Guardians and Wards Act, 1890 — Section 17",
+        "Guardians and Wards Act, 1890 — Section 39"
+      ],
+      "verified": true,
+      "confidence": 0.89766353,
+      "answer_chars": 514,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "succession-widow-en",
+      "lang": "en",
+      "query": "i am a hindu woman. my husband passed away and my son is taking all the property. what can i claim",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'Class I'",
+        "none of ['8', '15', '17'] cited"
+      ],
+      "provider": "groq:openai/gpt-oss-20b",
+      "latency_ms": 17494,
+      "citation_count": 3,
+      "citations": [
+        "Hindu Succession Act, 1956 — Section 5",
+        "Hindu Succession Act, 1956 — Section 10",
+        "Hindu Succession Act, 1956 — Section 11"
+      ],
+      "verified": true,
+      "confidence": 0.9130175,
+      "answer_chars": 1752,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "succession-will-en",
+      "lang": "en",
+      "query": "i am a hindu woman. if he made a will and left everything to the son can i still claim",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'testamentary'"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 15137,
+      "citation_count": 5,
+      "citations": [
+        "Hindu Succession Act, 1956 — Section 30",
+        "Hindu Succession Act, 1956 — Section 29",
+        "Hindu Succession Act, 1956 — Section 7",
+        "Inheritance Laws in India: What Happens Without a Will in 2026?",
+        "If an Indian woman (Hindu) passes away without leaving a will ..."
+      ],
+      "verified": true,
+      "confidence": 0.9119935,
+      "answer_chars": 1513,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-mutual-en",
+      "lang": "en",
+      "query": "i am a hindu, how do i get a mutual consent divorce",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 11708,
+      "citation_count": 4,
+      "citations": [
+        "Dissolution of Muslim Marriages Act, 1939 — Section 3",
+        "Parsi Marriage and Divorce Act, 1936 — Section 5",
+        "Divorce Act, 1869 — Section 22",
+        "Hindu Marriage Act, 1955 — Section 13B: Amendment notice — divorce by mutual consent"
+      ],
+      "verified": true,
+      "confidence": 1.0,
+      "answer_chars": 1817,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "adoption-relative-en",
+      "lang": "en",
+      "query": "can my aunt adopt a child who cannot live with the parents",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'welfare'"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 17837,
+      "citation_count": 5,
+      "citations": [
+        "Juvenile Justice (Care and Protection of Children) Act, 2015 — Section 56",
+        "Juvenile Justice (Care and Protection of Children) Act, 2015 — Section 58",
+        "Juvenile Justice (Care and Protection of Children) Act, 2015 — Section 2",
+        "Adopt From India - CHLSS - CHLSS",
+        "Can you adopt an Indian minor living with his/her biological ..."
+      ],
+      "verified": true,
+      "confidence": 0.91697955,
+      "answer_chars": 1925,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-arrears-hi",
+      "lang": "hi",
+      "query": "मेरे पति ने 4 महीने से महनाना नहीं दी क्या करूं",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-20b",
+      "latency_ms": 11476,
+      "citation_count": 3,
+      "citations": [
+        "Hindu Adoptions and Maintenance Act, 1956 — Preamble",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 19",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 23"
+      ],
+      "verified": true,
+      "confidence": 0.9103093,
+      "answer_chars": 1095,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "custody-hi",
+      "lang": "hi",
+      "query": "अपने बच्चे की अभिरक्षा किसे मिलेगी तलाक में",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'अभिरक्षा'",
+        "missing term 'कल्याण'",
+        "none of ['17', '24'] cited"
+      ],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 25554,
+      "citation_count": 5,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 21",
+        "Guardians and Wards Act, 1890 — Section 6",
+        "Guardians and Wards Act, 1890 — Section 9",
+        "What Every Parent Should Know About Child Custody Laws",
+        "Custody and Guardianship of Children in India - Jstor"
+      ],
+      "verified": true,
+      "confidence": 0.9023466,
+      "answer_chars": 1631,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-kn",
+      "lang": "kn",
+      "query": "ನಾನು ಹಿಂದೂ, ವಿವಾಹ ವಿಚ್ಛೇದನೆ ಹೇಗೆ ಪಡೆಯುವುದು?",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'ಅರ್ಜಿ'",
+        "none of ['13B', '13'] cited"
+      ],
+      "provider": "",
+      "latency_ms": 6671,
+      "citation_count": 5,
+      "citations": [
+        "Divorce Act, 1869 — Section 22",
+        "Parsi Marriage and Divorce Act, 1936 — Section 32B",
+        "Divorce Act, 1869 — Section 18",
+        "[PDF] KannadaWordsSearch.pdf - ::Sri Venkateswara Temple::",
+        "Family Law in India: An In-Depth Discussion and Historical ..."
+      ],
+      "verified": true,
+      "confidence": 0.886054,
+      "answer_chars": 1980,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-kn",
+      "lang": "kn",
+      "query": "ಪತಿ ಭರವಸೂ ಕೊಡುತ್ತಿಲ್ಲ ಏನು ಮಾಡಬೇಕು",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 6495,
+      "citation_count": 5,
+      "citations": [
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 24",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 25",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 19",
+        "Family Law in India: An In-Depth Discussion and Historical ...",
+        "[PDF] FAMILY LAW AND RELIGION -THE INDIAN EXPERIENCE"
+      ],
+      "verified": true,
+      "confidence": 0.9103769,
+      "answer_chars": 1890,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "oos-rti-en",
+      "lang": "en",
+      "query": "i got an RTI notice from the police, what do i do",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 589,
+      "citation_count": 0,
+      "citations": [],
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 171,
+      "oos_redirect": true,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "oos-landlord-en",
+      "lang": "en",
+      "query": "my landlord is not returning my deposit",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 517,
+      "citation_count": 0,
+      "citations": [],
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 171,
+      "oos_redirect": true,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "oos-motor-en",
+      "lang": "en",
+      "query": "the police towed my motor vehicle, what are my rights",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 544,
+      "citation_count": 0,
+      "citations": [],
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 171,
+      "oos_redirect": true,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-christian-en",
+      "lang": "en",
+      "query": "I am a Christian man, how do I get a divorce?",
+      "deterministic_pass": false,
+      "problems": [
+        "none of ['10'] cited"
+      ],
+      "provider": "",
+      "latency_ms": 6467,
+      "citation_count": 5,
+      "citations": [
+        "Divorce Act, 1869 — Section 22",
+        "Divorce Act, 1869 — Section 26",
+        "Divorce Act, 1869 — Section 19",
+        "If a husband is an Indian citizen and the wife is from Singapore ...",
+        "Indian court says Christian woman can file for divorce where ..."
+      ],
+      "verified": true,
+      "confidence": 0.9051465,
+      "answer_chars": 2008,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-muslim-en",
+      "lang": "en",
+      "query": "I am a Muslim woman, how do I get a divorce?",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 9971,
+      "citation_count": 5,
+      "citations": [
+        "Muslim Women (Protection of Rights on Divorce) Act, 1986 — Section 1",
+        "Muslim Women (Protection of Rights on Divorce) Act, 1986 — Section 2",
+        "Dissolution of Muslim Marriages Act, 1939 — Section 4",
+        "Divorce for Muslims - Nyaaya",
+        "Muslim Divorce in India"
+      ],
+      "verified": true,
+      "confidence": 0.9067967,
+      "answer_chars": 1931,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-muslim-hi",
+      "lang": "hi",
+      "query": "मैं मुस्लिम हूँ, तलाक कैसे लूँ?",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 8129,
+      "citation_count": 5,
+      "citations": [
+        "Muslim Women (Protection of Rights on Divorce) Act, 1986 — Section 1",
+        "Muslim Women (Protection of Rights on Divorce) Act, 1986 — Section 2",
+        "Dissolution of Muslim Marriages Act, 1939 — Preamble",
+        "Family Law in India: An In-Depth Discussion and Historical ...",
+        "[PDF] FAMILY LAW AND RELIGION -THE INDIAN EXPERIENCE"
+      ],
+      "verified": true,
+      "confidence": 0.90073323,
+      "answer_chars": 1515,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "divorce-parsi-en",
+      "lang": "en",
+      "query": "I am a Parsi, how do I get a divorce?",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 6468,
+      "citation_count": 5,
+      "citations": [
+        "Parsi Marriage and Divorce Act, 1936 — Section 32B",
+        "Parsi Marriage and Divorce Act, 1936 — Section 32A",
+        "Parsi Marriage and Divorce Act, 1936 — Section 52",
+        "Origin of Parisian Laws and Regulations in India: “Fons et origo ...",
+        "Divorce Rules and Laws in India | Free Legal Advice Online"
+      ],
+      "verified": true,
+      "confidence": 0.9200975,
+      "answer_chars": 1544,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "marriage-interfaith-en",
+      "lang": "en",
+      "query": "Can a Hindu girl marry a Muslim boy?",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 9061,
+      "citation_count": 5,
+      "citations": [
+        "Special Marriage Act, 1954 — Section 18",
+        "Special Marriage Act, 1954 — Section 24",
+        "Special Marriage Act, 1954 — Section 21",
+        "Marriage between a Muslim girl and Hindu boy - LawRato",
+        "How difficult is it for a Hindu boy to marry a Muslim girl in India ..."
+      ],
+      "verified": true,
+      "confidence": 0.9012203,
+      "answer_chars": 590,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "clarify-personal-law-en",
+      "lang": "en",
+      "query": "How do I get a divorce?",
+      "deterministic_pass": true,
+      "problems": [],
+      "provider": "",
+      "latency_ms": 1505,
+      "citation_count": 0,
+      "citations": [],
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 183,
+      "oos_redirect": false,
+      "clarification": true,
+      "error": ""
+    }
+  ]
+}

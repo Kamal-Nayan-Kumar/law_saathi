@@ -1,0 +1,57 @@
+{
+  "n": 3,
+  "checked": 3,
+  "results": [
+    {
+      "id": "smoke-maintenance",
+      "query": "my husband has not given maintenance for 4 months what can i do",
+      "latency_ms": 10701,
+      "provider": "groq:openai/gpt-oss-120b",
+      "verified": true,
+      "citations": [
+        "Protection of Women from Domestic Violence Act, 2005 — Section 20",
+        "Hindu Adoptions and Maintenance Act, 1956 — Section 25",
+        "Hindu Adoptions and Maintenance Act, 1956 — Preamble"
+      ],
+      "trace_nodes": [],
+      "answer_chars": 1716,
+      "error": "",
+      "confidence": 0.8958647
+    },
+    {
+      "id": "smoke-dv",
+      "query": "my husband hits me. i am scared to tell anyone. what are my options",
+      "latency_ms": 8172,
+      "provider": "groq:openai/gpt-oss-120b",
+      "verified": true,
+      "citations": [
+        "Protection of Women from Domestic Violence Act, 2005 — Section 19",
+        "Protection of Women from Domestic Violence Act, 2005 — Section 3",
+        "Protection of Women from Domestic Violence Act, 2005 — Section 18"
+      ],
+      "trace_nodes": [],
+      "answer_chars": 1507,
+      "error": "",
+      "confidence": 0.91287845
+    },
+    {
+      "id": "smoke-succession",
+      "query": "if a hindu man dies without a will, who gets his property, daughters or son only",
+      "latency_ms": 16300,
+      "provider": "groq:openai/gpt-oss-120b",
+      "verified": true,
+      "citations": [
+        "Hindu Succession Act, 1956 — Section 5",
+        "Hindu Succession Act, 1956 — Section 5",
+        "Hindu Succession Act, 1956 — Section 29",
+        "Inheritance Laws in India: What Happens Without a Will in 2026?",
+        "Father Died Without Will in India: Who Gets His Property?"
+      ],
+      "trace_nodes": [],
+      "answer_chars": 912,
+      "error": "",
+      "confidence": 0.9149056
+    }
+  ],
+  "rate_limit_hits": 0
+}

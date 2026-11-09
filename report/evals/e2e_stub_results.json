@@ -1,0 +1,543 @@
+{
+  "offline": true,
+  "extended_offline": {
+    "n": 39,
+    "passed": 31,
+    "pass_rate": 0.7949,
+    "rows": [
+      {
+        "id": "maintenance-arrears-escalation-en",
+        "lang": "en",
+        "detected_lang": "hi",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "interim-maintenance-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "past-maintenance-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "alimony-vs-maintenance-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "hama-18-19-25-nuance-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "stridhan-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "",
+        "is_oos": true,
+        "pass": false,
+        "problems": [
+          "wrongly treated as out of scope",
+          "no topic extracted (got {})"
+        ]
+      },
+      {
+        "id": "dowry-harassment-cruelty-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "dowry-prohibition-civil-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "anti-dowry-vs-cruelty-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "pwdv-residence-vs-ownership-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "",
+        "is_oos": true,
+        "pass": false,
+        "problems": [
+          "wrongly treated as out of scope",
+          "no topic extracted (got {'parties': 'father', 'self_side': 'claimant'})"
+        ]
+      },
+      {
+        "id": "pwdv-monetary-relief-interim-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "custody-welfare-checklist-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "custody",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "custody-grandparents-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "custody",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "legitimacy-remarriage-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "restitution-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "succession-class1-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "succession",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "will-vs-intestate-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "succession",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "adoption-unmarried-woman-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "adoption",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "special-marriage-notice-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "interfaith_marriage",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "triple-talaq-ban-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "divorce",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "divorce-christian-grounds-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "divorce",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "divorce-parsi-grounds-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "divorce",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "interfaith-marriage-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "interfaith_marriage",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "oos-rti-notice-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": false,
+        "problems": [
+          "should be out of scope"
+        ]
+      },
+      {
+        "id": "oos-landlord-deposit-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "divorce",
+        "is_oos": false,
+        "pass": false,
+        "problems": [
+          "should be out of scope"
+        ]
+      },
+      {
+        "id": "oos-motor-challan-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "custody",
+        "is_oos": false,
+        "pass": false,
+        "problems": [
+          "should be out of scope"
+        ]
+      },
+      {
+        "id": "maintenance-arrears-escalation-hi",
+        "lang": "hi",
+        "detected_lang": "hi",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "custody-welfare-hi",
+        "lang": "hi",
+        "detected_lang": "hi",
+        "topic": "custody",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "dowry-harassment-hi",
+        "lang": "hi",
+        "detected_lang": "hi",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "stridhan-hi",
+        "lang": "hi",
+        "detected_lang": "hi",
+        "topic": "",
+        "is_oos": true,
+        "pass": false,
+        "problems": [
+          "wrongly treated as out of scope",
+          "no topic extracted (got {})"
+        ]
+      },
+      {
+        "id": "interim-maintenance-kn",
+        "lang": "kn",
+        "detected_lang": "kn",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "pwdv-residence-kn",
+        "lang": "kn",
+        "detected_lang": "kn",
+        "topic": "",
+        "is_oos": true,
+        "pass": false,
+        "problems": [
+          "wrongly treated as out of scope",
+          "no topic extracted (got {})"
+        ]
+      },
+      {
+        "id": "custody-welfare-kn",
+        "lang": "kn",
+        "detected_lang": "kn",
+        "topic": "custody",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "succession-daughters-kn",
+        "lang": "kn",
+        "detected_lang": "kn",
+        "topic": "",
+        "is_oos": false,
+        "pass": false,
+        "problems": [
+          "no topic extracted (got {'personal_law': 'hindu', 'religion': 'hindu'})"
+        ]
+      },
+      {
+        "id": "pwdv-monetary-hinglish",
+        "lang": "hinglish",
+        "detected_lang": "hi",
+        "topic": "domestic_violence",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "adoption-unmarried-hinglish",
+        "lang": "hinglish",
+        "detected_lang": "hi",
+        "topic": "adoption",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "maintenance-past-hinglish",
+        "lang": "hinglish",
+        "detected_lang": "hi",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "special-marriage-objection-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "marriage",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "hama-25-variation-en",
+        "lang": "en",
+        "detected_lang": "en",
+        "topic": "maintenance",
+        "is_oos": false,
+        "pass": true,
+        "problems": []
+      }
+    ]
+  },
+  "persona_flows": {
+    "n": 5,
+    "passed": 4,
+    "pass_rate": 0.8,
+    "rows": [
+      {
+        "id": "flow-maintenance",
+        "name": "maintenance",
+        "expected_lang": "en",
+        "turns": [
+          {
+            "turn": 1,
+            "query": "my husband has not given maintenance for 4 months what can i do",
+            "detected_lang": "en",
+            "topic": "maintenance",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 2,
+            "query": "how much can i ask for? i get 18000 he earns around 90000",
+            "detected_lang": "en",
+            "topic": "maintenance",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 3,
+            "query": "how long does it take",
+            "detected_lang": "en",
+            "topic": "divorce",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 4,
+            "query": "do i need a lawyer?",
+            "detected_lang": "en",
+            "topic": "divorce",
+            "is_oos": false,
+            "problems": []
+          }
+        ],
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "flow-domestic_violence",
+        "name": "domestic_violence",
+        "expected_lang": "en",
+        "turns": [
+          {
+            "turn": 1,
+            "query": "my husband hits me. i am scared to tell anyone. what are my options",
+            "detected_lang": "en",
+            "topic": "domestic_violence",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 2,
+            "query": "can i get him removed from the house",
+            "detected_lang": "en",
+            "topic": "custody",
+            "is_oos": false,
+            "problems": []
+          }
+        ],
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "flow-succession",
+        "name": "succession",
+        "expected_lang": "en",
+        "turns": [
+          {
+            "turn": 1,
+            "query": "my husband passed away and my son is taking all the property",
+            "detected_lang": "en",
+            "topic": "succession",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 2,
+            "query": "if he made a will and left everything to the son can i still claim",
+            "detected_lang": "en",
+            "topic": "succession",
+            "is_oos": false,
+            "problems": []
+          }
+        ],
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "flow-hindi",
+        "name": "hindi",
+        "expected_lang": "hi",
+        "turns": [
+          {
+            "turn": 1,
+            "query": "मेरे पति ने 4 महीने से महनाना नहीं दी क्या करूं",
+            "detected_lang": "hi",
+            "topic": "maintenance",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 2,
+            "query": "कितनी मांग सकती हूं",
+            "detected_lang": "hi",
+            "topic": "maintenance",
+            "is_oos": false,
+            "problems": []
+          },
+          {
+            "turn": 3,
+            "query": "क्या वकील लेना जरूरी है",
+            "detected_lang": "hi",
+            "topic": "find_lawyer",
+            "is_oos": false,
+            "problems": []
+          }
+        ],
+        "pass": true,
+        "problems": []
+      },
+      {
+        "id": "flow-kannada",
+        "name": "kannada",
+        "expected_lang": "kn",
+        "turns": [
+          {
+            "turn": 1,
+            "query": "ಪತಿ ಬಿಡಿ ಮಾಡಿಕೊಡುತ್ತಾನೆ ಏನು ಮಾಡಬೇಕು",
+            "detected_lang": "kn",
+            "topic": "",
+            "is_oos": true,
+            "problems": [
+              "turn treated as out of scope"
+            ]
+          },
+          {
+            "turn": 2,
+            "query": "ವಿವಾಹ ವಿಚ್ಛೇದನೆ ಹೇಗೆ ಪಡೆಯುವುದು",
+            "detected_lang": "kn",
+            "topic": "divorce",
+            "is_oos": false,
+            "problems": []
+          }
+        ],
+        "pass": false,
+        "problems": [
+          "turn 1: turn treated as out of scope"
+        ]
+      }
+    ]
+  },
+  "total": 44,
+  "passed": 35
+}
