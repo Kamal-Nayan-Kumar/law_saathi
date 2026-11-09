@@ -1,0 +1,330 @@
+{
+  "n": 20,
+  "grounded_passed": 20,
+  "mutated_caught": 20,
+  "catch_rate": 1.0,
+  "false_fail_rate": 0.0,
+  "false_pass_rate": 0.0,
+  "pytest": {
+    "files": [
+      "tests/test_agent.py",
+      "tests/test_evidence_selection.py",
+      "tests/test_scope_and_ranking.py"
+    ],
+    "ran": true,
+    "passed": 76,
+    "skipped": 1,
+    "failed": 0,
+    "returncode": 0,
+    "tail": [
+      "  /Users/nayan/Library/Python/3.9/lib/python/site-packages/langgraph/cache/base/__init__.py:8: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.",
+      "    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer",
+      "",
+      "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+      "76 passed, 1 skipped, 1 warning in 0.31s"
+    ]
+  },
+  "run_agent_stub": {
+    "attempted": true,
+    "ok": true,
+    "error": "",
+    "answer_chars": 183,
+    "trace_nodes": []
+  },
+  "rows": [
+    {
+      "id": "vm-01",
+      "topic": "HMA s.13B one year",
+      "mutation_type": "number",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "months",
+        "six"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-02",
+      "topic": "HMA s.9 restitution",
+      "mutation_type": "section",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "19",
+        "section 19"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-03",
+      "topic": "HMA s.16 legitimacy",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "registered"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-04",
+      "topic": "PWDV residence",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "house",
+        "owns"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-05",
+      "topic": "PWDV monetary relief",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "criminal",
+        "ends",
+        "trial"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-06",
+      "topic": "HAMA s.24 interim maintenance",
+      "mutation_type": "section",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "25",
+        "section 25"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-07",
+      "topic": "HAMA s.25 alteration",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "court",
+        "once",
+        "permission",
+        "s"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-08",
+      "topic": "HAMA s.18 wife maintenance",
+      "mutation_type": "section",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "19",
+        "section 19"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-09",
+      "topic": "HSA Class I daughters",
+      "mutation_type": "classification",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "ii"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-10",
+      "topic": "HSA will",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "class",
+        "consent",
+        "heirs",
+        "i"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-11",
+      "topic": "HAMA adoption unmarried woman",
+      "mutation_type": "condition",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "35",
+        "above"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-12",
+      "topic": "Special Marriage Act notice",
+      "mutation_type": "number",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "60"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-13",
+      "topic": "Triple talaq 2019 Act",
+      "mutation_type": "act",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "1939",
+        "dissolution",
+        "marriages",
+        "dissolution of muslim"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-14",
+      "topic": "Christian divorce Act",
+      "mutation_type": "act",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "1955",
+        "hindu",
+        "marriage",
+        "hindu marriage act"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-15",
+      "topic": "Parsi divorce Act",
+      "mutation_type": "act",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "1955",
+        "hindu",
+        "hindu marriage act"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-16",
+      "topic": "Muslim divorce Act",
+      "mutation_type": "act",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "1955",
+        "hindu",
+        "marriage",
+        "hindu marriage act"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-17",
+      "topic": "Dowry Prohibition Act",
+      "mutation_type": "act",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "2005",
+        "domestic",
+        "protection",
+        "violence",
+        "women",
+        "protection of women from domestic violence"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-18",
+      "topic": "Guardianship welfare",
+      "mutation_type": "standard",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "income"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-19",
+      "topic": "Custody standard",
+      "mutation_type": "standard",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "father",
+        "wishes"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    },
+    {
+      "id": "vm-20",
+      "topic": "Stridhan ownership",
+      "mutation_type": "ownership",
+      "grader_grounded_pass": true,
+      "grader_mutated_fail": true,
+      "mutated_novel": [
+        "becomes",
+        "husband",
+        "joint",
+        "wife"
+      ],
+      "node_verifier_grounded": true,
+      "node_verifier_mutated_rejected": true,
+      "pass": true
+    }
+  ]
+}

@@ -1,0 +1,222 @@
+{
+  "blocked": false,
+  "blocked_reason": "",
+  "embedding_provider": "qdrant-cloud-inference",
+  "embedding_model": "intfloat/multilingual-e5-small",
+  "results": [
+    {
+      "id": "re-01",
+      "query": "how do i get mutual consent divorce",
+      "expected_act": "Hindu Marriage Act, 1955",
+      "expected_section": "13B",
+      "top_hits": [
+        {
+          "act": "Special Marriage Act, 1954",
+          "section": "Section 28",
+          "score": 0.8584672
+        },
+        {
+          "act": "Parsi Marriage and Divorce Act, 1936",
+          "section": "Section 32B",
+          "score": 0.85468775
+        },
+        {
+          "act": "Hindu Marriage Act, 1955",
+          "section": "Section 13B",
+          "score": 0.8523895
+        }
+      ],
+      "pass": true,
+      "error": "",
+      "latency_ms": 2150
+    },
+    {
+      "id": "re-05",
+      "query": "interim maintenance during divorce case",
+      "expected_act": "Hindu Marriage Act, 1955",
+      "expected_section": "24",
+      "top_hits": [
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 146",
+          "score": 0.88359237
+        },
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 144",
+          "score": 0.87891847
+        },
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 146",
+          "score": 0.87227726
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1635
+    },
+    {
+      "id": "re-08",
+      "query": "right to reside in shared household domestic violence",
+      "expected_act": "Protection of Women from Domestic Violence Act, 2005",
+      "expected_section": "19",
+      "top_hits": [
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 17",
+          "score": 0.9129265
+        },
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 2",
+          "score": 0.90288943
+        },
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 2",
+          "score": 0.90288943
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1635
+    },
+    {
+      "id": "re-09",
+      "query": "monetary relief domestic violence",
+      "expected_act": "Protection of Women from Domestic Violence Act, 2005",
+      "expected_section": "20",
+      "top_hits": [
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 20",
+          "score": 0.88974494
+        },
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 20",
+          "score": 0.8884207
+        },
+        {
+          "act": "Protection of Women from Domestic Violence Act, 2005",
+          "section": "Section 22",
+          "score": 0.8776284
+        }
+      ],
+      "pass": true,
+      "error": "",
+      "latency_ms": 1696
+    },
+    {
+      "id": "re-11",
+      "query": "wife entitled to maintenance from husband",
+      "expected_act": "Hindu Adoption and Maintenance Act, 1956",
+      "expected_section": "18",
+      "top_hits": [
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 144",
+          "score": 0.91173273
+        },
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 144",
+          "score": 0.8946985
+        },
+        {
+          "act": "Bharatiya Nagarik Suraksha Sanhita, 2023",
+          "section": "Section 146",
+          "score": 0.8838421
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1616
+    },
+    {
+      "id": "re-14",
+      "query": "intestate succession class I heirs daughters",
+      "expected_act": "Hindu Succession Act, 1956",
+      "expected_section": "8",
+      "top_hits": [
+        {
+          "act": "Hindu Succession Act, 1956",
+          "section": "Section 10",
+          "score": 0.8912604
+        },
+        {
+          "act": "Hindu Succession Act, 1956",
+          "section": "Section 11",
+          "score": 0.88393444
+        },
+        {
+          "act": "Hindu Succession Act, 1956",
+          "section": "Section 16",
+          "score": 0.8834603
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1681
+    },
+    {
+      "id": "re-15",
+      "query": "woman's property stridhan section 14",
+      "expected_act": "Hindu Succession Act, 1956",
+      "expected_section": "14",
+      "top_hits": [
+        {
+          "act": "Married Women's Property Act, 1874",
+          "section": "Section 1",
+          "score": 0.84946465
+        },
+        {
+          "act": "Married Women's Property Act, 1874",
+          "section": "Section 10",
+          "score": 0.84743047
+        },
+        {
+          "act": "Married Women's Property Act, 1874",
+          "section": "Section 10",
+          "score": 0.84743047
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1684
+    },
+    {
+      "id": "re-17",
+      "query": "special marriage notice and objections",
+      "expected_act": "Special Marriage Act, 1954",
+      "expected_section": "6",
+      "top_hits": [
+        {
+          "act": "Special Marriage Act, 1954",
+          "section": "Section 10",
+          "score": 0.89277434
+        },
+        {
+          "act": "Special Marriage Act, 1954",
+          "section": "Section 8",
+          "score": 0.891356
+        },
+        {
+          "act": "Foreign Marriage Act, 1969",
+          "section": "Section 8",
+          "score": 0.8908982
+        }
+      ],
+      "pass": false,
+      "error": "",
+      "latency_ms": 1717
+    }
+  ],
+  "n": 8,
+  "passed": 2,
+  "pass_rate": 0.25,
+  "rate_limit_hits": 0,
+  "collection": "law_saathi",
+  "collection_points": 2367
+}

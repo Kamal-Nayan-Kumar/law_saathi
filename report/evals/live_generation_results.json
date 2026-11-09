@@ -1,0 +1,451 @@
+{
+  "sample_ids": [
+    "maintenance-arrears-en",
+    "dv-first-report-en",
+    "maintenance-arrears-hi",
+    "maintenance-kn",
+    "oos-rti-en",
+    "clarify-personal-law-en",
+    "interim-maintenance-en",
+    "pwdv-residence-vs-ownership-en",
+    "succession-class1-en",
+    "pwdv-monetary-hinglish",
+    "maintenance-arrears-escalation-hi",
+    "custody-welfare-kn",
+    "adoption-unmarried-hinglish",
+    "oos-landlord-deposit-en",
+    "special-marriage-notice-en"
+  ],
+  "n": 15,
+  "deterministic_passed": 8,
+  "deterministic_pass_rate": 0.5333,
+  "judge_scored": 4,
+  "judge_mean_scores": {
+    "faithfulness": 4.0,
+    "citation_correctness": 3.75,
+    "clarity": 4.75,
+    "language_match": 5.0,
+    "refusal_correctness": 5.0
+  },
+  "run_agent_calls": 15,
+  "run_agent_call_cap": 15,
+  "judge_calls": 15,
+  "judge_call_cap": 15,
+  "judge_axes": [
+    "faithfulness",
+    "citation_correctness",
+    "clarity",
+    "language_match",
+    "refusal_correctness"
+  ],
+  "rate_limit_hits": 0,
+  "waited_secs": 0.0,
+  "retriever_error": "",
+  "results": [
+    {
+      "id": "maintenance-arrears-en",
+      "lang": "en",
+      "query": "my husband has not given maintenance for 4 months what can i do",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'petition'",
+        "missing term 'family court'",
+        "none of ['18', '19', '24', '125'] cited"
+      ],
+      "judge_scores": {
+        "faithfulness": {
+          "score": 2,
+          "reason": "The answer adds statutes (Bharatiya Nagarik Suraksha Sanhita) and details not directly supported by the cited passages."
+        },
+        "citation_correctness": {
+          "score": 2,
+          "reason": "Citations are provided but many do not directly back the specific claims made in the answer."
+        },
+        "clarity": {
+          "score": 4,
+          "reason": "The steps are explained in plain language and are easy for a non‑lawyer to follow."
+        },
+        "language_match": {
+          "score": 5,
+          "reason": "The question is in English and the answer is also in English."
+        },
+        "refusal_correctness": {
+          "score": 5,
+          "reason": "The question is within family‑law scope and the answer provides guidance rather than refusing."
+        }
+      },
+      "judge_provider": "groq:openai/gpt-oss-120b",
+      "judge_latency_ms": 1226,
+      "judge_error": "",
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 10428,
+      "citation_count": 3,
+      "verified": true,
+      "confidence": 0.8958916,
+      "answer_chars": 1624,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "dv-first-report-en",
+      "lang": "en",
+      "query": "my husband hits me. i am scared to tell anyone. what are my options",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": {
+        "faithfulness": {
+          "score": 5,
+          "reason": "All legal claims (protection, residence, monetary relief) are directly supported by the cited PWDV Act sections without adding unsupported conditions."
+        },
+        "citation_correctness": {
+          "score": 5,
+          "reason": "Each citation points to the correct section of the PWDV Act that supports the corresponding claim."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "The answer is written in plain language, explains steps clearly, and avoids unexplained jargon."
+        },
+        "language_match": {
+          "score": 5,
+          "reason": "Both question and answer are in English, matching the language requirement."
+        },
+        "refusal_correctness": {
+          "score": 5,
+          "reason": "The question is within scope and the answer provides appropriate legal guidance instead of refusing."
+        }
+      },
+      "judge_provider": "groq:openai/gpt-oss-20b",
+      "judge_latency_ms": 849,
+      "judge_error": "",
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 9398,
+      "citation_count": 3,
+      "verified": true,
+      "confidence": 0.9157269,
+      "answer_chars": 1611,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-arrears-hi",
+      "lang": "hi",
+      "query": "मेरे पति ने 4 महीने से महनाना नहीं दी क्या करूं",
+      "deterministic_pass": false,
+      "problems": [
+        "none of ['मेहनाना', 'महनाना', 'भरण-पोषण', 'याचिका', 'आवेदन', 'अर्जी'] present"
+      ],
+      "judge_scores": {
+        "faithfulness": {
+          "score": 4,
+          "reason": "The legal advice is generally accurate and supported by the cited sections, but the answer incorrectly attributes the right to maintenance to Section 19 (widowed daughter-in-law) instead of Section 18 (wife), which is the primary basis for the claim."
+        },
+        "citation_correctness": {
+          "score": 3,
+          "reason": "While the Act is correct, the specific citation of Section 19 is inappropriate for a wife's maintenance claim against a living husband, as Section 18 is the governing provision; Section 23 is correctly cited for the amount."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "The answer is structured clearly with bullet points, plain language, and actionable steps, making it easy for a non-lawyer to understand."
+        },
+        "language_match": {
+          "score": 5,
+          "reason": "The answer is written entirely in Hindi using Devanagari script, matching the language and script of the question."
+        },
+        "refusal_correctness": {
+          "score": 5,
+          "reason": "The question is within the scope of family law, and the answer provides relevant legal information without refusing or redirecting."
+        }
+      },
+      "judge_provider": "groq:qwen/qwen3.8-27b",
+      "judge_latency_ms": 1300,
+      "judge_error": "",
+      "provider": "groq:openai/gpt-oss-20b",
+      "latency_ms": 12678,
+      "citation_count": 3,
+      "verified": true,
+      "confidence": 0.9105922,
+      "answer_chars": 1088,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-kn",
+      "lang": "kn",
+      "query": "ಪತಿ ಭರವಸೂ ಕೊಡುತ್ತಿಲ್ಲ ಏನು ಮಾಡಬೇಕು",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'ಭರವಸೂ'",
+        "missing term 'ನ್ಯಾಯಾಲಯ'"
+      ],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 58s; openrouter in cooldown for 59s; opencode in cooldown for 60s) :: None",
+      "provider": "groq:openai/gpt-oss-20b",
+      "latency_ms": 22506,
+      "citation_count": 3,
+      "verified": true,
+      "confidence": 0.88998866,
+      "answer_chars": 1599,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "oos-rti-en",
+      "lang": "en",
+      "query": "i got an RTI notice from the police, what do i do",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 56s; openrouter in cooldown for 58s; opencode in cooldown for 58s) :: None",
+      "provider": "",
+      "latency_ms": 512,
+      "citation_count": 0,
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 171,
+      "oos_redirect": true,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "clarify-personal-law-en",
+      "lang": "en",
+      "query": "How do I get a divorce?",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 55s; openrouter in cooldown for 56s; opencode in cooldown for 57s) :: None",
+      "provider": "",
+      "latency_ms": 524,
+      "citation_count": 0,
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 183,
+      "oos_redirect": false,
+      "clarification": true,
+      "error": ""
+    },
+    {
+      "id": "interim-maintenance-en",
+      "lang": "en",
+      "query": "I filed for divorce, can I get maintenance while the case is going on",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'interim'"
+      ],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 47s; openrouter in cooldown for 49s; opencode in cooldown for 49s) :: None",
+      "provider": "",
+      "latency_ms": 6481,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9242528,
+      "answer_chars": 2087,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "pwdv-residence-vs-ownership-en",
+      "lang": "en",
+      "query": "i live in my father in law's house, can i get a right to stay there",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'residence'",
+        "missing term 'shared household'",
+        "none of ['17', '19', '20'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 46s; openrouter in cooldown for 47s; opencode in cooldown for 48s) :: None",
+      "provider": "",
+      "latency_ms": 498,
+      "citation_count": 0,
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 171,
+      "oos_redirect": true,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "succession-class1-en",
+      "lang": "en",
+      "query": "if a hindu man dies without a will, who gets his property, daughters or son only",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 39s; openrouter in cooldown for 40s; opencode in cooldown for 41s) :: None",
+      "provider": "",
+      "latency_ms": 6124,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.91671735,
+      "answer_chars": 1845,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "pwdv-monetary-hinglish",
+      "lang": "hinglish",
+      "query": "kya magistrate se rent and food ke paise mil sakte hain domestic violence mein",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 31s; openrouter in cooldown for 32s; opencode in cooldown for 33s) :: None",
+      "provider": "",
+      "latency_ms": 6893,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9031605,
+      "answer_chars": 2039,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "maintenance-arrears-escalation-hi",
+      "lang": "hi",
+      "query": "कोर्ट का भरण-पोषण का आदेश है, 3 महीने से नहीं मिल रहा, निष्पादन कैसे कराऊँ",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 23s; openrouter in cooldown for 24s; opencode in cooldown for 25s) :: None",
+      "provider": "",
+      "latency_ms": 7047,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9019409,
+      "answer_chars": 2093,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "custody-welfare-kn",
+      "lang": "kn",
+      "query": "ಮಗುವಿನ ಅಭಿರಕ್ಷೆ ಯಾರಿಗೆ ಸಿಗುತ್ತೆ, ಕೋರ್ಟ್ ಏನು ನೋಡುತ್ತೆ",
+      "deterministic_pass": false,
+      "problems": [
+        "missing term 'ಅಭಿರಕ್ಷೆ'"
+      ],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 14s; openrouter in cooldown for 15s; opencode in cooldown for 16s) :: None",
+      "provider": "",
+      "latency_ms": 8090,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9166428,
+      "answer_chars": 2037,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "adoption-unmarried-hinglish",
+      "lang": "hinglish",
+      "query": "agar main unmarried hoon toh kya main adopt kar sakti hoon hindu law mein",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 6s; openrouter in cooldown for 8s; opencode in cooldown for 8s) :: None",
+      "provider": "",
+      "latency_ms": 6524,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9044376,
+      "answer_chars": 1374,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    },
+    {
+      "id": "oos-landlord-deposit-en",
+      "lang": "en",
+      "query": "my landlord kept my deposit, can i file for divorce to pressure him",
+      "deterministic_pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "judge_scores": null,
+      "judge_provider": "",
+      "judge_latency_ms": 0,
+      "judge_error": "RuntimeError: no LLM backend (groq in cooldown for 5s; openrouter in cooldown for 6s; opencode in cooldown for 7s) :: None",
+      "provider": "",
+      "latency_ms": 532,
+      "citation_count": 0,
+      "verified": false,
+      "confidence": 0.0,
+      "answer_chars": 183,
+      "oos_redirect": false,
+      "clarification": true,
+      "error": ""
+    },
+    {
+      "id": "special-marriage-notice-en",
+      "lang": "en",
+      "query": "we are hindu and muslim, how long is the notice period for special marriage",
+      "deterministic_pass": true,
+      "problems": [],
+      "judge_scores": {
+        "faithfulness": {
+          "score": 5,
+          "reason": "All statements about the 30‑day notice and three‑month solemnisation period are directly supported by the cited Special Marriage Act sections."
+        },
+        "citation_correctness": {
+          "score": 5,
+          "reason": "The citations point to the relevant sections (ss.5 and 14) that govern the notice and time limits."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "The answer explains the timeline in simple steps and tells the user what to do next."
+        },
+        "language_match": {
+          "score": 5,
+          "reason": "The question and answer are both in English, matching the language used."
+        },
+        "refusal_correctness": {
+          "score": 5,
+          "reason": "The question is within family‑law scope and the answer provides the required information rather than refusing."
+        }
+      },
+      "judge_provider": "groq:openai/gpt-oss-120b",
+      "judge_latency_ms": 1042,
+      "judge_error": "",
+      "provider": "groq:openai/gpt-oss-120b",
+      "latency_ms": 10047,
+      "citation_count": 5,
+      "verified": true,
+      "confidence": 0.9286957,
+      "answer_chars": 1455,
+      "oos_redirect": false,
+      "clarification": false,
+      "error": ""
+    }
+  ]
+}

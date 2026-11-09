@@ -1,0 +1,2016 @@
+{
+  "offline": true,
+  "live_judge_available": false,
+  "judge_note": "no judge key in env; live LLM-as-judge skipped, deterministic offline grading only",
+  "skip_note": "LIVE GENERATION EVAL NEEDS KEYS AND WILL RUN WHEN KEYS PRESENT. no judge key in env; live LLM-as-judge skipped, deterministic offline grading only",
+  "live_checks_deferred": {
+    "axes": [
+      "faithfulness",
+      "citation_correctness",
+      "clarity",
+      "language_match",
+      "refusal_correctness"
+    ],
+    "reason": "faithfulness / citation correctness / clarity need a live judge with keys; deterministic checks above run offline"
+  },
+  "n_expanded": 39,
+  "stub": {
+    "n": 39,
+    "passed": 1,
+    "by_check": {
+      "must_include_any": {
+        "passed": 7,
+        "total": 36
+      },
+      "must_include_terms": {
+        "passed": 2,
+        "total": 35
+      },
+      "must_include_any_terms": {
+        "passed": 0,
+        "total": 2
+      },
+      "must_not": {
+        "passed": 32,
+        "total": 32
+      },
+      "language_script": {
+        "passed": 11,
+        "total": 11
+      },
+      "must_redirect": {
+        "passed": 0,
+        "total": 3
+      },
+      "confidence": {
+        "passed": 21,
+        "total": 36
+      },
+      "verified": {
+        "passed": 21,
+        "total": 36
+      },
+      "must_note_special_act": {
+        "passed": 0,
+        "total": 1
+      }
+    }
+  },
+  "empty": {
+    "n": 39,
+    "passed": 0,
+    "by_check": {
+      "must_include_any": {
+        "passed": 0,
+        "total": 36
+      },
+      "must_include_terms": {
+        "passed": 0,
+        "total": 35
+      },
+      "must_include_any_terms": {
+        "passed": 0,
+        "total": 2
+      },
+      "must_not": {
+        "passed": 32,
+        "total": 32
+      },
+      "language_script": {
+        "passed": 3,
+        "total": 11
+      },
+      "must_redirect": {
+        "passed": 0,
+        "total": 3
+      },
+      "confidence": {
+        "passed": 0,
+        "total": 36
+      },
+      "verified": {
+        "passed": 0,
+        "total": 36
+      },
+      "must_note_special_act": {
+        "passed": 0,
+        "total": 1
+      }
+    }
+  },
+  "must_ask_any_probe": {
+    "id": "clarify-personal-law-en",
+    "expected": {
+      "clarified": true,
+      "answered": false,
+      "empty": false
+    },
+    "observed": {
+      "clarified": {
+        "pass": true,
+        "problems": [],
+        "breakdown": {
+          "must_ask_any": true
+        }
+      },
+      "answered": {
+        "pass": false,
+        "problems": [
+          "should have asked the user, but answered instead"
+        ],
+        "breakdown": {
+          "must_ask_any": false
+        }
+      },
+      "empty": {
+        "pass": false,
+        "problems": [
+          "should have asked the user, but answered instead"
+        ],
+        "breakdown": {
+          "must_ask_any": false
+        }
+      }
+    },
+    "correct": true
+  },
+  "rows": [
+    {
+      "id": "maintenance-arrears-escalation-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'maintenance'",
+        "missing term 'execution'",
+        "missing term 'recovery'",
+        "none of ['execution', 'recovery', 'petition'] present",
+        "none of ['18', '19', '25', '28'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "maintenance-arrears-escalation-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'maintenance'",
+        "missing term 'execution'",
+        "missing term 'recovery'",
+        "none of ['execution', 'recovery', 'petition'] present",
+        "none of ['18', '19', '25', '28'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "interim-maintenance-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'interim'",
+        "none of ['24', '25', '20'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "interim-maintenance-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'interim'",
+        "missing term 'maintenance'",
+        "none of ['24', '25', '20'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "past-maintenance-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'past'",
+        "missing term 'arrears'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "past-maintenance-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'past'",
+        "missing term 'arrears'",
+        "missing term 'maintenance'",
+        "none of ['19', '25', '18'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "alimony-vs-maintenance-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'alimony'",
+        "none of ['24', '25'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "alimony-vs-maintenance-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'maintenance'",
+        "missing term 'alimony'",
+        "none of ['24', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "hama-18-19-25-nuance-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": true,
+      "problems": [],
+      "breakdown": {
+        "must_include_terms": true,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "hama-18-19-25-nuance-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'maintenance'",
+        "missing term 'Hindu Adoption'",
+        "none of ['18', '19', '20', '21', '22', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "stridhan-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'stridhan'",
+        "missing term 'Hindu Succession'",
+        "none of ['3', '13', '14'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 171,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": true,
+      "answer_preview": "I'm a family-law assistant, so I can only help with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please ask a family-law question."
+    },
+    {
+      "id": "stridhan-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'stridhan'",
+        "missing term 'Hindu Succession'",
+        "none of ['3', '13', '14'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "dowry-harassment-cruelty-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'cruelty'",
+        "missing term 'dowry'",
+        "none of ['13', '498', '3'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "dowry-harassment-cruelty-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'cruelty'",
+        "missing term 'dowry'",
+        "none of ['13', '498', '3'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "dowry-prohibition-civil-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Dowry Prohibition'",
+        "missing term 'civil'",
+        "none of ['3', '4', '13'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "dowry-prohibition-civil-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Dowry Prohibition'",
+        "missing term 'civil'",
+        "none of ['3', '4', '13'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "anti-dowry-vs-cruelty-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'dowry'",
+        "missing term 'cruelty'",
+        "missing term '498A'",
+        "none of ['498', '13'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "anti-dowry-vs-cruelty-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'dowry'",
+        "missing term 'cruelty'",
+        "missing term '498A'",
+        "none of ['498', '13'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "pwdv-residence-vs-ownership-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'residence'",
+        "missing term 'shared household'",
+        "none of ['17', '19', '20'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 171,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": true,
+      "answer_preview": "I'm a family-law assistant, so I can only help with marriage, divorce, custody, maintenance, adoption, succession, and domestic violence. Please ask a family-law question."
+    },
+    {
+      "id": "pwdv-residence-vs-ownership-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'residence'",
+        "missing term 'shared household'",
+        "none of ['17', '19', '20'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "pwdv-monetary-relief-interim-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'monetary relief'",
+        "missing term 'magistrate'",
+        "none of ['20', '21', '22'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "pwdv-monetary-relief-interim-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'monetary relief'",
+        "missing term 'magistrate'",
+        "none of ['20', '21', '22'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "custody-welfare-checklist-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'factors'",
+        "none of ['17', '21', '22'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "custody-welfare-checklist-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'welfare'",
+        "missing term 'factors'",
+        "none of ['17', '21', '22'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "custody-grandparents-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "none of ['7', '17', '21'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": true,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "custody-grandparents-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'welfare'",
+        "missing term 'guardian'",
+        "none of ['7', '17', '21'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "legitimacy-remarriage-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'legitimacy'",
+        "missing term 'Section 16'",
+        "none of ['16', '7'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "legitimacy-remarriage-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'legitimacy'",
+        "missing term 'Section 16'",
+        "none of ['16', '7'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "restitution-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'restitution'",
+        "missing term 'conjugal'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "restitution-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'restitution'",
+        "missing term 'conjugal'",
+        "none of ['9'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "succession-class1-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Class I'",
+        "missing term 'intestate'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "succession-class1-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Class I'",
+        "missing term 'intestate'",
+        "none of ['8', '15', '17'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "will-vs-intestate-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'will'",
+        "missing term 'testamentary'",
+        "missing term 'intestate'",
+        "none of ['30', '8', '15'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 183,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "To guide you correctly — Which religion or marriage type applies to your marriage — Hindu, Christian, Muslim, Parsi, or a court or inter-faith marriage under the Special Marriage Act?"
+    },
+    {
+      "id": "will-vs-intestate-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'will'",
+        "missing term 'testamentary'",
+        "missing term 'intestate'",
+        "none of ['30', '8', '15'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "adoption-unmarried-woman-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'conditions'",
+        "none of ['11', '3', '4'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "adoption-unmarried-woman-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'adoption'",
+        "missing term 'conditions'",
+        "none of ['11', '3', '4'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "special-marriage-notice-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Special Marriage Act'",
+        "missing term 'notice'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "special-marriage-notice-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Special Marriage Act'",
+        "missing term 'notice'",
+        "none of ['5', '6', '7', '8'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "triple-talaq-ban-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Muslim Women (Protection of Rights on Marriage) Act, 2019'",
+        "none of ['3', '4'] cited",
+        "did not name the 2019 Act for triple talaq"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "must_note_special_act": false,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 540,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "triple-talaq-ban-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Muslim Women (Protection of Rights on Marriage) Act, 2019'",
+        "none of ['3', '4'] cited",
+        "did not name the 2019 Act for triple talaq",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "must_note_special_act": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "divorce-christian-grounds-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Divorce Act'",
+        "missing term 'grounds'",
+        "none of ['10'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 540,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "divorce-christian-grounds-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Divorce Act'",
+        "missing term 'grounds'",
+        "none of ['10'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "divorce-parsi-grounds-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Parsi Marriage and Divorce Act'",
+        "missing term 'separation'",
+        "none of ['32', '33'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 540,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "divorce-parsi-grounds-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Parsi Marriage and Divorce Act'",
+        "missing term 'separation'",
+        "none of ['32', '33'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "interfaith-marriage-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'Special Marriage Act'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "interfaith-marriage-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Special Marriage Act'",
+        "none of ['4', '5'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "oos-rti-notice-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope",
+        "answered out-of-scope question, mentioned 'family court'"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "oos-rti-notice-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "oos-landlord-deposit-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 183,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "To guide you correctly — Which religion or marriage type applies to your marriage — Hindu, Christian, Muslim, Parsi, or a court or inter-faith marriage under the Special Marriage Act?"
+    },
+    {
+      "id": "oos-landlord-deposit-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "oos-motor-challan-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Guardians and Wards Act, 1890 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "oos-motor-challan-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "should have redirected out of scope"
+      ],
+      "breakdown": {
+        "must_redirect": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "maintenance-arrears-escalation-hi",
+      "lang": "hi",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "none of ['भरण-पोषण', 'मेहनाना', 'महनाना', 'निष्पादन', 'वसूली', 'अर्जी', 'याचिका'] present",
+        "none of ['18', '19', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_any_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "maintenance-arrears-escalation-hi",
+      "lang": "hi",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "none of ['भरण-पोषण', 'मेहनाना', 'महनाना', 'निष्पादन', 'वसूली', 'अर्जी', 'याचिका'] present",
+        "none of ['18', '19', '25'] cited",
+        "answered in the wrong script for lang=hi",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_any_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "custody-welfare-hi",
+      "lang": "hi",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'अभिरक्षा'",
+        "missing term 'कल्याण'",
+        "none of ['17', '21'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "custody-welfare-hi",
+      "lang": "hi",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'अभिरक्षा'",
+        "missing term 'कल्याण'",
+        "none of ['17', '21'] cited",
+        "answered in the wrong script for lang=hi",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "dowry-harassment-hi",
+      "lang": "hi",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'क्रूरता'",
+        "missing term 'दहेज'",
+        "none of ['13'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "dowry-harassment-hi",
+      "lang": "hi",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'क्रूरता'",
+        "missing term 'दहेज'",
+        "none of ['13'] cited",
+        "answered in the wrong script for lang=hi",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "stridhan-hi",
+      "lang": "hi",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'स्त्रीधन'",
+        "none of ['3', '14'] cited",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "stridhan-hi",
+      "lang": "hi",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'स्त्रीधन'",
+        "none of ['3', '14'] cited",
+        "answered in the wrong script for lang=hi",
+        "confidence 0.00 below floor 0.70",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "interim-maintenance-kn",
+      "lang": "kn",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'ಭರವಸೂ'",
+        "missing term 'ಮಧ್ಯಂತರ'",
+        "none of ['24', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 196,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "ನಿಮ್ಮ ಸಮೀಪದ ಕೌಟುಂಬಿಕ ವಕೀಲರು, ಉಚಿತ ಕಾನೂನು ನೆರವು (DLSA) ಅಥವಾ ಕೌಟುಂಬಿಕ ನ್ಯಾಯಾಲಯವನ್ನು ಹುಡುಕಲು, ನೀವು ಭಾರತದ ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿದ್ದೀರಿ ಎಂದು ತಿಳಿಸಬಹುದೇ? (ಉದಾಹರಣೆಗೆ: ಬೆಂಗಳೂರು, ಮೈಸೂರು, ಮಂಗಳೂರು ಇತ್ಯಾದಿ)"
+    },
+    {
+      "id": "interim-maintenance-kn",
+      "lang": "kn",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'ಭರವಸೂ'",
+        "missing term 'ಮಧ್ಯಂತರ'",
+        "none of ['24', '25'] cited",
+        "answered in the wrong script for lang=kn",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "pwdv-residence-kn",
+      "lang": "kn",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'ವಾಸ'",
+        "missing term 'ಹಂಚಿದ ಮನೆ'",
+        "none of ['17', '19'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 196,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "ನಿಮ್ಮ ಸಮೀಪದ ಕೌಟುಂಬಿಕ ವಕೀಲರು, ಉಚಿತ ಕಾನೂನು ನೆರವು (DLSA) ಅಥವಾ ಕೌಟುಂಬಿಕ ನ್ಯಾಯಾಲಯವನ್ನು ಹುಡುಕಲು, ನೀವು ಭಾರತದ ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿದ್ದೀರಿ ಎಂದು ತಿಳಿಸಬಹುದೇ? (ಉದಾಹರಣೆಗೆ: ಬೆಂಗಳೂರು, ಮೈಸೂರು, ಮಂಗಳೂರು ಇತ್ಯಾದಿ)"
+    },
+    {
+      "id": "pwdv-residence-kn",
+      "lang": "kn",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'ವಾಸ'",
+        "missing term 'ಹಂಚಿದ ಮನೆ'",
+        "none of ['17', '19'] cited",
+        "answered in the wrong script for lang=kn",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "custody-welfare-kn",
+      "lang": "kn",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'ಅಭಿರಕ್ಷೆ'",
+        "missing term 'ಕಲ್ಯಾಣ'",
+        "none of ['17', '21'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 196,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "ನಿಮ್ಮ ಸಮೀಪದ ಕೌಟುಂಬಿಕ ವಕೀಲರು, ಉಚಿತ ಕಾನೂನು ನೆರವು (DLSA) ಅಥವಾ ಕೌಟುಂಬಿಕ ನ್ಯಾಯಾಲಯವನ್ನು ಹುಡುಕಲು, ನೀವು ಭಾರತದ ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿದ್ದೀರಿ ಎಂದು ತಿಳಿಸಬಹುದೇ? (ಉದಾಹರಣೆಗೆ: ಬೆಂಗಳೂರು, ಮೈಸೂರು, ಮಂಗಳೂರು ಇತ್ಯಾದಿ)"
+    },
+    {
+      "id": "custody-welfare-kn",
+      "lang": "kn",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'ಅಭಿರಕ್ಷೆ'",
+        "missing term 'ಕಲ್ಯಾಣ'",
+        "none of ['17', '21'] cited",
+        "answered in the wrong script for lang=kn",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "succession-daughters-kn",
+      "lang": "kn",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'ವರ್ಗ I'",
+        "missing term 'ಪಾಲು'",
+        "none of ['8', '15'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 196,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "ನಿಮ್ಮ ಸಮೀಪದ ಕೌಟುಂಬಿಕ ವಕೀಲರು, ಉಚಿತ ಕಾನೂನು ನೆರವು (DLSA) ಅಥವಾ ಕೌಟುಂಬಿಕ ನ್ಯಾಯಾಲಯವನ್ನು ಹುಡುಕಲು, ನೀವು ಭಾರತದ ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿದ್ದೀರಿ ಎಂದು ತಿಳಿಸಬಹುದೇ? (ಉದಾಹರಣೆಗೆ: ಬೆಂಗಳೂರು, ಮೈಸೂರು, ಮಂಗಳೂರು ಇತ್ಯಾದಿ)"
+    },
+    {
+      "id": "succession-daughters-kn",
+      "lang": "kn",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'ವರ್ಗ I'",
+        "missing term 'ಪಾಲು'",
+        "none of ['8', '15'] cited",
+        "answered in the wrong script for lang=kn",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": false,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "pwdv-monetary-hinglish",
+      "lang": "hinglish",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'monetary relief'",
+        "missing term 'magistrate'",
+        "none of ['20', '21'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "pwdv-monetary-hinglish",
+      "lang": "hinglish",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'monetary relief'",
+        "missing term 'magistrate'",
+        "none of ['20', '21'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "adoption-unmarried-hinglish",
+      "lang": "hinglish",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'adoption'",
+        "none of ['11', '3'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "adoption-unmarried-hinglish",
+      "lang": "hinglish",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'adoption'",
+        "none of ['11', '3'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "maintenance-past-hinglish",
+      "lang": "hinglish",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'arrears'",
+        "missing term 'maintenance'",
+        "none of ['19', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 190,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false,
+      "answer_preview": "आपके नज़दीक पारिवारिक वकील, मुफ़्त कानूनी सहायता (DLSA), या फ़ैमिली कोर्ट खोजने के लिए, क्या आप बता सकते हैं कि आप भारत के किस शहर या ज़िले में हैं? (जैसे: दिल्ली, बेंगलुरु, मुंबई, लखनऊ आदि)"
+    },
+    {
+      "id": "maintenance-past-hinglish",
+      "lang": "hinglish",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'arrears'",
+        "missing term 'maintenance'",
+        "none of ['19', '25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "language_script": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "special-marriage-objection-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'objection'"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": true,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 646,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "special-marriage-objection-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'Special Marriage Act'",
+        "missing term 'objection'",
+        "none of ['7', '8'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    },
+    {
+      "id": "hama-25-variation-en",
+      "lang": "en",
+      "mode": "stub",
+      "pass": false,
+      "problems": [
+        "missing term 'modification'",
+        "none of ['25'] cited"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": true,
+        "verified": true
+      },
+      "answer_chars": 459,
+      "citations": [
+        "Hindu Adoption and Maintenance Act, 1956 — Section 18: Maintenance of wife"
+      ],
+      "verified": true,
+      "oos_redirect": false,
+      "answer_preview": "Here is a plain-language explanation. A petition may be filed in the family court for a reasonable amount based on income and needs, and the welfare of the minor is the first consideration [1].\n\n### What to do next\n\nGather the relevant documents — your marriage certificate, any c"
+    },
+    {
+      "id": "hama-25-variation-en",
+      "lang": "en",
+      "mode": "empty",
+      "pass": false,
+      "problems": [
+        "missing term 'modification'",
+        "missing term 'maintenance'",
+        "none of ['25'] cited",
+        "confidence 0.00 below floor 0.60",
+        "answer was not verified"
+      ],
+      "breakdown": {
+        "must_include_terms": false,
+        "must_include_any": false,
+        "must_not": true,
+        "confidence": false,
+        "verified": false
+      },
+      "answer_chars": 0,
+      "citations": [],
+      "verified": false,
+      "oos_redirect": false
+    }
+  ]
+}
